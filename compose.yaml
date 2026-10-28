@@ -1,0 +1,15 @@
+# docker compose up -d --build   →   http://<server>:8080
+services:
+  osiedle:
+    build: .
+    image: osiedle:latest
+    ports:
+      - "8080:8080"
+    # optional: OPENROUTER_API_KEY (AI dialogues), OPENROUTER_MODELS, OPENROUTER_DAILY_LIMIT, NEWS_FEEDS
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

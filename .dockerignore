@@ -1,0 +1,13 @@
+# never send secrets or local artefacts to the build context
+.env
+.env.*
+!.env.example
+node_modules
+dist
+dist-new
+dist-server
+test-results
+playwright-report
+.git
+.DS_Store
+*.log

@@ -27,6 +27,24 @@ T = statystyki (sieć relacji, nastroje), Z = zapis/wczytanie, N = nowy świat, 
 (`:free`); listę można zmienić w `OPENROUTER_MODELS`. Klucz zostaje na serwerze Vite. Bez klucza
 dialogi są proceduralne.
 
+## Docker / serwer
+
+Obraz wieloetapowy (`Dockerfile`): etap `build` instaluje zależności, sprawdza typy i buduje aplikację
+oraz serwer produkcyjny (`server/prod.ts` → jeden plik `dist-server/prod.js`), opcjonalny etap `test`
+uruchamia testy, a etap `runtime` to lekki Node Alpine z samym buildem (bez `node_modules`, źródeł
+i sekretów), działający jako użytkownik `node`, z healthcheckiem `/healthz`.
+
+```bash
+docker build -t osiedle .                       # obraz produkcyjny
+docker build --target test .                    # build + testy jednostkowe
+docker run -d -p 8080:8080 --env-file .env osiedle   # albo: docker compose up -d --build
+```
+
+Konfiguracja wyłącznie przez zmienne środowiskowe przy uruchomieniu: `PORT` (8080), `OPENROUTER_API_KEY`
+(dialogi AI, opcjonalnie), `OPENROUTER_MODELS`, `OPENROUTER_DAILY_LIMIT`, `NEWS_FEEDS` (`off` wyłącza
+prawdziwe nagłówki). Klucz nigdy nie trafia do obrazu (`.env` jest w `.dockerignore`). Za reverse proxy
+(nginx, Traefik) działa bez zmian — proxy AI akceptuje `X-Forwarded-Host`.
+
 **Analiza zachowań:** `node scripts/observe.mjs "http://localhost:5173/?seed=42" 15 test-results/observe` (15 min w Chromium) i `node scripts/analyze-trace.mjs test-results/observe/trace.txt`.
 
 **Testy:** `npm test` (logika + 7-dniowy soak), `npm run test:e2e` (Playwright, zrzuty w `test-results/shots/`).

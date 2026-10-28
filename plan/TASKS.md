@@ -115,6 +115,12 @@ Przygotowanie [x]: rejestr domów `src/world/maps/index.ts` (`MAPS`, `getMap`, `
 - Wynik: Kamienica (8 łóżek), Domek nad jeziorem (4), Akademik (8) w `src/world/maps/`; okno z podglądami domów; `tests/maps.test.ts` (36 przebiegów OK)
 - Orkiestrator: naprawiona pętla bez końca w `drawFloor` (zamrażała stronę), szybsze rysowanie jezior (maska ≤24 px/kafel + LUT)
 
+## Wdrożenie: obraz Docker (orkiestrator) — [x]
+- [x] Rdzenie proxy bez Vite (`server/llm.ts`, `server/news.ts`), pluginy Vite to cienkie otoczki
+- [x] Serwer produkcyjny `server/prod.ts` (statyczne pliki + `/api/*` + `/healthz`, SPA fallback, ochrona przed path traversal, cache dla `assets/`) → `vite.server.config.ts` → `dist-server/prod.js`
+- [x] `Dockerfile` multi-stage (build → test → runtime, node:24-alpine, user `node`, healthcheck), `.dockerignore`, `compose.yaml`
+- Weryfikacja: obraz 170 MB, 27/27 e2e Playwright na kontenerze, test stage 247 testów, AI + 30 nagłówków z kluczem z `--env-file`, cross-origin 403
+
 ## Pomysły na kolejne fale (backlog)
 - [ ] Mniej bezcelowych spacerów (wander w `brain.ts`), testy `sim.test.ts` z koordynatami z mapy zamiast na sztywno
 - [ ] Goście z zewnątrz (wymaga rozróżnienia mieszkaniec/gość w kontraktach)
