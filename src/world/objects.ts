@@ -169,6 +169,54 @@ export const OBJECT_DEFS: Record<string, ObjectDef> = Object.fromEntries(
   Object.entries(defs).map(([id, d]) => [id, { id, ...d }]),
 );
 
+// ------------------------------------------------------------ repairs
+// A broken object keeps its instance but its `type` becomes `repair_<type>`:
+// same footprint and stand tiles, but "using" it means fixing it (see world/incidents.ts).
+
+export const REPAIR_PREFIX = 'repair_';
+
+/** object types that can break down */
+export const BREAKABLE: readonly string[] = [
+  'fridge', 'stove', 'shower', 'bathtub', 'toilet', 'sink', 'tv', 'computer', 'exercise_bike', 'treadmill',
+];
+
+const REPAIR_VERB: Record<string, string> = {
+  fridge: 'Naprawia lodówkę',
+  stove: 'Naprawia kuchenkę',
+  shower: 'Naprawia prysznic',
+  bathtub: 'Przetyka wannę',
+  toilet: 'Przetyka toaletę',
+  sink: 'Uszczelnia umywalkę',
+  tv: 'Naprawia telewizor',
+  computer: 'Naprawia komputer',
+  exercise_bike: 'Naprawia rowerek',
+  treadmill: 'Naprawia bieżnię',
+};
+
+function repairDef(base: ObjectDef): ObjectDef {
+  return {
+    ...base,
+    id: REPAIR_PREFIX + base.id,
+    name: `${base.name} (awaria)`,
+    verb: REPAIR_VERB[base.id] ?? 'Naprawia sprzęt',
+    icon: '🔧',
+    // one repairer, standing at the first usual spot (instances swap reservedBy to match)
+    slots: [{ stand: base.slots[0].stand }],
+    effects: { fun: 0.8, comfort: -0.1, hygiene: -0.1 },
+    duration: [25, 45],
+    social: false,
+    // 'exercise': active residents like this kind of job (brain personality)
+    tags: ['repair', 'exercise'],
+  };
+}
+
+export const REPAIR_DEFS: Record<string, ObjectDef> = Object.fromEntries(
+  BREAKABLE.map((t) => [REPAIR_PREFIX + t, repairDef(OBJECT_DEFS[t])]),
+);
+
+/** catalogue used by a running world: placeable objects plus their "being repaired" variants */
+export const WORLD_OBJECT_DEFS: Record<string, ObjectDef> = { ...OBJECT_DEFS, ...REPAIR_DEFS };
+
 export function slotStandTile(obj: ObjectInstance, def: ObjectDef, i: number): Vec2 {
   const s = def.slots[i].stand;
   return { x: obj.pos.x + s.x, y: obj.pos.y + s.y };

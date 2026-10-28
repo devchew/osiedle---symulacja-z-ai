@@ -4,6 +4,8 @@ import { NEED_KEYS } from '../../src/types';
 import type { Agent, NeedKey, Traits, World } from '../../src/types';
 import { timeFromTick } from '../../src/core/time';
 import { goalHistory, type GoalRecord } from '../../src/agents/goals';
+import { gatheringTotals, type GatheringKind } from '../../src/agents/groups';
+import { REL_TUNING, chemistry, relationStats, statusOf as relationStatus, type RelationStatus } from '../../src/social/relationships';
 
 export interface AgentMetrics {
   id: number;
@@ -51,10 +53,37 @@ export interface RunMetrics {
   maxGoalEventsPerHour: number;
   /** max number of all story events (narration + goals) in any single game hour */
   maxStoriesPerHour: number;
+  /** max number of gathering events ("Wspólny grill: …") in any single game hour */
+  maxGatheringsPerHour: number;
+  /** gatherings logged during the run, per kind */
+  gatherings: Record<GatheringKind, number>;
+  /** pair statuses at the end of the run */
+  statuses: Record<RelationStatus, number>;
+  /** distinct pairs that were a couple / rivals-or-enemies at some point (sampled hourly) */
+  everCouples: number;
+  everRivals: number;
+  /** distinct pairs that had a crush or were a couple at some point */
+  everRomance: number;
+  /** pairs with chemistry ≥ CHEMISTRY_MIN */
+  compatiblePairs: number;
+  /** relationship status events ("… są parą", "… zostają rywalami") */
+  statusEvents: string[];
   eventCounts: Record<string, number>;
   /** fingerprint for determinism checks */
   fingerprint: string;
   world: World;
+}
+
+/** log lines of group activities (agents/groups.ts) */
+export const GATHERING_RE = /^(Wspólny|Wspólne|Wspólna|Wieczór filmowy)/;
+/** evening TV gatherings */
+export const MOVIE_NIGHT_RE = /^Wieczór filmowy/;
+
+function pairsOf(world: World): [number, number][] {
+  const ids = world.agents.map((a) => a.id);
+  const out: [number, number][] = [];
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) out.push([ids[i], ids[j]]);
+  return out;
 }
 
 function activityOf(world: World, agent: Agent): { key: string | null; phase: string } {
@@ -101,6 +130,11 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
   const eventsPerHour = new Map<number, number>();
   const goalsPerHour = new Map<number, number>();
   const storiesPerHour = new Map<number, number>();
+  const gatheringsPerHour = new Map<number, number>();
+  const everCouples = new Set<string>();
+  const everRivals = new Set<string>();
+  const everRomance = new Set<string>();
+  const statusEvents: string[] = [];
   const eventCounts: Record<string, number> = {};
   let lastEventTick = -1;
 
@@ -159,15 +193,32 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
       for (const e of fresh) {
         const k = e.kind === 'info' || e.kind === 'use' ? e.text.replace(/^[^ :↔]+( ↔ [^ :]+)?:? ?/, '').slice(0, 24) : e.kind;
         eventCounts[k] = (eventCounts[k] ?? 0) + 1;
+        if (e.kind === 'relationship' && /parą|rywal|znieść|rozstają|ku sobie|topór/.test(e.text)) statusEvents.push(e.text);
         if (e.kind === 'conversation' || e.kind === 'relationship' || /spać|wstaje/.test(e.text)) continue;
         const h = Math.floor(world.tick / 60);
+        // world incidents (weather, breakdowns, repairs; src/world/incidents.ts) have their own budget
+        if (e.agentIds.length === 0 || /🔧|🧰/.test(e.text)) continue;
+        if (GATHERING_RE.test(e.text)) {
+          gatheringsPerHour.set(h, (gatheringsPerHour.get(h) ?? 0) + 1);
+          continue;
+        }
         storiesPerHour.set(h, (storiesPerHour.get(h) ?? 0) + 1);
         const bucket = e.text.includes('cel dnia') ? goalsPerHour : eventsPerHour;
         bucket.set(h, (bucket.get(h) ?? 0) + 1);
       }
       lastEventTick = world.events[world.events.length - 1].tick;
     }
+    if (world.tick % 60 === 0) {
+      for (const [x, y] of pairsOf(world)) {
+        const st = relationStatus(world, x, y);
+        if (st === 'couple') everCouples.add(`${x}:${y}`);
+        if (st === 'couple' || st === 'crush') everRomance.add(`${x}:${y}`);
+        if (st === 'rivals' || st === 'enemies') everRivals.add(`${x}:${y}`);
+      }
+    }
   }
+  let compatiblePairs = 0;
+  for (const [x, y] of pairsOf(world)) if (chemistry(world, x, y) >= REL_TUNING.CHEMISTRY_MIN) compatiblePairs++;
 
   world.agents.forEach((agent, idx) => {
     ms[idx].conversations = agent.stats.conversations;
@@ -184,6 +235,14 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
     maxEventsPerHour: Math.max(0, ...eventsPerHour.values()),
     maxGoalEventsPerHour: Math.max(0, ...goalsPerHour.values()),
     maxStoriesPerHour: Math.max(0, ...storiesPerHour.values()),
+    maxGatheringsPerHour: Math.max(0, ...gatheringsPerHour.values()),
+    gatherings: gatheringTotals(world),
+    statuses: relationStats(world),
+    everCouples: everCouples.size,
+    everRivals: everRivals.size,
+    everRomance: everRomance.size,
+    compatiblePairs,
+    statusEvents,
     eventCounts,
     fingerprint: JSON.stringify([world.rng.state(), world.agents.map((a) => [a.pos, a.needs, a.stats])]),
     world,
@@ -214,6 +273,9 @@ export function formatMetrics(m: RunMetrics): string {
   const eat = new Array(24).fill(0);
   for (const a of m.agents) a.eatingByHour.forEach((v, h) => (eat[h] += v));
   out.push(`eating by hour: ${eat.map((v, h) => `${h}:${v}`).join(' ')}`);
+  out.push(`gatherings: ${JSON.stringify(m.gatherings)} max/h=${m.maxGatheringsPerHour}`);
+  out.push(`statuses: ${JSON.stringify(Object.fromEntries(Object.entries(m.statuses).filter(([, v]) => v > 0)))} everCouples=${m.everCouples} everRivals=${m.everRivals} everRomance=${m.everRomance} compatible=${m.compatiblePairs}`);
+  out.push(`status events: ${m.statusEvents.join(' | ')}`);
   out.push(`events: ${JSON.stringify(m.eventCounts)}`);
   return out.join('\n');
 }

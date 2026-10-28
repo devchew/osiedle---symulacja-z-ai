@@ -9,6 +9,7 @@ import { drawBubbles, type BubbleItem, type Obstacle } from './bubbles';
 import { Lighting, lightStateAt } from './lighting';
 import { AGENT_SCALE, drawAgent, drawSelection, headTop, type AgentPose, type PoseMode } from './sprites';
 import { buildStaticLayer, staticSignature, type StaticLayer } from './tiles';
+import { WeatherFx, drawIncidentBadges, drawIncidents, weatherDim } from './weather';
 
 export interface Renderer {
   /** draws one frame; alpha in [0, 1] = fraction of the way from the previous tick to the current one */
@@ -45,6 +46,8 @@ function overlapRect(
 
 function poseModeFor(type: string): PoseMode {
   const t = type.toLowerCase();
+  // repairing a broken object: standing at it
+  if (t.startsWith('repair_')) return 'stand';
   if (/shower|prysznic/.test(t)) return 'shower';
   if (/bath|tub|wann/.test(t)) return 'bath';
   if (/bike|rower/.test(t)) return 'pedal';
@@ -76,6 +79,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const cam = new Camera();
   const lighting = new Lighting();
   const ambient = new Ambient();
+  const weather = new WeatherFx();
   let dpr = 1;
   let fitted = false;
   let layer: StaticLayer | null = null;
@@ -139,6 +143,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     layer = buildStaticLayer(world, layer ?? undefined);
     lighting.build(world);
     ambient.build(world);
+    weather.build(world);
     layerSig = sig;
     layerGrid = world.grid;
     cam.setMap(world.grid.width, world.grid.height);
@@ -448,7 +453,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     const s = z * dpr;
     const ox = (cam.viewW / 2 - cam.cx * z) * dpr;
     const oy = (cam.viewH / 2 - cam.cy * z) * dpr;
-    const light = lightStateAt(world.tick, alpha);
+    const sky = weather.update(world, dt);
+    const clear = lightStateAt(world.tick, alpha);
+    // overcast and rain dim the daylight: the lighting then shows lit windows and lamps
+    const light = { hour: clear.hour, daylight: clear.daylight * (1 - weatherDim(sky)) };
 
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.globalAlpha = 1;
@@ -466,20 +474,24 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     c.fill();
     if (layer) c.drawImage(layer.canvas, -0.5, -0.5, g.width, g.height);
     ambient.drawGround(c, now, light.daylight);
+    drawIncidents(c, world, now);
 
     for (const p of poses) {
       if (p.agent.id === selected) drawSelection(c, p, now);
       drawAgent(c, p.agent, p, now);
     }
-    ambient.drawClouds(c, now, light.daylight);
+    ambient.drawClouds(c, now, clear.daylight, sky.kind === 'sunny' ? 1 : sky.kind === 'cloudy' ? 2 : 3);
+    weather.drawWorld(c, now, light.daylight);
 
     lighting.draw(c, light, [s, ox, oy]);
     c.setTransform(s, 0, 0, s, ox, oy);
-    ambient.drawNight(c, now, 1 - light.daylight);
+    ambient.drawNight(c, now, sky.raining ? 0 : 1 - light.daylight);
 
     // ---------------------------------------------- screen-space overlays
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.globalAlpha = 1;
+    weather.drawScreen(c, cam.viewW, cam.viewH);
+    drawIncidentBadges(c, world, (x, y) => cam.toScreen(x, y), z, now);
     const ui = Math.max(0.85, Math.min(1.2, z / 34));
     const convOf = new Map<number, number>();
     for (const cv of world.conversations) for (const id of cv.participants) convOf.set(id, cv.id);

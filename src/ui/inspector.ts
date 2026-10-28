@@ -3,9 +3,13 @@ import { NEED_ICONS, NEED_KEYS, NEED_LABELS } from '../types';
 import type { Action, Agent, NeedKey, Traits, World } from '../types';
 import { relationshipLabel } from '../social/relationships';
 import { goalOf } from '../agents/goals';
-import { el, moodEmoji, setBar, setText } from './dom';
+import { agentMemories, type MemoryView } from '../social/memory';
+import type { RelationOfFn } from './extras';
+import { el, moodEmoji, setBar, setText, storageGet, storageSet } from './dom';
 
 export interface InspectorOptions {
+  /** relationship kind (couple, rivals…), when the simulation provides it */
+  relationOf?: RelationOfFn;
   onClose(): void;
   onFollow?(id: number): void;
 }
@@ -18,6 +22,17 @@ export interface Inspector {
 }
 
 const MAX_RELATIONS = 5;
+const MAX_MEMORIES = 5;
+const MEM_COLLAPSED_KEY = 'sim.insp.memCollapsed';
+
+/** icon for how nice / embarrassing a remembered story is */
+export function valenceIcon(v: number): string {
+  if (v >= 0.5) return '💖';
+  if (v >= 0.15) return '🙂';
+  if (v <= -0.5) return '😬';
+  if (v <= -0.15) return '🙁';
+  return '😐';
+}
 
 /** gender-neutral descriptive words for a personality */
 export function personalityWords(t: Traits): { word: string; hint: string }[] {
@@ -131,6 +146,29 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
   const relList = el('ul', 'insp-rels');
   const relEmpty = el('p', 'insp-empty', ['Jeszcze nikogo nie zna bliżej.']);
 
+  // memories: top few, collapsible (state remembered)
+  const memList = el('ul', 'insp-mems');
+  const memEmpty = el('p', 'insp-empty', ['Na razie bez wspomnień.']);
+  const memCount = el('span', 'insp-sec-count');
+  const memToggle = el('button', 'insp-sec-toggle', [el('span', '', ['Wspomnienia']), memCount, el('span', 'insp-sec-chevron', ['▾'])]);
+  memToggle.type = 'button';
+  const memBody = el('div', 'insp-sec-body', [memList, memEmpty]);
+  memBody.id = 'insp-mem-body';
+  memToggle.setAttribute('aria-controls', memBody.id);
+  const memSection = el('section', 'insp-section insp-memories', [el('h3', '', [memToggle]), memBody]);
+  const setMemCollapsed = (c: boolean): void => {
+    memSection.classList.toggle('is-collapsed', c);
+    memBody.hidden = c;
+    memToggle.setAttribute('aria-expanded', String(!c));
+    memToggle.title = c ? 'Rozwiń wspomnienia' : 'Zwiń wspomnienia';
+  };
+  setMemCollapsed(storageGet(MEM_COLLAPSED_KEY) === '1');
+  memToggle.addEventListener('click', () => {
+    const c = !memSection.classList.contains('is-collapsed');
+    setMemCollapsed(c);
+    storageSet(MEM_COLLAPSED_KEY, c ? '1' : '0');
+  });
+
   const statConv = el('dd');
   const statObj = el('dd');
   const statIdle = el('dd');
@@ -149,12 +187,14 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
     el('div', 'insp-mood', [moodRow.row]),
     section('Potrzeby', needsBox),
     section('Relacje', relList, relEmpty),
+    memSection,
     section('Statystyki', stats),
   );
 
   let current: number | null = null;
   let traitsKey = '';
   let relKey = '';
+  let memKey = '';
   const relRows = new Map<number, BarRow & { label: HTMLElement }>();
 
   const close = () => {
@@ -229,8 +269,36 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
       if (row.fill.style.left !== style) row.fill.style.left = style;
       setBar(row.fill, pct, r.value >= 0 ? 'var(--ui-good)' : 'var(--ui-bad)');
       setText(row.value, `${r.value > 0 ? '+' : ''}${Math.round(r.value)}`);
-      setText(row.label, relationshipLabel(r.value));
+      const kind = opts.relationOf?.(world, a.id, r.other);
+      setText(row.label, kind ? `${kind.icon ? `${kind.icon} ` : ''}${kind.label}` : relationshipLabel(r.value));
+      row.label.title = kind?.detail ?? '';
     }
+  }
+
+  function renderMemories(a: Agent): void {
+    const all = agentMemories(world, a.id);
+    const mems = all.slice(0, MAX_MEMORIES);
+    setText(memCount, all.length ? String(all.length) : '');
+    // strength shown in steps of 10% to keep DOM churn low
+    const key = `${a.id}|${mems.map((m) => `${m.gossip.text}:${m.source}:${Math.round(m.strength * 10)}`).join('|')}`;
+    memEmpty.hidden = mems.length > 0;
+    if (key === memKey) return;
+    memKey = key;
+    memList.replaceChildren(...mems.map((m) => memoryRow(m)));
+  }
+
+  function memoryRow(m: MemoryView): HTMLElement {
+    const icon = el('span', 'mem-icon', [valenceIcon(m.gossip.valence)]);
+    icon.title = m.gossip.valence >= 0.15 ? 'miłe' : m.gossip.valence <= -0.15 ? 'przykre' : 'obojętne';
+    const from = m.source === 'heard' && m.fromId !== undefined ? world.agents.find((x) => x.id === m.fromId) : undefined;
+    const tag = el('span', `mem-tag mem-tag--${m.source}`, [m.source === 'lived' ? 'przeżyte' : from ? `od: ${from.name}` : 'zasłyszane']);
+    tag.title = m.source === 'lived' ? 'Przeżyte lub widziane na własne oczy' : 'Zasłyszane w rozmowie';
+    const strength = el('span', 'mem-strength');
+    strength.style.setProperty('--s', String(Math.max(0, Math.min(1, m.strength))));
+    strength.title = `Siła wspomnienia: ${Math.round(m.strength * 100)}%`;
+    const row = el('li', 'mem-row', [icon, el('span', 'mem-text', [m.gossip.text]), el('span', 'mem-meta', [tag, strength])]);
+    row.style.opacity = String(0.55 + 0.45 * Math.min(1, m.strength));
+    return row;
   }
 
   function update(): void {
@@ -284,6 +352,7 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
     }
 
     renderRelations(a);
+    renderMemories(a);
     setText(statConv, String(a.stats.conversations));
     setText(statObj, String(a.stats.objectsUsed));
     setText(statIdle, formatMinutes(a.stats.ticksIdle));
@@ -298,6 +367,7 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
     }
     traitsKey = '';
     relKey = '';
+    memKey = '';
     root.hidden = false;
     // a freshly shown agent gets its bars instantly; later updates glide
     root.classList.add('no-anim');

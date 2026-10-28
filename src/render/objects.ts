@@ -4,6 +4,7 @@
 
 import type { ObjectDef, ObjectInstance } from '../types';
 import { EMOJI_FONT, circle, ellipse, hash2, rr, shade, withAlpha } from './colors';
+import { baseTypeOf } from '../world/incidents';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -796,6 +797,7 @@ export function drawObject(ctx: Ctx, def: ObjectDef | undefined, inst: ObjectIns
     T,
   };
   ctx.save();
-  drawerFor(inst.type)(ctx, b);
+  // a broken object (type "repair_<type>") still looks like the original
+  drawerFor(baseTypeOf(inst.type))(ctx, b);
   ctx.restore();
 }

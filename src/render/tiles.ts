@@ -4,6 +4,7 @@
 import type { Grid, Room, TileKind, World } from '../types';
 import { UI_FONT, circle, hash2, rr, shade } from './colors';
 import { drawObject, isFlatObject, isTallObject } from './objects';
+import { baseTypeOf } from '../world/incidents';
 
 export interface StaticLayer {
   canvas: HTMLCanvasElement;
@@ -23,7 +24,7 @@ const WALL_FRONT = '#c7b298';
 export function staticSignature(world: World): number {
   let h = world.grid.width * 131 + world.grid.height;
   for (const o of world.objects) {
-    h = (Math.imul(h, 31) + o.uid * 7 + o.pos.x * 131 + o.pos.y * 197 + o.type.length) | 0;
+    h = (Math.imul(h, 31) + o.uid * 7 + o.pos.x * 131 + o.pos.y * 197 + baseTypeOf(o.type).length) | 0;
   }
   return (Math.imul(h, 31) + world.objects.length) | 0;
 }
@@ -504,10 +505,10 @@ export function buildStaticLayer(world: World, prev?: StaticLayer): StaticLayer 
     return a.pos.y + (da?.size.h ?? 1) - (b.pos.y + (db?.size.h ?? 1));
   });
   // tree canopies overhang walls, so they go on top of the wall layer
-  for (const o of objs) if (!isTallObject(o.type)) drawObject(ctx, world.objectDefs[o.type], o, T);
+  for (const o of objs) if (!isTallObject(o.type)) drawObject(ctx, world.objectDefs[baseTypeOf(o.type)], o, T);
 
   drawWallTops(ctx, g);
   drawDoors(ctx, g);
-  for (const o of objs) if (isTallObject(o.type)) drawObject(ctx, world.objectDefs[o.type], o, T);
+  for (const o of objs) if (isTallObject(o.type)) drawObject(ctx, world.objectDefs[baseTypeOf(o.type)], o, T);
   return { canvas, T };
 }

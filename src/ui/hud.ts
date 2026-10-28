@@ -1,27 +1,60 @@
 import './ui.css';
 import { formatClock } from '../core/time';
 import type { DayPhase, SimControls, World } from '../types';
-import { el, moodEmoji, setText } from './dom';
+import { el, isTypingTarget, moodEmoji, setText } from './dom';
+import type { WeatherOfFn } from './extras';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
 
 const PHASE_ICON: Record<DayPhase, string> = { morning: '🌅', day: '☀️', evening: '🌇', night: '🌙' };
 const PHASE_LABEL: Record<DayPhase, string> = { morning: 'Ranek', day: 'Dzień', evening: 'Wieczór', night: 'Noc' };
 
+export interface HudButton {
+  id: string;
+  icon: string;
+  title: string;
+  onClick(): void;
+}
+
+export interface HudOptions {
+  /** extra toggle buttons (stats, save…) placed before the help button */
+  buttons?: HudButton[];
+  /** current weather, when the simulation provides it */
+  weatherOf?: WeatherOfFn;
+}
+
 export interface Hud {
   update(): void;
+  /** highlights an extra button while its panel is open */
+  setActive(id: string, active: boolean): void;
   destroy(): void;
 }
 
+export const HELP_KEYS: [string, string][] = [
+  ['Spacja', 'pauza / wznów'],
+  ['1–4', 'prędkość 1× · 2× · 4× · 8×'],
+  ['T', 'statystyki: relacje, nastrój'],
+  ['Z', 'zapis, wczytanie, link'],
+  ['N', 'nowy świat'],
+  ['przeciągnij', 'przesuń widok'],
+  ['WASD / strzałki', 'przesuń widok'],
+  ['kółko / szczypnięcie', 'przybliż i oddal'],
+  ['klik', 'szczegóły postaci'],
+  ['dwuklik', 'śledź postać kamerą'],
+  ['Esc', 'zamknij panel'],
+];
+
 /** top-centre bar: clock, day, phase, pause and speed controls, help popover; Space = pause, 1–4 = speed, H / ? = help */
-export function createHud(root: HTMLElement, controls: SimControls, world: World): Hud {
+export function createHud(root: HTMLElement, controls: SimControls, world: World, opts: HudOptions = {}): Hud {
   root.classList.add('ui-panel', 'ui-hud');
   root.replaceChildren();
 
   const phaseIcon = el('span', 'hud-phase');
+  const weather = el('span', 'hud-weather');
+  weather.hidden = true;
   const day = el('span', 'hud-day');
   const clock = el('span', 'hud-clock');
-  const timeBox = el('div', 'hud-time', [phaseIcon, el('div', 'hud-time-text', [clock, day])]);
+  const timeBox = el('div', 'hud-time', [phaseIcon, el('div', 'hud-time-text', [clock, day]), weather]);
 
   const pauseBtn = el('button', 'hud-btn hud-pause');
   pauseBtn.type = 'button';
@@ -59,16 +92,7 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
   help.setAttribute('aria-label', 'Sterowanie');
   helpBtn.setAttribute('aria-controls', help.id);
   help.hidden = true;
-  const HELP: [string, string][] = [
-    ['Spacja', 'pauza / wznów'],
-    ['1–4', 'prędkość 1× · 2× · 4× · 8×'],
-    ['przeciągnij', 'przesuń widok'],
-    ['WASD / strzałki', 'przesuń widok'],
-    ['kółko / szczypnięcie', 'przybliż i oddal'],
-    ['klik', 'szczegóły postaci'],
-    ['dwuklik', 'śledź postać kamerą'],
-    ['Esc', 'zamknij panel'],
-  ];
+  const HELP = HELP_KEYS;
   help.append(
     el('h3', 'hud-help-title', ['Sterowanie']),
     el(
@@ -94,7 +118,24 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
   };
   document.addEventListener('pointerdown', onDocDown);
 
-  root.append(timeBox, controlsBox, statsBox, helpBtn, help);
+  const extraBtns = new Map<string, HTMLButtonElement>();
+  const extras = (opts.buttons ?? []).map((b) => {
+    const btn = el('button', `hud-btn hud-icon-btn hud-${b.id}-btn`, [b.icon]);
+    btn.type = 'button';
+    btn.title = b.title;
+    btn.setAttribute('aria-label', b.title);
+    btn.setAttribute('aria-pressed', 'false');
+    btn.dataset.panel = b.id;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      b.onClick();
+    });
+    extraBtns.set(b.id, btn);
+    return btn;
+  });
+  const toolsBox = el('div', 'hud-tools', [...extras, helpBtn]);
+
+  root.append(timeBox, controlsBox, statsBox, toolsBox, help);
 
   let lastKey = '';
   function update(): void {
@@ -103,6 +144,13 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
     phaseIcon.title = PHASE_LABEL[t.phase];
     setText(clock, formatClock(t));
     setText(day, `Dzień ${t.day}`);
+    const w = opts.weatherOf?.(world);
+    weather.hidden = !w;
+    if (w) {
+      setText(weather, w.icon);
+      weather.title = w.label;
+      weather.setAttribute('aria-label', `Pogoda: ${w.label}`);
+    }
 
     const key = `${controls.paused}|${controls.speed}`;
     if (key !== lastKey) {
@@ -130,9 +178,7 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
   }
 
   const onKey = (e: KeyboardEvent): void => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const target = e.target as HTMLElement | null;
-    if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+    if (isTypingTarget(e)) return;
     if (e.key === 'Escape' && helpOpen) {
       setHelp(false);
       return;
@@ -158,6 +204,12 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
   update();
   return {
     update,
+    setActive(id, active) {
+      const b = extraBtns.get(id);
+      if (!b) return;
+      b.classList.toggle('is-active', active);
+      b.setAttribute('aria-pressed', String(active));
+    },
     destroy() {
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', onDocDown);

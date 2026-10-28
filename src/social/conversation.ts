@@ -48,9 +48,22 @@ function topicWeight(t: TopicDef, a: Traits, b: Traits): number {
   return Math.max(0.15, w);
 }
 
-/** new conversation between initiator `a` and partner `b`; the topic is biased by both agents' traits */
-export function startConversation(id: number, a: Agent, b: Agent, tick: number, rng: Rng): Conversation {
-  const weights = TOPIC_DEFS.map((t) => topicWeight(t, a.traits, b.traits));
+/** how a pair's bond colours the conversation (see social/relationships.ts) */
+export type ConversationMood = 'romantic' | 'tense';
+
+/** topic weight multipliers per mood: couples talk plans and memories, rivals argue politics and work */
+export const MOOD_TOPIC_WEIGHTS: Record<ConversationMood, Partial<Record<string, number>>> = {
+  romantic: { 'plany na weekend': 2.5, wspomnienia: 2, podróże: 1.8, muzyka: 1.5, filmy: 1.5, sny: 1.5, polityka: 0.3, praca: 0.5 },
+  tense: { polityka: 2.5, praca: 1.6, sport: 1.6, plotki: 1.3, 'plany na weekend': 0.5, wspomnienia: 0.5 },
+};
+
+/**
+ * new conversation between initiator `a` and partner `b`; the topic is biased by both
+ * agents' traits and, optionally, by their bond (`mood`)
+ */
+export function startConversation(id: number, a: Agent, b: Agent, tick: number, rng: Rng, mood?: ConversationMood): Conversation {
+  const extra = mood ? MOOD_TOPIC_WEIGHTS[mood] : undefined;
+  const weights = TOPIC_DEFS.map((t) => topicWeight(t, a.traits, b.traits) * (extra?.[t.name] ?? 1));
   const topic = TOPIC_DEFS[rng.weightedIndex(weights)].name;
   const chatty = (a.traits.sociability + b.traits.sociability) / 2; // -1..1
   const maxLines = clamp(Math.round(rng.range(4, 7) + chatty * 1.5), 4, 8);

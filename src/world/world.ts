@@ -3,7 +3,7 @@ import { NEED_ICONS } from '../types';
 import { createRng } from '../core/rng';
 import { timeFromTick } from '../core/time';
 import { createDefaultMap } from './map';
-import { OBJECT_DEFS } from './objects';
+import { WORLD_OBJECT_DEFS } from './objects';
 import { pushEvent } from './events';
 import { createAgents } from '../agents/agent';
 import { computeMood, decayNeeds } from '../agents/needs';
@@ -14,7 +14,9 @@ import { narrateState } from '../agents/narration';
 import { createRelationships } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 import { updateMemories } from '../social/memory';
-import { tickIncidents } from './incidents';
+import { initIncidents, tickIncidents } from './incidents';
+import { updateRelations } from '../social/relationships';
+import { tickGatherings } from '../agents/groups';
 
 export interface WorldOptions {
   agentCount?: number;
@@ -35,7 +37,7 @@ export function createWorld(seed = 1, opts: WorldOptions = {}): World {
     rng,
     tick: 0,
     grid: map.grid,
-    objectDefs: OBJECT_DEFS,
+    objectDefs: WORLD_OBJECT_DEFS,
     objects: map.objects,
     agents,
     relationships,
@@ -44,6 +46,7 @@ export function createWorld(seed = 1, opts: WorldOptions = {}): World {
     dialogue: opts.dialogue ?? createProceduralProvider(),
   };
   assignBeds(world);
+  initIncidents(world);
   pushEvent(world, 'info', `Nowy dzień na osiedlu. Mieszkańcy: ${agents.map((a) => a.name).join(', ')}`, []);
   return world;
 }
@@ -77,6 +80,9 @@ export function tickWorld(world: World): void {
   tickIncidents(world);
   updateMemories(world);
   tickConversations(world, time);
+  // relationship status and gatherings are updated right before ambient chats pick pairs
+  updateRelations(world);
+  tickGatherings(world);
   ambientChats(world);
   for (const agent of world.agents) {
     agent.mood = computeMood(agent.needs, agent.traits);

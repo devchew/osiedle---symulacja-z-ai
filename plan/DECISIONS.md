@@ -29,3 +29,7 @@
 | 2026-10-28 | Drzemka w dzień tylko przy energii < 28; brak zaczepiania w łóżku i łazience; id rozmów per świat | realizm i determinizm |
 | 2026-10-28 | AI: OpenRouter, wyłącznie modele `:free` (łańcuch w `models`, płatny tylko jawnie w `OPENROUTER_MODELS`); JSON mode; reasoning off | twardy limit $2 na koncie, prośba o darmowe modele |
 | 2026-10-28 | Limity AI: 15/min, 3 równolegle, timeout 12/14 s, budżet dzienny 180 (sync z `/api/v1/key`), upstream 429 → pauza wg `Retry-After` | limity free tier OpenRouter |
+| 2026-10-28 | Relacje: romans/rywalizacja/historia per para (WeakMap), status z histerezą, romans PG i wyłączny; spotkania grupowe przez zaproszenia (premia w scoringu) | dynamika społeczna bez zmian kontraktu |
+| 2026-10-28 | `availability` mnoży wynik po premiach celów i społecznych | deszcz/awaria zawsze wygrywa z premią |
+| 2026-10-28 | Zdarzenia świata: własne strumienie RNG z seeda; awaria = zamiana `obj.type` na `repair_<type>`, naprawa z istniejącego utility AI, fachowiec po 8 h | pogoda stabilna przy strojeniu agentów, brak zmian w agentach |
+| 2026-10-28 | Zapis = seed + liczba postaci + tick (+ odcisk `check`); odczyt = przeładowanie z parametrami URL i replay; statystyki pod klawiszem T (S przesuwa kamerę) | determinizm zamiast serializacji stanu |

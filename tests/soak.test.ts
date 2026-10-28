@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { runMetrics, type AgentMetrics, type RunMetrics } from './tools/metrics';
+import { GATHERING_RE } from './tools/metrics';
 import { NARRATION_PER_HOUR } from '../src/agents/narration';
 import { GOAL_KINDS, QUIET_GOALS, type GoalRecord } from '../src/agents/goals';
 
@@ -23,6 +24,13 @@ const MIN_GOAL_RATE_SEED = 0.45;
 /** goal completions are a separate log channel (≤ 1 per agent per day) on top of narration */
 const MAX_GOAL_EVENTS_PER_HOUR = 4;
 const MAX_STORIES_PER_HOUR = NARRATION_PER_HOUR + 2;
+
+/** group activities (agents/groups.ts) per seed-week, and how many may land in one game hour */
+const MIN_GATHERINGS_PER_WEEK = 8;
+const MAX_GATHERINGS_PER_HOUR = 3;
+/** pair statuses at the end of a week, per world of 6 */
+const MAX_COUPLES = 2;
+const MAX_RIVAL_PAIRS = 4;
 
 const QUIET = ['bookshelf', 'fishing_spot', 'computer', 'piano', 'flowerbed'];
 const EXERCISE = ['exercise_bike', 'treadmill'];
@@ -145,4 +153,43 @@ describe('soak: a week in the house', () => {
       expect(stories, `seed ${r.seed}`).toBeGreaterThanOrEqual(5);
     }
   });
+
+  it('residents get together: shared meals, grills, now and then a movie night', () => {
+    for (const r of runs) {
+      const g = r.gatherings;
+      expect(g.meal + g.grill + g.movie, `seed ${r.seed}`).toBeGreaterThanOrEqual(MIN_GATHERINGS_PER_WEEK);
+      expect(g.meal, `seed ${r.seed}`).toBeGreaterThan(0);
+      expect(g.grill, `seed ${r.seed}`).toBeGreaterThan(0);
+      expect(r.maxGatheringsPerHour, `seed ${r.seed}`).toBeLessThanOrEqual(MAX_GATHERINGS_PER_HOUR);
+    }
+    expect(runs.some((r) => r.gatherings.movie > 0)).toBe(true);
+  });
+
+  it('relationships take shape: a few couples and rivals, mostly friendly', () => {
+    const withRomance = runs.filter((r) => r.everRomance > 0).length;
+    // romance is rare: some worlds, not all
+    expect(withRomance).toBeGreaterThan(0);
+    expect(runs.filter((r) => r.everCouples > 0).length).toBeLessThan(runs.length);
+    expect(runs.some((r) => r.everRivals > 0)).toBe(true);
+    for (const r of runs) {
+      const s = r.statuses;
+      expect(s.couple, `seed ${r.seed}`).toBeLessThanOrEqual(MAX_COUPLES);
+      expect(s.couple + s.crush, `seed ${r.seed}`).toBeLessThanOrEqual(MAX_COUPLES + 1);
+      expect(s.rivals + s.enemies, `seed ${r.seed}`).toBeLessThanOrEqual(MAX_RIVAL_PAIRS);
+      // the house stays friendly overall (introverted houses have many mere acquaintances)
+      const warm = s.pals + s.friends + s.best_friends + s.couple + s.crush;
+      const cold = s.cool + s.dislike + s.rivals + s.enemies;
+      expect(warm, `seed ${r.seed}`).toBeGreaterThanOrEqual(3);
+      expect(warm, `seed ${r.seed}`).toBeGreaterThan(cold);
+      // status changes are rare news, not noise
+      expect(r.statusEvents.length, `seed ${r.seed}`).toBeLessThanOrEqual(8);
+    }
+  });
+
+  it('relationship and gathering texts are Polish without gendered past tense', () => {
+    const texts = runs.flatMap((r) => [...r.statusEvents, ...r.world.events.filter((e) => GATHERING_RE.test(e.text)).map((e) => e.text)]);
+    expect(texts.length).toBeGreaterThan(0);
+    for (const t of texts) expect(t, t).not.toMatch(/\p{L}+(ł|ła|ło|li|ły)\b/u);
+  });
 });
+

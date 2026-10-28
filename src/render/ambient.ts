@@ -94,13 +94,15 @@ export class Ambient {
   }
 
   /** soft cloud shadows sweeping over the map, only by day (drawn under lighting) */
-  drawClouds(ctx: CanvasRenderingContext2D, now: number, daylight: number): void {
+  drawClouds(ctx: CanvasRenderingContext2D, now: number, daylight: number, cover = 1): void {
     if (daylight < 0.05) return;
     const t = now / 1000;
     ctx.save();
-    ctx.globalAlpha = 0.11 * daylight;
+    // cover 1 = a couple of fair-weather clouds, 2 = overcast, 3 = rain clouds
+    ctx.globalAlpha = (0.11 + 0.05 * (cover - 1)) * daylight;
     const span = this.mapW + 24;
-    for (let i = 0; i < 2; i++) {
+    const n = cover === 1 ? 2 : cover === 2 ? 4 : 5;
+    for (let i = 0; i < n; i++) {
       const size = 10 + i * 4;
       const x = (((t * (0.32 + i * 0.07) + i * span * 0.37) % span) + span) % span - 12;
       const y = (this.mapH * (0.2 + i * 0.3)) % this.mapH - size / 2 + Math.sin(t * 0.05 + i) * 1.5;

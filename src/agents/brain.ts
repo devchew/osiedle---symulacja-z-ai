@@ -5,6 +5,8 @@ import { bedOf } from './home';
 import { urgency } from './needs';
 import { chatAcceptanceChance } from '../social/conversation';
 import { goalObjectBias, goalTalkBias, type GoalBias } from './goals';
+import { socialObjectBias, talkStatusFactor } from './groups';
+import { statusOf } from '../social/relationships';
 
 import { availability } from '../world/incidents';
 
@@ -38,6 +40,8 @@ function costOf(v: number, delta: number): number {
 /** distance penalty: score / (1 + tiles / DISTANCE_SCALE) */
 const DISTANCE_SCALE = 9;
 const TALK_COOLDOWN = 240;
+/** couples and crushes may chat again sooner */
+const TALK_COOLDOWN_ROMANCE = 150;
 /** need costs (negative effects) are weighed less than gains when choosing */
 const COST_WEIGHT = 0.5;
 /** meal windows (fractional hours); food looks more attractive inside them */
@@ -224,7 +228,9 @@ export function rememberTalk(world: World, a: number, b: number): void {
 
 function talkedRecently(world: World, a: number, b: number): boolean {
   const t = lastTalk.get(world)?.get(a < b ? `${a}-${b}` : `${b}-${a}`);
-  return t !== undefined && world.tick - t < TALK_COOLDOWN;
+  if (t === undefined) return false;
+  const st = statusOf(world, a, b);
+  return world.tick - t < (st === 'couple' || st === 'crush' ? TALK_COOLDOWN_ROMANCE : TALK_COOLDOWN);
 }
 
 export function scoreCandidates(world: World, agent: Agent, time: GameTime): Decision[] {
@@ -240,8 +246,14 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
     if (!def || def.slots.length === 0) continue;
     const slot = freeSlot(obj);
     if (slot < 0) continue;
-    let base = scoreObject(agent, def, time) * availability(world, obj, def);
-    if (!isSleepingObject(def)) base = withGoal(base, goalObjectBias(world, agent, obj, time), calm);
+    let base = scoreObject(agent, def, time);
+    if (!isSleepingObject(def)) {
+      base = withGoal(base, goalObjectBias(world, agent, obj, time), calm);
+      // invitations, a partner's company, a rival's presence
+      base = withGoal(base, socialObjectBias(world, agent, obj, def, calm), calm);
+    }
+    // broken objects, rain outside: caps every bonus too
+    base *= availability(world, obj, def);
     if (base <= 0) continue;
     if (isSleepingObject(def) && own !== undefined) {
       if (obj.uid === own) base *= OWN_BED_BONUS;
@@ -263,7 +275,8 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
     const busy = other.action?.kind === 'wander' || other.path.length > 0 ? 0.5 : 1;
     // people sense who is in the mood for a chat
     const receptive = 0.3 + chatAcceptanceChance(other, agent, world.relationships.get(other.id, agent.id));
-    const appeal = busy * receptive * socialRelief * (1 + rel / 200) * (1 + 0.5 * agent.traits.sociability);
+    const bond = talkStatusFactor(world, agent.id, other.id);
+    const appeal = busy * receptive * socialRelief * (1 + rel / 200) * (1 + 0.5 * agent.traits.sociability) * bond;
     const score = withGoal(appeal, goalTalkBias(agent, other.id, time), calm) / (1 + dist / talkReach);
     if (score > 0) out.push({ kind: 'talk', partnerId: other.id, score });
   }

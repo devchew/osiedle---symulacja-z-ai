@@ -8,11 +8,12 @@ import { WALK_SPEED, stepAgent } from './movement';
 import { randomWalkableTile } from '../world/grid';
 import { slotStandTile, slotUsePos } from '../world/objects';
 import { pushEvent } from '../world/events';
-import { conversationDelta, describeConversation, startConversation, willAcceptChat } from '../social/conversation';
-import { relationshipLabel } from '../social/relationships';
+import { conversationDelta, describeConversation, startConversation, willAcceptChat, type ConversationMood } from '../social/conversation';
+import { feltSympathy, recordConversation, recordFriction, statusOf } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 import { onConversationEnd, recallFor } from '../social/memory';
 import { goalConversation, goalUseEnd, goalUseTick, updateGoal } from './goals';
+import { gatheringOf as gatheringOfAgent, noticeCompetition, onHeadingTo } from './groups';
 
 const TALK_EFFECTS = { social: 0.7, fun: 0.12 };
 const APPROACH_TIMEOUT = 60;
@@ -20,6 +21,11 @@ const MIN_USE_BEFORE_INTERRUPT = 10;
 const REPATH_EVERY = 8;
 const LINE_TICKS: [number, number] = [11, 15];
 const AMBIENT_CHAT_CHANCE = 0.02;
+/** ambient chats are this much likelier during a gathering, and per extra free person at the object */
+const AMBIENT_GATHERING_FACTOR = 2;
+const AMBIENT_PER_EXTRA = 0.5;
+/** ambient chat partners must sit at most this far apart (conversations end beyond 3.5) */
+const AMBIENT_REACH = 3;
 const TALK_DISTANCE = 1.6;
 /** waiting behind an agent standing in the way: re-path every BLOCKED_REPATH ticks, walk through after BLOCKED_GIVE_UP */
 const BLOCKED_REPATH = 3;
@@ -87,6 +93,7 @@ function tryStart(world: World, agent: Agent, d: Decision, time: GameTime): bool
         label: `Idzie: ${def.name.toLowerCase()}`,
         icon: def.icon,
       };
+      if (!isSleepingObject(def)) onHeadingTo(world, agent, obj, time);
       return true;
     }
     case 'talk': {
@@ -131,6 +138,7 @@ function sameTarget(a: Decision, b: Decision): boolean {
 }
 
 function startNext(world: World, agent: Agent, time: GameTime): void {
+  noticeCompetition(world, agent, time);
   const failed: Decision[] = [];
   for (let attempt = 0; attempt < 4; attempt++) {
     const d = decide(world, agent, time, (c) => failed.some((f) => sameTarget(f, c)));
@@ -327,13 +335,14 @@ function invite(world: World, agent: Agent, partner: Agent): void {
   rememberTalk(world, agent.id, partner.id);
   if (!willAcceptChat(partner, agent, rel, world.rng)) {
     world.relationships.adjust(agent.id, partner.id, -1);
+    recordFriction(world, agent.id, partner.id);
     agent.bubble = { kind: 'thought', text: '🙁', ttl: 20 };
     pushEvent(world, 'conversation', `${partner.name} nie ma ochoty na rozmowę z: ${agent.name}`, [agent.id, partner.id]);
     agent.action = null;
     return;
   }
   endAction(world, partner);
-  const conv = startConversation(nextConversationId(world), agent, partner, world.tick, world.rng);
+  const conv = startConversation(nextConversationId(world), agent, partner, world.tick, world.rng, moodOf(world, agent.id, partner.id));
   world.conversations.push(conv);
   for (const [self, other] of [
     [agent, partner],
@@ -389,14 +398,23 @@ function endConversation(world: World, conv: Conversation): void {
   goalConversation(world, a, b);
   a.stats.conversations++;
   b.stats.conversations++;
-  const before = world.relationships.get(a.id, b.id);
   const delta = conversationDelta(a, b, conv.lines);
-  const after = world.relationships.adjust(a.id, b.id, delta);
+  world.relationships.adjust(a.id, b.id, delta);
   pushEvent(world, 'conversation', describeConversation(a, b, conv, delta), [a.id, b.id]);
-  const label = relationshipLabel(after);
-  if (label !== relationshipLabel(before)) {
-    pushEvent(world, 'relationship', `${a.name} i ${b.name} — teraz: ${label}`, [a.id, b.id]);
+  // romance / rivalry and status changes (logged by social/relationships)
+  const outcome = recordConversation(world, a.id, b.id, delta, conv.topic);
+  const st = statusOf(world, a.id, b.id);
+  if (outcome === 'nice' && (st === 'couple' || st === 'crush')) {
+    for (const p of [a, b]) p.bubble = { kind: 'thought', text: st === 'couple' ? '💕' : '😊', ttl: 25 };
   }
+}
+
+/** how the pair's bond colours a new conversation */
+function moodOf(world: World, a: number, b: number): ConversationMood | undefined {
+  const st = statusOf(world, a, b);
+  if (st === 'couple' || st === 'crush') return 'romantic';
+  if (st === 'rivals' || st === 'enemies') return 'tense';
+  return undefined;
 }
 
 export function tickConversations(world: World, time: GameTime): void {
@@ -422,7 +440,8 @@ export function tickConversations(world: World, time: GameTime): void {
     const ctx: ConversationContext = {
       speaker,
       listener,
-      relationship: world.relationships.get(speaker.id, listener.id),
+      // couples speak warmer, rivals colder (see feltSympathy)
+      relationship: feltSympathy(world, speaker.id, listener.id),
       topic: conv.topic,
       history: conv.lines,
       turn,
@@ -444,20 +463,47 @@ export function tickConversations(world: World, time: GameTime): void {
   }
 }
 
-/** agents sharing a social object (table, sofa, bench…) sometimes start chatting on their own */
+/**
+ * agents sharing a social object (table, sofa, bench…) or a gathering (grill party)
+ * sometimes start chatting on their own; a big table can hold several chats at once.
+ */
 export function ambientChats(world: World): void {
   const busy = new Set(world.conversations.flatMap((c) => c.participants));
   const byObject = new Map<number, Agent[]>();
+  const seated: Agent[] = [];
   for (const ag of world.agents) {
     const a = ag.action;
     if (a?.kind !== 'use' || a.phase !== 'using' || busy.has(ag.id)) continue;
     const obj = objectByUid(world, a.objectUid);
     if (!obj || !world.objectDefs[obj.type].social) continue;
     byObject.set(obj.uid, [...(byObject.get(obj.uid) ?? []), ag]);
+    seated.push(ag);
   }
-  for (const group of byObject.values()) {
-    if (group.length < 2 || !world.rng.chance(AMBIENT_CHAT_CHANCE)) continue;
-    const [x, y] = group;
-    world.conversations.push(startConversation(nextConversationId(world), x, y, world.tick, world.rng));
+  const groups = [...byObject.values()];
+  // neighbouring seats of a gathering (grill + bench) form one group
+  const gathered = seated.filter((ag) => gatheringOfAgent(world, ag.id));
+  if (gathered.length >= 2) groups.push(gathered);
+  for (const group of groups) {
+    const free = group.filter((ag) => !busy.has(ag.id));
+    if (free.length < 2) continue;
+    const boost = (free.some((ag) => gatheringOfAgent(world, ag.id)) ? AMBIENT_GATHERING_FACTOR : 1) * (1 + AMBIENT_PER_EXTRA * (free.length - 2));
+    if (!world.rng.chance(AMBIENT_CHAT_CHANCE * boost)) continue;
+    const pairs: [Agent, Agent][] = [];
+    const weights: number[] = [];
+    for (let i = 0; i < free.length; i++)
+      for (let j = i + 1; j < free.length; j++) {
+        const x = free[i];
+        const y = free[j];
+        if (dist(x.pos, y.pos) > AMBIENT_REACH) continue;
+        const st = statusOf(world, x.id, y.id);
+        pairs.push([x, y]);
+        // friends and couples chat up each other; rivals can't help bickering
+        weights.push(1 + Math.max(0, world.relationships.get(x.id, y.id)) / 50 + (st === 'couple' ? 2 : st === 'crush' ? 1 : st === 'rivals' || st === 'enemies' ? 0.5 : 0));
+      }
+    if (pairs.length === 0) continue;
+    const [x, y] = pairs[world.rng.weightedIndex(weights)];
+    busy.add(x.id);
+    busy.add(y.id);
+    world.conversations.push(startConversation(nextConversationId(world), x, y, world.tick, world.rng, moodOf(world, x.id, y.id)));
   }
 }

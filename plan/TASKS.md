@@ -78,14 +78,17 @@ Przygotowanie (orkiestrator) [x]: kontrakt `Gossip` w `types.ts` (`SimEvent.goss
 - Wynik: 13 rodzajów celów, 82% dni z wykonanym celem, wybór zależny od osobowości
 - Orkiestrator: drzemki tylko przy energii < 28 (57 → 20 drzemek / 72 dni postaci), id rozmów per świat (determinizm), brak zaczepiania w łazience
 
-## Fala 5 — dynamika społeczna (3 agentów) — [~] w toku
+## Fala 5 — dynamika społeczna (3 agentów) — [x]
 Przygotowanie [x]: stub `src/world/incidents.ts` (`tickIncidents`, `availability`) podpięty w `world.ts` i `brain.ts`.
-### [ ] L „relacje i grupy” — `src/agents/**` (bez `narration.ts`), `src/social/relationships.ts`, `conversation.ts`, `tests/agents|sim|soak|social.test.ts`
+### [x] L „relacje i grupy” — `src/agents/**` (bez `narration.ts`), `src/social/relationships.ts`, `conversation.ts`, `tests/agents|sim|soak|social.test.ts`
 - Typy relacji z historią (przyjaźń, zauroczenie, rywalizacja), aktywności grupowe (wspólny obiad, grill 3–4 os., wieczór filmowy)
-### [ ] M „zdarzenia świata” — `src/world/incidents.ts`, `src/world/world.ts`, `src/render/**`, `tests/incidents.test.ts`
+- Wynik: para w ~28% światów/tydzień, rywale w ~28%; 15–26 spotkań grupowych/tydzień; `relationOf`, `gatheringLog`; hooki relacji/spotkań w `world.ts`
+### [x] M „zdarzenia świata” — `src/world/incidents.ts`, `src/world/world.ts`, `src/render/**`, `tests/incidents.test.ts`
 - Pogoda (deszcz → ogród pustoszeje, render deszczu), awarie obiektów + naprawa, goście z zewnątrz
-### [ ] N „UI: zapis, statystyki” — `src/ui/**` (bez `llmToggle.*`), `src/main.ts`, `index.html`, `e2e/**`
+- Wynik: pogoda z planem dnia (osobny RNG z seeda), ~11 awarii/tydzień naprawianych przez mieszkańców (typ `repair_*`), deszcz/burza w renderze; goście pominięci (kolidują z niezmiennikami mieszkańców)
+### [x] N „UI: zapis, statystyki” — `src/ui/**` (bez `llmToggle.*`), `src/main.ts`, `index.html`, `e2e/**`
 - Zapis/odczyt (seed + tick, replay), wybór seeda, panel statystyk (sieć relacji, wykres nastroju), sekcja „Wspomnienia” w inspektorze
+- Wynik: 💾/Z zapis (3 sloty + autozapis), N nowy świat, 📊/T statystyki, link `?seed&agents&tick&check`, `e2e/ui.spec.ts`
 
 ## Fala 6 — AI przez OpenRouter (wykonana przed 5, bo użytkownik dodał klucz) — [x]
 - [x] K: proxy `server/llmProxy.ts` → OpenRouter (fetch, `models` fallback, JSON mode + tolerancyjny parser), tylko modele `:free`: `nvidia/nemotron-3.5-super-vl:free` → `google/gemma-4-31b-it:free` → `google/gemma-4-26b-a4b-it:free`; limity 15/min, 3 równolegle, budżet dzienny 180 (sync z `/api/v1/key`); plotki w promptach (indeks historii); usunięty `@anthropic-ai/sdk`
@@ -94,6 +97,9 @@ Przygotowanie [x]: stub `src/world/incidents.ts` (`tickIncidents`, `availability
 
 ## Pomysły na kolejne fale (backlog)
 - [ ] Mniej bezcelowych spacerów (wander w `brain.ts`), testy `sim.test.ts` z koordynatami z mapy zamiast na sztywno
-- [ ] Inspektor: sekcja „Wspomnienia” (`agentMemories` z `social/memory.ts`)
+- [ ] Goście z zewnątrz (wymaga rozróżnienia mieszkaniec/gość w kontraktach)
+- [ ] Narracja kłótni o pilota → bezpośrednio `recordQuarrel` zamiast wykrywania po tekście
+- [ ] Wieczory filmowe rzadkie (wczesne zasypianie) — ewentualnie późniejsze pory snu w weekendy
+- [ ] Prompt AI: unikać form z rodzajem („Słyszałeś?”), ton zgodny z walencją plotki
 - [ ] Zapis/odczyt stanu (localStorage), wybór seeda w UI
 - [ ] Ostrzeżenie Vite o imporcie `server/llmProxy` bez rozszerzenia (nieszkodliwe)
