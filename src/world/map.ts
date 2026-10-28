@@ -90,6 +90,7 @@ export function createDefaultMap(): { grid: Grid; objects: ObjectInstance[]; spa
   door(17, 20); door(18, 20); // front door
   door(4, 20); // kitchen back door
   door(30, 9); door(30, 10); // hall -> east garden
+  door(30, 18); // hobby room -> garden (shortcut to the pond)
 
   g.rooms = [
     ...rooms.map(({ id, name, r }) => ({ id, name, rect: r })),

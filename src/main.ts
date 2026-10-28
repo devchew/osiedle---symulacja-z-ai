@@ -2,14 +2,19 @@ import type { SimControls } from './types';
 import { createLoop } from './core/loop';
 import { timeFromTick } from './core/time';
 import { createWorld, tickWorld } from './world/world';
+import { createDefaultMap } from './world/map';
 import { createRenderer } from './render/renderer';
 import { createHud } from './ui/hud';
 import { createInspector } from './ui/inspector';
 import { createEventLog } from './ui/eventLog';
+import { createLlmToggle, type LlmToggle } from './ui/llmToggle';
 
 const params = new URLSearchParams(location.search);
 const seed = Number(params.get('seed')) || Math.floor(Math.random() * 1e9);
-const world = createWorld(seed, { agentCount: Number(params.get('agents')) || 6 });
+// one bed per resident: more agents than beds would leave someone sleepless
+const beds = createDefaultMap().objects.filter((o) => o.type === 'bed').length;
+const agentCount = Math.min(beds, Math.max(1, Number(params.get('agents')) || 6));
+const world = createWorld(seed, { agentCount });
 
 // ?hour=N fast-forwards to that hour of day 1 (handy for screenshots and tests)
 const startHour = params.get('hour');
@@ -77,7 +82,15 @@ loop.start();
 
 declare global {
   interface Window {
-    __sim: { world: typeof world; controls: SimControls; renderer: typeof renderer; select: typeof select; tick: (n: number) => void };
+    __sim: {
+      world: typeof world;
+      controls: SimControls;
+      renderer: typeof renderer;
+      select: typeof select;
+      tick: (n: number) => void;
+      /** set once /api/llm/status has answered */
+      llm?: LlmToggle;
+    };
   }
 }
 window.__sim = {
@@ -89,3 +102,6 @@ window.__sim = {
     for (let i = 0; i < n; i++) tickWorld(world);
   },
 };
+
+// optional LLM dialogue (needs ANTHROPIC_API_KEY on the dev/preview server); procedural otherwise
+void createLlmToggle(document.body, world).then((t) => (window.__sim.llm = t));

@@ -12,6 +12,19 @@ export interface BubbleItem {
   /** screen point the bubble should point at (CSS px) */
   ax: number;
   ay: number;
+  /** higher = placed first and kept when crowded (e.g. the selected agent) */
+  priority?: number;
+  /** conversation the speaker takes part in; at most MAX_PER_CONVERSATION bubbles each */
+  conversationId?: number | null;
+}
+
+/** screen rect the bubbles should avoid (agent bodies, name labels) */
+export interface Obstacle {
+  agentId: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 interface Placed {
@@ -23,11 +36,14 @@ interface Placed {
   h: number;
 }
 
-const FONT_SIZE = 12.5;
-const LINE_H = 16;
+/** CSS px, independent of zoom */
+const FONT_SIZE = 13.5;
+const LINE_H = 17;
 const PAD_X = 10;
 const PAD_Y = 7;
-const MAX_W = 190;
+const MAX_W = 200;
+const MAX_PER_CONVERSATION = 2;
+const MAX_BUBBLES = 8;
 const MAX_LINES = 3;
 const TAIL = 11;
 
@@ -73,46 +89,74 @@ function wrap(ctx: Ctx, text: string, font: string): { lines: string[]; width: n
   return res;
 }
 
-const overlaps = (a: Placed, b: Placed, m = 4): boolean =>
-  a.x < b.x + b.w + m && b.x < a.x + a.w + m && a.y < b.y + b.h + m && b.y < a.y + a.h + m;
+function overlapArea(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }, m = 0): number {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + m;
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) + m;
+  return w > 0 && h > 0 ? w * h : 0;
+}
 
-export function drawBubbles(ctx: Ctx, items: BubbleItem[], viewW: number, viewH: number): void {
+/**
+ * Lays out and draws bubbles. Each bubble tries a set of candidate spots above
+ * its speaker (centred, shifted sideways, raised) and takes the one with the
+ * least overlap with already placed bubbles (heavy penalty) and other agents'
+ * bodies / labels (light penalty), preferring spots close to the speaker.
+ */
+export function drawBubbles(ctx: Ctx, items: BubbleItem[], viewW: number, viewH: number, obstacles: Obstacle[] = []): void {
   if (!items.length) return;
-  const sorted = [...items].sort((a, b) => b.ay - a.ay);
+  // pick which bubbles to show: priority, then speech over thoughts, then fresher
+  const ranked = [...items].sort(
+    (a, b) =>
+      (b.priority ?? 0) - (a.priority ?? 0) ||
+      (a.bubble.kind === 'speech' ? 0 : 1) - (b.bubble.kind === 'speech' ? 0 : 1) ||
+      b.bubble.ttl - a.bubble.ttl,
+  );
+  const perConv = new Map<number, number>();
+  const chosen: BubbleItem[] = [];
+  for (const it of ranked) {
+    if (chosen.length >= MAX_BUBBLES) break;
+    if (it.conversationId != null) {
+      const n = perConv.get(it.conversationId) ?? 0;
+      if (n >= MAX_PER_CONVERSATION) continue;
+      perConv.set(it.conversationId, n + 1);
+    }
+    chosen.push(it);
+  }
+  // place lower bubbles first so upper ones stack above them
+  const order = chosen.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || b.ay - a.ay);
   const placed: Placed[] = [];
-  for (const item of sorted) {
+  for (const item of order) {
     const thought = item.bubble.kind === 'thought';
     const font = `${thought ? 'italic ' : ''}500 ${FONT_SIZE}px ${UI_FONT}`;
     const { lines, width } = wrap(ctx, item.bubble.text, font);
-    const w = Math.ceil(width + PAD_X * 2 + (thought ? 6 : 0));
+    const w = Math.ceil(width + PAD_X * 2 + 4 + (thought ? 6 : 0));
     const h = lines.length * LINE_H + PAD_Y * 2 + (thought ? 4 : 0);
-    const x0 = Math.max(6, Math.min(viewW - w - 6, item.ax - w / 2));
-    const y0 = item.ay - TAIL - h;
-    const p: Placed = { item, lines, w, h, x: x0, y: y0 };
-    // try the natural spot, then sliding sideways next to each placed bubble
-    const tries: number[] = [x0];
-    for (const q of placed) tries.push(q.x + q.w + 6, q.x - w - 6);
-    tries.sort((a, b) => Math.abs(a - x0) - Math.abs(b - x0));
-    let ok = false;
-    for (const tx of tries) {
-      if (tx < 4 || tx + w > viewW - 4) continue;
-      if (item.ax < tx - 36 || item.ax > tx + w + 36) continue;
-      p.x = tx;
-      if (!placed.some((q) => overlaps(p, q))) {
-        ok = true;
-        break;
+    const nx = item.ax - w / 2;
+    const ny = item.ay - TAIL - h;
+    const xs = [nx, nx - w * 0.38, nx + w * 0.38, item.ax - 24, item.ax - w + 24];
+    const ys = [ny, ny - 18, ny - 40, ny - 64, ny - 92];
+    let best: Placed | null = null;
+    let bestScore = Infinity;
+    for (const yy of ys) {
+      for (const xx of xs) {
+        const cand: Placed = {
+          item,
+          lines,
+          w,
+          h,
+          x: Math.max(4, Math.min(viewW - w - 4, xx)),
+          y: Math.max(4, Math.min(viewH - h - 4, yy)),
+        };
+        let score = Math.abs(cand.x - nx) * 0.4 + Math.abs(cand.y - ny) * 1.2;
+        for (const q of placed) score += overlapArea(cand, q, 6) * 4;
+        for (const o of obstacles) if (o.agentId !== item.agentId) score += overlapArea(cand, o) * 0.6;
+        if (score < bestScore) {
+          bestScore = score;
+          best = cand;
+        }
       }
+      if (bestScore < 1) break;
     }
-    if (!ok) {
-      p.x = x0;
-      for (let guard = 0; guard < 12; guard++) {
-        const hit = placed.find((q) => overlaps(p, q));
-        if (!hit) break;
-        p.y = hit.y - p.h - 6;
-      }
-    }
-    p.y = Math.max(4, Math.min(viewH - h - 4, p.y));
-    placed.push(p);
+    placed.push(best!);
   }
   // draw top-most first so tails of stacked bubbles pass under the lower ones
   placed.sort((a, b) => a.y - b.y);

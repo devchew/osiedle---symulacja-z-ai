@@ -112,25 +112,25 @@ const defs: Record<string, Def> = {
     name: 'Komputer', verb: 'Gra na komputerze', icon: '🎮', color: '#3d5a80',
     size: { w: 2, h: 1 }, blocking: true,
     slots: [{ stand: { x: 0, y: 1 }, use: { x: 0.5, y: 0.7 } }],
-    effects: { fun: 0.9, energy: -0.05, comfort: 0.15 }, duration: [45, 90], tags: ['fun'],
+    effects: { fun: 0.9, energy: -0.05, comfort: 0.15 }, duration: [45, 90], tags: ['fun', 'quiet'],
   },
   piano: {
     name: 'Pianino', verb: 'Gra na pianinie', icon: '🎹', color: '#2b2118',
     size: { w: 2, h: 1 }, blocking: true,
     slots: [{ stand: { x: 0, y: 1 }, use: { x: 0.5, y: 0.7 } }],
-    effects: { fun: 0.7, comfort: 0.2 }, duration: [30, 60], tags: ['fun', 'music'],
+    effects: { fun: 0.7, comfort: 0.2 }, duration: [30, 60], tags: ['fun', 'music', 'quiet'],
   },
   exercise_bike: {
     name: 'Rowerek treningowy', verb: 'Ćwiczy na rowerku', icon: '🚴', color: '#d1495b',
     size: { w: 1, h: 1 }, blocking: true,
     slots: [{ stand: { x: 0, y: 1 }, use: { x: 0, y: 0 } }],
-    effects: { fun: 0.5, energy: -0.3, hygiene: -0.4 }, duration: [30, 45], tags: ['fun', 'exercise'],
+    effects: { fun: 0.8, comfort: 0.2, energy: -0.25, hygiene: -0.35 }, duration: [30, 45], tags: ['fun', 'exercise'],
   },
   treadmill: {
     name: 'Bieżnia', verb: 'Biega na bieżni', icon: '🏃', color: '#4a4e69',
     size: { w: 1, h: 2 }, blocking: true,
     slots: [{ stand: { x: 0, y: 2 }, use: { x: 0, y: 0.5 } }],
-    effects: { fun: 0.4, energy: -0.35, hygiene: -0.45, comfort: 0.1 }, duration: [30, 45], tags: ['fun', 'exercise'],
+    effects: { fun: 0.75, energy: -0.3, hygiene: -0.4, comfort: 0.25 }, duration: [30, 45], tags: ['fun', 'exercise'],
   },
 
   // ------------------------------------------------------------ garden
@@ -151,7 +151,7 @@ const defs: Record<string, Def> = {
     name: 'Grządka z kwiatami', verb: 'Pielęgnuje kwiaty', icon: '🌷', color: '#6a994e',
     size: { w: 3, h: 1 }, blocking: true,
     slots: [{ stand: { x: 0, y: 1 } }, { stand: { x: 2, y: 1 } }],
-    effects: { fun: 0.4, comfort: 0.2, hygiene: -0.2 }, duration: [30, 50], tags: ['outdoor', 'fun'],
+    effects: { fun: 0.6, comfort: 0.3, hygiene: -0.2 }, duration: [30, 50], tags: ['outdoor', 'fun', 'quiet'],
   },
 
   // ------------------------------------------------------------ decoration

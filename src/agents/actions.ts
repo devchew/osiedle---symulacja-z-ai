@@ -1,9 +1,10 @@
 import type { Agent, Conversation, ConversationContext, DialogueLine, GameTime, ObjectDef, ObjectInstance, Vec2, World } from '../types';
 import { NEED_KEYS } from '../types';
-import { decide, isSleepingObject, rememberTalk, canChat, type Decision } from './brain';
+import { decide, hasCriticalNeed, isSleepingObject, rememberTalk, rememberUse, canChat, type Decision } from './brain';
+import { onFinishUse, onStartUse, useEffectScale } from './narration';
 import { applyEffects } from './needs';
 import { findPath, nearestWalkable } from './pathfinding';
-import { stepAgent } from './movement';
+import { WALK_SPEED, stepAgent } from './movement';
 import { randomWalkableTile } from '../world/grid';
 import { slotStandTile, slotUsePos } from '../world/objects';
 import { pushEvent } from '../world/events';
@@ -11,13 +12,18 @@ import { conversationDelta, describeConversation, startConversation, willAcceptC
 import { relationshipLabel } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 
-const TALK_EFFECTS = { social: 0.55, fun: 0.12 };
+const TALK_EFFECTS = { social: 0.7, fun: 0.12 };
 const APPROACH_TIMEOUT = 60;
 const MIN_USE_BEFORE_INTERRUPT = 10;
 const REPATH_EVERY = 8;
 const LINE_TICKS: [number, number] = [11, 15];
-const AMBIENT_CHAT_CHANCE = 0.012;
+const AMBIENT_CHAT_CHANCE = 0.02;
 const TALK_DISTANCE = 1.6;
+/** waiting behind an agent standing in the way: re-path every BLOCKED_REPATH ticks, walk through after BLOCKED_GIVE_UP */
+const BLOCKED_REPATH = 3;
+const BLOCKED_GIVE_UP = 12;
+/** an unserved need below this interrupts any activity (after MIN_USE_BEFORE_INTERRUPT) */
+const DESPERATE = 4;
 
 const fallbackDialogue = createProceduralProvider();
 let nextConversationId = 1;
@@ -86,7 +92,8 @@ function tryStart(world: World, agent: Agent, d: Decision, time: GameTime): bool
         phase: 'approaching',
         partnerId: partner.id,
         conversationId: null,
-        ticksLeft: APPROACH_TIMEOUT,
+        // enough time to cover the distance (partners may move a bit meanwhile)
+        ticksLeft: Math.max(APPROACH_TIMEOUT, Math.ceil((path.length * 1.5) / WALK_SPEED) + 20),
         label: `Idzie pogadać: ${partner.name}`,
         icon: '💬',
       };
@@ -102,6 +109,7 @@ function tryStart(world: World, agent: Agent, d: Decision, time: GameTime): bool
       return true;
     }
     case 'idle':
+      rememberUse(agent, 'idle');
       agent.path = [];
       agent.action = { kind: 'idle', ticksLeft: rng.int(4, 16), label: 'Rozgląda się', icon: '👀' };
       return true;
@@ -179,22 +187,26 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
       if (!obj) return endAction(world, agent);
       const def = world.objectDefs[obj.type];
       if (a.phase === 'walking') {
-        if (stepAgent(agent) !== 'moving') {
+        if (walk(world, agent) !== 'moving') {
           a.phase = 'using';
           usedFor.set(agent, 0);
           a.label = def.verb;
           agent.pos = slotUsePos(obj, def, a.slot);
           agent.stats.objectsUsed++;
+          rememberUse(agent, obj.type);
           if (isSleepingObject(def)) pushEvent(world, 'use', `${agent.name} idzie spać`, [agent.id]);
+          else onStartUse(world, agent, def, usersOf(world, obj, agent));
         }
         return;
       }
-      applyEffects(agent, def.effects);
+      applyEffects(agent, def.effects, useEffectScale(agent));
       a.ticksLeft--;
       const used = (usedFor.get(agent) ?? 0) + 1;
       usedFor.set(agent, used);
-      if (a.ticksLeft <= 0 || satisfied(agent, def) || (used >= MIN_USE_BEFORE_INTERRUPT && interruptedByNeed(agent, def))) {
+      const done = a.ticksLeft <= 0 || satisfied(agent, def);
+      if (done || (used >= MIN_USE_BEFORE_INTERRUPT && interruptedByNeed(agent, def))) {
         endAction(world, agent);
+        if (!isSleepingObject(def)) onFinishUse(world, agent, def, done);
       }
       return;
     }
@@ -215,12 +227,12 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
         if (!path) return endAction(world, agent);
         agent.path = path;
       }
-      stepAgent(agent);
+      walk(world, agent);
       return;
     }
     case 'wander':
       a.ticksLeft--;
-      if (stepAgent(agent) !== 'moving' || a.ticksLeft <= 0) {
+      if (walk(world, agent) !== 'moving' || a.ticksLeft <= 0) {
         agent.action = null;
         agent.path = [];
       }
@@ -234,15 +246,68 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
 
 const usedFor = new WeakMap<Agent, number>();
 
+function usersOf(world: World, obj: ObjectInstance, self: Agent): Agent[] {
+  return world.agents.filter(
+    (o) => o !== self && o.action?.kind === 'use' && o.action.objectUid === obj.uid && o.action.phase === 'using',
+  );
+}
+
+// ---------------------------------------------------------------- walking with avoidance
+
+const blockedFor = new WeakMap<Agent, number>();
+
+/** an agent that is not walking (using, talking, idle) on tile x,y */
+function standingAt(world: World, self: Agent, x: number, y: number): boolean {
+  for (const o of world.agents) {
+    if (o !== self && o.path.length === 0 && Math.round(o.pos.x) === x && Math.round(o.pos.y) === y) return true;
+  }
+  return false;
+}
+
+/**
+ * stepAgent, but agents don't walk through someone standing on their next waypoint:
+ * they wait, re-path around standing agents every few ticks, and after a timeout
+ * walk through anyway (never deadlocks). The final waypoint is never treated as blocked.
+ */
+function walk(world: World, agent: Agent): 'moving' | 'arrived' | 'idle' {
+  const next = agent.path[0];
+  if (!next || agent.path.length < 2 || !standingAt(world, agent, next.x, next.y)) {
+    blockedFor.delete(agent);
+    return stepAgent(agent);
+  }
+  const n = (blockedFor.get(agent) ?? 0) + 1;
+  blockedFor.set(agent, n);
+  if (n > BLOCKED_GIVE_UP) return stepAgent(agent);
+  if (n % BLOCKED_REPATH === 0) {
+    const goal = agent.path[agent.path.length - 1];
+    const detour = findPath(world.grid, agent.pos, goal, {
+      extraBlocked: (x, y) => !(x === goal.x && y === goal.y) && standingAt(world, agent, x, y),
+      maxNodes: 2000,
+    });
+    if (detour && detour.length > 0 && detour.length <= agent.path.length + 8) {
+      agent.path = detour;
+      blockedFor.delete(agent);
+      return stepAgent(agent);
+    }
+  }
+  if (agent.path.length > 0) faceTowards(agent, next);
+  return 'moving';
+}
+
 /**
  * a critical need the object doesn't serve cuts the activity short — but only once
  * the needs it does serve are reasonably met, otherwise agents thrash between objects
  */
 function interruptedByNeed(agent: Agent, def: ObjectDef): boolean {
   const served = NEED_KEYS.filter((k) => (def.effects[k] ?? 0) > 0);
+  const sleeping = isSleepingObject(def);
+  // a need about to hit zero wins regardless (sleep is only cut short by hunger)
+  // (once the needs this object serves are no longer pressing themselves)
+  const desperate = NEED_KEYS.some((k) => !served.includes(k) && agent.needs[k] < DESPERATE && (!sleeping || k === 'hunger'));
+  if (desperate && served.every((k) => agent.needs[k] >= 30)) return true;
   if (served.some((k) => agent.needs[k] < 50)) return false;
-  const limit = isSleepingObject(def) ? 4 : 10;
-  return NEED_KEYS.some((k) => !served.includes(k) && agent.needs[k] < limit && (!isSleepingObject(def) || k === 'hunger'));
+  const limit = sleeping ? 4 : 10;
+  return NEED_KEYS.some((k) => !served.includes(k) && agent.needs[k] < limit && (!sleeping || k === 'hunger'));
 }
 
 function invite(world: World, agent: Agent, partner: Agent): void {
@@ -324,7 +389,12 @@ function endConversation(world: World, conv: Conversation): void {
 export function tickConversations(world: World, time: GameTime): void {
   for (const conv of [...world.conversations]) {
     const [a, b] = conv.participants.map((id) => agentById(world, id));
-    if (!a || !b || !inThisConversation(world, a, conv) || !inThisConversation(world, b, conv) || dist(a.pos, b.pos) > 3.5) {
+    if (
+      !a || !b ||
+      !inThisConversation(world, a, conv) || !inThisConversation(world, b, conv) ||
+      dist(a.pos, b.pos) > 3.5 ||
+      hasCriticalNeed(a) || hasCriticalNeed(b)
+    ) {
       endConversation(world, conv);
       continue;
     }

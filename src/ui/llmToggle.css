@@ -1,0 +1,59 @@
+/* LLM dialogue toggle: a small pill pinned top-left (HUD is centred, inspector is right). */
+
+.llm-toggle {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 11;
+  font: 12px/1 var(--ui-font, system-ui, sans-serif);
+}
+.llm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  color: var(--ui-text, #f1f4fb);
+  font: inherit;
+  background: var(--ui-bg, rgba(16, 20, 32, 0.72));
+  border: 1px solid var(--ui-border, rgba(255, 255, 255, 0.12));
+  border-radius: 999px;
+  box-shadow: var(--ui-shadow, 0 8px 28px rgba(0, 0, 0, 0.35));
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.llm-pill:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+.llm-pill:focus-visible {
+  outline: 2px solid var(--ui-accent, #7cc4ff);
+  outline-offset: 2px;
+}
+.llm-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ui-muted, #a9b2c7);
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.llm-pill.on .llm-dot {
+  background: var(--ui-good, #4fd18b);
+  box-shadow: 0 0 6px var(--ui-good, #4fd18b);
+}
+.llm-pill.off {
+  height: 24px;
+  padding: 0 9px 0 8px;
+  font-size: 11px;
+  opacity: 0.5;
+  cursor: help;
+}
+
+@media (max-width: 720px) {
+  /* the HUD spans the top edge on phones: sit just below it */
+  .llm-toggle {
+    top: 56px;
+    left: 8px;
+  }
+}

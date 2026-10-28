@@ -2,11 +2,12 @@
 // Reads the World only; never mutates simulation state.
 
 import type { Agent, World } from '../types';
-import { Camera } from './camera';
+import { Ambient } from './ambient';
+import { Camera, type Insets } from './camera';
 import { UI_FONT, EMOJI_FONT, rr } from './colors';
-import { drawBubbles, type BubbleItem } from './bubbles';
+import { drawBubbles, type BubbleItem, type Obstacle } from './bubbles';
 import { Lighting, lightStateAt } from './lighting';
-import { drawAgent, drawSelection, type AgentPose } from './sprites';
+import { AGENT_SCALE, drawAgent, drawSelection, headTop, type AgentPose, type PoseMode } from './sprites';
 import { buildStaticLayer, staticSignature, type StaticLayer } from './tiles';
 
 export interface Renderer {
@@ -17,12 +18,40 @@ export interface Renderer {
   /** agent under the given client (viewport) coordinates, or null */
   pickAgent(clientX: number, clientY: number): Agent | null;
   setSelected(id: number | null): void;
-  /** smoothly keeps the camera centred on the agent; any drag cancels it */
+  /** smoothly keeps the camera centred on the agent; any drag / key pan cancels it (double-click an agent to follow) */
   follow(id: number | null): void;
+  /** id of the followed agent, or null */
+  readonly following: number | null;
+  /** re-fits the camera to the map, leaving room for the HUD and the log */
+  fitView(): void;
+  /** world (tile) coordinates to client (CSS px) coordinates */
+  toScreen(wx: number, wy: number): { x: number; y: number };
 }
 
 const BG = '#6f9b5c';
 const DRAG_THRESHOLD = 4;
+/** CSS px kept free for the overlay UI when fitting the map */
+const FIT_INSETS: Insets = { top: 68, right: 16, bottom: 16, left: 16 };
+const FIT_INSETS_NARROW: Insets = { top: 96, right: 8, bottom: 110, left: 8 };
+const KEY_PAN_SPEED = 700; // CSS px per second
+
+function overlapRect(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+  m = 0,
+): boolean {
+  return a.x < b.x + b.w + m && b.x < a.x + a.w + m && a.y < b.y + b.h + m && b.y < a.y + a.h + m;
+}
+
+function poseModeFor(type: string): PoseMode {
+  const t = type.toLowerCase();
+  if (/shower|prysznic/.test(t)) return 'shower';
+  if (/bath|tub|wann/.test(t)) return 'bath';
+  if (/bike|rower/.test(t)) return 'pedal';
+  if (/treadmill|bie[zż]ni/.test(t)) return 'run';
+  if (/sofa|couch|kanap|\btv\b|^tv|telewiz|bench|[lł]awk|table|st[oó][lł]|computer|desk|komput|piano|pianin|toilet|toalet|chair|krzes|fotel/.test(t)) return 'sit';
+  return 'stand';
+}
 
 interface Pose extends AgentPose {
   agent: Agent;
@@ -46,6 +75,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
 
   const cam = new Camera();
   const lighting = new Lighting();
+  const ambient = new Ambient();
   let dpr = 1;
   let fitted = false;
   let layer: StaticLayer | null = null;
@@ -68,9 +98,39 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     cam.viewH = h;
     cam.setMap(world.grid.width, world.grid.height);
     if (!fitted) {
-      cam.fit(Math.min(48, Math.max(16, Math.min(w, h) * 0.05)));
+      fitView();
       fitted = true;
     } else cam.updateLimits();
+  }
+
+  /** bounding box of the house (wall tiles), used when the whole map would be too small */
+  function houseArea(): { x: number; y: number; w: number; h: number } | undefined {
+    const g = world.grid;
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (let y = 0; y < g.height; y++)
+      for (let x = 0; x < g.width; x++)
+        if (g.tiles[y * g.width + x] === 'wall') {
+          x0 = Math.min(x0, x);
+          y0 = Math.min(y0, y);
+          x1 = Math.max(x1, x);
+          y1 = Math.max(y1, y);
+        }
+    return x0 === Infinity ? undefined : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  }
+
+  function fitView(): void {
+    cam.setMap(world.grid.width, world.grid.height);
+    const narrow = cam.viewW < 720;
+    const insets = narrow ? FIT_INSETS_NARROW : FIT_INSETS;
+    cam.fit(insets);
+    // on small screens the whole plot is tiny: show the house instead
+    if (cam.zoom < 16) {
+      const house = houseArea();
+      if (house) cam.fit(insets, house);
+    }
   }
 
   function ensureStatic(): void {
@@ -78,6 +138,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     if (layer && sig === layerSig && layerGrid === world.grid) return;
     layer = buildStaticLayer(world, layer ?? undefined);
     lighting.build(world);
+    ambient.build(world);
     layerSig = sig;
     layerGrid = world.grid;
     cam.setMap(world.grid.width, world.grid.height);
@@ -85,12 +146,48 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
 
   // ------------------------------------------------------------------ input
   let drag: { id: number; x: number; y: number; moved: boolean } | null = null;
+  const pointers = new Map<number, { x: number; y: number }>();
+  let pinch: { dist: number; mx: number; my: number } | null = null;
+  const pinchIds = new Set<number>();
+
+  const eatNextClick = (): void => {
+    // swallow the click that follows a drag so it doesn't select/deselect
+    const eat = (ev: Event): void => {
+      ev.stopPropagation();
+      ev.preventDefault();
+    };
+    window.addEventListener('click', eat, { capture: true, once: true });
+    setTimeout(() => window.removeEventListener('click', eat, { capture: true }), 0);
+  };
+
+  function pinchState(): { dist: number; mx: number; my: number } {
+    const [a, b] = [...pointers.values()];
+    return { dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  }
 
   canvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 && e.button !== 1) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      // second finger: switch from drag to pinch
+      pinch = pinchState();
+      for (const id of pointers.keys()) pinchIds.add(id);
+      drag = null;
+      followId = null;
+      return;
+    }
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
   });
   canvas.addEventListener('pointermove', (e) => {
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && pointers.size >= 2) {
+      const now = pinchState();
+      const rect = canvas.getBoundingClientRect();
+      cam.panBy(now.mx - pinch.mx, now.my - pinch.my);
+      cam.zoomAt(now.mx - rect.left, now.my - rect.top, now.dist / pinch.dist);
+      pinch = now;
+      return;
+    }
     if (!drag || drag.id !== e.pointerId) return;
     const dx = e.clientX - drag.x;
     const dy = e.clientY - drag.y;
@@ -109,33 +206,73 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     drag.x = e.clientX;
     drag.y = e.clientY;
   });
-  const endDrag = (e: PointerEvent): void => {
-    if (!drag || drag.id !== e.pointerId) return;
-    if (drag.moved) {
-      // swallow the click that follows a drag so it doesn't select/deselect
-      const eat = (ev: Event): void => {
-        ev.stopPropagation();
-        ev.preventDefault();
-      };
-      window.addEventListener('click', eat, { capture: true, once: true });
-      setTimeout(() => window.removeEventListener('click', eat, { capture: true }), 0);
+  const endPointer = (e: PointerEvent): void => {
+    pointers.delete(e.pointerId);
+    if (pinchIds.has(e.pointerId)) {
+      // fingers of a pinch never count as a tap (stops the app's click-to-select on this element)
+      pinchIds.delete(e.pointerId);
+      if (pointers.size < 2) pinch = null;
+      e.stopImmediatePropagation();
+      eatNextClick();
+      drag = null;
+      return;
     }
+    if (!drag || drag.id !== e.pointerId) return;
+    if (drag.moved) eatNextClick();
     canvas.style.cursor = 'grab';
     drag = null;
   };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
   canvas.addEventListener(
     'wheel',
     (e) => {
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
-      const factor = Math.exp(-e.deltaY * unit * 0.0015);
-      cam.zoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
+      // trackpad pinch arrives as ctrl+wheel with small deltas: make it a bit stronger
+      const k = e.ctrlKey ? 0.006 : 0.0015;
+      const factor = Math.exp(-Math.max(-300, Math.min(300, e.deltaY * unit)) * k);
+      cam.zoomSmooth(e.clientX - rect.left, e.clientY - rect.top, factor);
     },
     { passive: false },
   );
+  canvas.addEventListener('dblclick', (e) => {
+    const a = pickAgent(e.clientX, e.clientY);
+    if (a) followId = a.id;
+    else {
+      const rect = canvas.getBoundingClientRect();
+      cam.zoomSmooth(e.clientX - rect.left, e.clientY - rect.top, 1.6);
+    }
+  });
+
+  // keyboard: arrows / WASD pan, + / - zoom
+  const keys = new Set<string>();
+  const PAN_KEYS: Record<string, [number, number]> = {
+    ArrowLeft: [-1, 0],
+    KeyA: [-1, 0],
+    ArrowRight: [1, 0],
+    KeyD: [1, 0],
+    ArrowUp: [0, -1],
+    KeyW: [0, -1],
+    ArrowDown: [0, 1],
+    KeyS: [0, 1],
+  };
+  const typing = (e: KeyboardEvent): boolean => {
+    const t = e.target as HTMLElement | null;
+    return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  };
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || typing(e)) return;
+    if (PAN_KEYS[e.code]) {
+      keys.add(e.code);
+      followId = null;
+      if (e.code.startsWith('Arrow')) e.preventDefault();
+    } else if (e.key === '+' || e.key === '=') cam.zoomSmooth(cam.viewW / 2, cam.viewH / 2, 1.35);
+    else if (e.key === '-' || e.key === '_') cam.zoomSmooth(cam.viewW / 2, cam.viewH / 2, 1 / 1.35);
+  });
+  window.addEventListener('keyup', (e) => keys.delete(e.code));
+  window.addEventListener('blur', () => keys.clear());
   window.addEventListener('resize', resize);
 
   // ------------------------------------------------------------------ helpers
@@ -182,42 +319,67 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       w.y = y;
       const moving = !jump && (a.pos.x !== a.prevPos.x || a.pos.y !== a.prevPos.y);
       const s = sleepingInfo(a, x, y);
-      if (s) out.push({ agent: a, x: s.x, y: s.y, moving: false, phase: w.phase, sleeping: true, bedHorizontal: s.horiz, blanket: s.blanket });
-      else out.push({ agent: a, x, y, moving, phase: w.phase, sleeping: false, bedHorizontal: false, blanket: '' });
+      if (s) {
+        out.push({ agent: a, x: s.x, y: s.y, moving: false, phase: w.phase, sleeping: true, bedHorizontal: s.horiz, blanket: s.blanket, mode: 'sleep' });
+        continue;
+      }
+      let mode: PoseMode = moving ? 'walk' : 'stand';
+      let walking = moving;
+      const act = a.action;
+      if (act && act.kind === 'use' && act.phase === 'using') {
+        // the pose follows the action (the short glide from the stand tile onto the seat is not a walk)
+        const obj = world.objects.find((o) => o.uid === act.objectUid);
+        if (obj) mode = poseModeFor(obj.type);
+        if (mode !== 'walk' && mode !== 'stand') walking = false;
+      }
+      out.push({ agent: a, x, y, moving: walking, phase: w.phase, sleeping: false, bedHorizontal: false, blanket: '', mode });
     }
     out.sort((p, q) => p.y - q.y || p.agent.id - q.agent.id);
     return out;
   }
 
-  function drawLabel(text: string, x: number, y: number, ui: number, highlight: boolean): void {
-    const size = 11 * ui;
-    ctx!.font = `600 ${size}px ${UI_FONT}`;
-    const w = ctx!.measureText(text).width + 10 * ui;
+  function labelWidth(text: string, ui: number): number {
+    ctx!.font = `650 ${Math.max(10.5, 11 * ui)}px ${UI_FONT}`;
+    return ctx!.measureText(text).width + 12 * ui;
+  }
+
+  /** draws a name pill centred at x with its top at y; returns its rect */
+  function drawLabel(text: string, x: number, y: number, ui: number, highlight: boolean): { w: number; h: number } {
+    const size = Math.max(10.5, 11 * ui);
+    ctx!.font = `650 ${size}px ${UI_FONT}`;
+    const w = ctx!.measureText(text).width + 12 * ui;
     const h = size + 6 * ui;
     rr(ctx!, x - w / 2, y, w, h, h / 2);
-    ctx!.fillStyle = highlight ? 'rgba(255,214,90,0.95)' : 'rgba(28,30,40,0.58)';
+    ctx!.fillStyle = highlight ? 'rgba(255,214,90,0.96)' : 'rgba(24,26,38,0.62)';
     ctx!.fill();
     ctx!.fillStyle = highlight ? '#2a2310' : '#ffffff';
     ctx!.textAlign = 'center';
     ctx!.textBaseline = 'middle';
     ctx!.fillText(text, x, y + h / 2 + 0.5);
+    return { w, h };
   }
 
+  /** action badge: emoji in a white disc with a small pointer towards the head */
   function drawIcon(icon: string, x: number, y: number, ui: number): void {
-    const r = 11 * ui;
-    ctx!.beginPath();
-    ctx!.arc(x, y, r, 0, Math.PI * 2);
-    ctx!.fillStyle = 'rgba(255,255,255,0.92)';
-    ctx!.shadowColor = 'rgba(20,20,40,0.25)';
-    ctx!.shadowBlur = 4;
-    ctx!.shadowOffsetY = 1;
-    ctx!.fill();
-    ctx!.shadowColor = 'transparent';
-    ctx!.font = `${Math.round(13 * ui)}px ${EMOJI_FONT}`;
-    ctx!.textAlign = 'center';
-    ctx!.textBaseline = 'middle';
-    ctx!.fillStyle = '#000';
-    ctx!.fillText(icon, x, y + 1);
+    const r = 12 * ui;
+    const c = ctx!;
+    c.beginPath();
+    c.arc(x, y, r, 0, Math.PI * 2);
+    c.moveTo(x - 4 * ui, y + r - 1);
+    c.lineTo(x, y + r + 5 * ui);
+    c.lineTo(x + 4 * ui, y + r - 1);
+    c.closePath();
+    c.fillStyle = 'rgba(255,255,255,0.95)';
+    c.shadowColor = 'rgba(20,20,40,0.3)';
+    c.shadowBlur = 5;
+    c.shadowOffsetY = 1;
+    c.fill();
+    c.shadowColor = 'transparent';
+    c.font = `${Math.round(14.5 * ui)}px ${EMOJI_FONT}`;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillStyle = '#000';
+    c.fillText(icon, x, y + 1);
   }
 
   function drawZzz(x: number, y: number, ui: number, now: number): void {
@@ -258,6 +420,20 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
 
     poses = computePoses(alpha);
 
+    // camera: keyboard pan, zoom animation, follow
+    if (keys.size) {
+      let kx = 0;
+      let ky = 0;
+      for (const k of keys) {
+        const d = PAN_KEYS[k];
+        if (d) {
+          kx += d[0];
+          ky += d[1];
+        }
+      }
+      cam.panBy(-kx * KEY_PAN_SPEED * dt, -ky * KEY_PAN_SPEED * dt);
+    }
+    cam.update(dt);
     if (followId !== null) {
       const p = poses.find((q) => q.agent.id === followId);
       if (p) {
@@ -265,13 +441,14 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         cam.cx += (p.x - cam.cx) * k;
         cam.cy += (p.y - cam.cy) * k;
         cam.clamp();
-      }
+      } else followId = null;
     }
 
     const z = cam.zoom;
     const s = z * dpr;
     const ox = (cam.viewW / 2 - cam.cx * z) * dpr;
     const oy = (cam.viewH / 2 - cam.cy * z) * dpr;
+    const light = lightStateAt(world.tick, alpha);
 
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.globalAlpha = 1;
@@ -288,53 +465,113 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     rr(c, -0.5 + 0.12, -0.5 + 0.18, g.width, g.height, 0.3);
     c.fill();
     if (layer) c.drawImage(layer.canvas, -0.5, -0.5, g.width, g.height);
+    ambient.drawGround(c, now, light.daylight);
 
     for (const p of poses) {
       if (p.agent.id === selected) drawSelection(c, p, now);
       drawAgent(c, p.agent, p, now);
     }
+    ambient.drawClouds(c, now, light.daylight);
 
-    lighting.draw(c, lightStateAt(world.tick, alpha), [s, ox, oy]);
+    lighting.draw(c, light, [s, ox, oy]);
+    c.setTransform(s, 0, 0, s, ox, oy);
+    ambient.drawNight(c, now, 1 - light.daylight);
 
     // ---------------------------------------------- screen-space overlays
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const ui = Math.max(0.8, Math.min(1.15, z / 40));
+    c.globalAlpha = 1;
+    const ui = Math.max(0.85, Math.min(1.2, z / 34));
+    const convOf = new Map<number, number>();
+    for (const cv of world.conversations) for (const id of cv.participants) convOf.set(id, cv.id);
     const bubbles: BubbleItem[] = [];
+    const obstacles: Obstacle[] = [];
+    interface Overlay {
+      p: Pose;
+      feet: { x: number; y: number };
+      top: { x: number; y: number };
+      icon: { x: number; y: number } | null;
+      head: { x: number; y: number } | null;
+      isSel: boolean;
+    }
+    // pass 1: geometry (icons first, so name pills can dodge them)
+    const items: Overlay[] = [];
+    const iconR = 12 * ui;
     for (const p of poses) {
       const a = p.agent;
-      const feet = cam.toScreen(p.x, p.y + 0.4);
+      const feet = cam.toScreen(p.x, p.y + 0.29 + 0.04);
       if (feet.x < -200 || feet.y < -200 || feet.x > cam.viewW + 200 || feet.y > cam.viewH + 260) continue;
-      if (z >= 14) drawLabel(a.name, feet.x, feet.y + 1, ui, a.id === selected);
-      let anchorY: number;
-      let anchorX: number;
-      if (p.sleeping) {
-        const head = p.bedHorizontal ? cam.toScreen(p.x - 0.36, p.y) : cam.toScreen(p.x, p.y - 0.36);
-        drawZzz(head.x, head.y - 4 * ui, ui, now + a.id * 333);
-        anchorX = head.x;
-        anchorY = head.y - 30 * ui;
-      } else {
-        const top = cam.toScreen(p.x, p.y - 0.5);
-        anchorX = top.x;
-        anchorY = top.y - 2;
-        if (a.action?.icon && z >= 10) {
-          const iy = top.y - 12 * ui;
-          drawIcon(a.action.icon, top.x, iy, ui);
-          anchorY = iy - 12 * ui;
+      const isSel = a.id === selected;
+      const top = cam.toScreen(p.x, p.y + headTop(p.mode));
+      obstacles.push({ agentId: a.id, x: feet.x - 0.3 * AGENT_SCALE * z, y: top.y, w: 0.6 * AGENT_SCALE * z, h: feet.y - top.y });
+      let icon: Overlay['icon'] = null;
+      let head: Overlay['head'] = null;
+      if (p.sleeping) head = p.bedHorizontal ? cam.toScreen(p.x - 0.36, p.y) : cam.toScreen(p.x, p.y - 0.36);
+      else {
+        const speaking = a.bubble?.kind === 'speech' && !!a.bubble.text;
+        if (a.action?.icon && z >= 10 && (!speaking || isSel)) {
+          icon = { x: top.x, y: top.y - 17 * ui };
+          obstacles.push({ agentId: a.id, x: icon.x - iconR, y: icon.y - iconR, w: iconR * 2, h: iconR * 2 + 5 * ui });
         }
       }
-      if (a.bubble && a.bubble.text) bubbles.push({ agentId: a.id, bubble: a.bubble, ax: anchorX, ay: anchorY });
+      items.push({ p, feet, top, icon, head, isSel });
     }
-    drawBubbles(c, bubbles, cam.viewW, cam.viewH);
+    // pass 2: name pills, nudged down while they collide with another pill or someone else's icon
+    if (z >= 14 || selected !== null) {
+      const placedLabels: { id: number; x: number; y: number; w: number; h: number }[] = [];
+      const lh = Math.max(10.5, 11 * ui) + 6 * ui;
+      for (const it of items) {
+        if (z < 14 && !it.isSel) continue;
+        const a = it.p.agent;
+        const lw = labelWidth(a.name, ui);
+        let ly = it.feet.y + 1;
+        for (let guard = 0; guard < 5; guard++) {
+          const r = { x: it.feet.x - lw / 2, y: ly, w: lw, h: lh };
+          const hitLabel = placedLabels.find((q) => overlapRect(r, q, 2));
+          const hitIcon = items.find((q) => q !== it && q.icon && overlapRect(r, { x: q.icon.x - iconR, y: q.icon.y - iconR, w: iconR * 2, h: iconR * 2 + 4 }, 1));
+          if (hitLabel) ly = hitLabel.y + hitLabel.h + 2;
+          else if (hitIcon?.icon) ly = hitIcon.icon.y + iconR + 6 * ui;
+          else break;
+        }
+        const lab = drawLabel(a.name, it.feet.x, ly, ui, it.isSel);
+        placedLabels.push({ id: a.id, x: it.feet.x - lab.w / 2, y: ly, w: lab.w, h: lab.h });
+        obstacles.push({ agentId: a.id, x: it.feet.x - lab.w / 2, y: ly, w: lab.w, h: lab.h });
+      }
+    }
+    // pass 3: icons, Zzz, bubble anchors
+    for (const it of items) {
+      const a = it.p.agent;
+      let anchorX = it.top.x;
+      let anchorY = it.top.y - 3;
+      if (it.head) {
+        drawZzz(it.head.x, it.head.y - 4 * ui, ui, now + a.id * 333);
+        anchorX = it.head.x;
+        anchorY = it.head.y - 30 * ui;
+      } else if (it.icon && a.action) {
+        drawIcon(a.action.icon, it.icon.x, it.icon.y, ui);
+        anchorY = it.icon.y - 13 * ui;
+      }
+      if (a.bubble && a.bubble.text)
+        bubbles.push({
+          agentId: a.id,
+          bubble: a.bubble,
+          ax: anchorX,
+          ay: anchorY,
+          priority: it.isSel ? 2 : a.id === followId ? 1 : 0,
+          conversationId: convOf.get(a.id) ?? null,
+        });
+    }
+    drawBubbles(c, bubbles, cam.viewW, cam.viewH, obstacles);
   }
 
   function pickAgent(clientX: number, clientY: number): Agent | null {
     const rect = canvas.getBoundingClientRect();
     const w = cam.toWorld(clientX - rect.left, clientY - rect.top);
-    const radius = Math.max(0.45, 14 / cam.zoom);
+    const radius = Math.max(0.55, 16 / cam.zoom);
     let best: Agent | null = null;
     let bestD = Infinity;
     for (const p of poses) {
-      const d = Math.hypot(w.x - p.x, w.y - (p.y - 0.08));
+      // centre of the (scaled) figure sits a bit above the tile centre
+      const d = Math.hypot(w.x - p.x, w.y - (p.y - 0.15));
       if (d < radius && d < bestD) {
         bestD = d;
         best = p.agent;
@@ -353,6 +590,15 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     },
     follow: (id) => {
       followId = id;
+    },
+    get following() {
+      return followId;
+    },
+    fitView,
+    toScreen: (wx, wy) => {
+      const r = canvas.getBoundingClientRect();
+      const p = cam.toScreen(wx, wy);
+      return { x: p.x + r.left, y: p.y + r.top };
     },
   };
 }

@@ -3,7 +3,7 @@
 
 import type { Grid, Room, TileKind, World } from '../types';
 import { UI_FONT, circle, hash2, rr, shade } from './colors';
-import { drawObject, isFlatObject } from './objects';
+import { drawObject, isFlatObject, isTallObject } from './objects';
 
 export interface StaticLayer {
   canvas: HTMLCanvasElement;
@@ -503,9 +503,11 @@ export function buildStaticLayer(world: World, prev?: StaticLayer): StaticLayer 
     const db = world.objectDefs[b.type];
     return a.pos.y + (da?.size.h ?? 1) - (b.pos.y + (db?.size.h ?? 1));
   });
-  for (const o of objs) drawObject(ctx, world.objectDefs[o.type], o, T);
+  // tree canopies overhang walls, so they go on top of the wall layer
+  for (const o of objs) if (!isTallObject(o.type)) drawObject(ctx, world.objectDefs[o.type], o, T);
 
   drawWallTops(ctx, g);
   drawDoors(ctx, g);
+  for (const o of objs) if (isTallObject(o.type)) drawObject(ctx, world.objectDefs[o.type], o, T);
   return { canvas, T };
 }

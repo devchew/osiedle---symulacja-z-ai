@@ -13,7 +13,7 @@ export interface Hud {
   destroy(): void;
 }
 
-/** top-centre bar: clock, day, phase, pause and speed controls; Space = pause, 1–4 = speed */
+/** top-centre bar: clock, day, phase, pause and speed controls, help popover; Space = pause, 1–4 = speed, H / ? = help */
 export function createHud(root: HTMLElement, controls: SimControls, world: World): Hud {
   root.classList.add('ui-panel', 'ui-hud');
   root.replaceChildren();
@@ -47,7 +47,54 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
   const mood = el('span', 'hud-stat');
   const statsBox = el('div', 'hud-stats', [pop, mood]);
 
-  root.append(timeBox, controlsBox, statsBox);
+  // help: small popover with keys and gestures
+  const helpBtn = el('button', 'hud-btn hud-help-btn', ['?']);
+  helpBtn.type = 'button';
+  helpBtn.title = 'Sterowanie (H)';
+  helpBtn.setAttribute('aria-haspopup', 'dialog');
+  helpBtn.setAttribute('aria-expanded', 'false');
+  const help = el('div', 'hud-help');
+  help.id = 'hud-help';
+  help.setAttribute('role', 'dialog');
+  help.setAttribute('aria-label', 'Sterowanie');
+  helpBtn.setAttribute('aria-controls', help.id);
+  help.hidden = true;
+  const HELP: [string, string][] = [
+    ['Spacja', 'pauza / wznów'],
+    ['1–4', 'prędkość 1× · 2× · 4× · 8×'],
+    ['przeciągnij', 'przesuń widok'],
+    ['WASD / strzałki', 'przesuń widok'],
+    ['kółko / szczypnięcie', 'przybliż i oddal'],
+    ['klik', 'szczegóły postaci'],
+    ['dwuklik', 'śledź postać kamerą'],
+    ['Esc', 'zamknij panel'],
+  ];
+  help.append(
+    el('h3', 'hud-help-title', ['Sterowanie']),
+    el(
+      'dl',
+      'hud-help-list',
+      HELP.flatMap(([k, v]) => [el('dt', '', k.split(' / ').flatMap((part, i) => (i ? [' / ', el('kbd', '', [part])] : [el('kbd', '', [part])]))), el('dd', '', [v])]),
+    ),
+    el('p', 'hud-help-note', ['Postacie żyją same — Ty tylko obserwujesz.']),
+  );
+  let helpOpen = false;
+  const setHelp = (open: boolean): void => {
+    helpOpen = open;
+    help.hidden = !open;
+    helpBtn.setAttribute('aria-expanded', String(open));
+    helpBtn.classList.toggle('is-active', open);
+  };
+  helpBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setHelp(!helpOpen);
+  });
+  const onDocDown = (e: PointerEvent): void => {
+    if (helpOpen && !help.contains(e.target as Node) && e.target !== helpBtn) setHelp(false);
+  };
+  document.addEventListener('pointerdown', onDocDown);
+
+  root.append(timeBox, controlsBox, statsBox, helpBtn, help);
 
   let lastKey = '';
   function update(): void {
@@ -86,6 +133,14 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const target = e.target as HTMLElement | null;
     if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+    if (e.key === 'Escape' && helpOpen) {
+      setHelp(false);
+      return;
+    }
+    if (e.key === '?' || e.code === 'KeyH') {
+      setHelp(!helpOpen);
+      return;
+    }
     if (e.code === 'Space') {
       e.preventDefault();
       controls.setPaused(!controls.paused);
@@ -105,6 +160,7 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
     update,
     destroy() {
       window.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onDocDown);
       root.replaceChildren();
     },
   };

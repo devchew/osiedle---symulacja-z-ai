@@ -13,6 +13,8 @@ export interface EventLog {
 }
 
 const MAX_ROWS = 40;
+/** rows visible while the log is collapsed (compact mode) */
+export const COMPACT_ROWS = 3;
 
 export const EVENT_ICONS: Record<SimEventKind, string> = {
   conversation: '💬',
@@ -27,7 +29,11 @@ export function formatEventTime(tick: number): string {
   return `D${t.day} ${formatClock(t)}`;
 }
 
-/** bottom-left collapsible list of the latest events, newest on top */
+/**
+ * bottom-left list of the latest events, newest on top. Collapsed (default) it
+ * shows only the last COMPACT_ROWS events so the map stays visible; expanded it
+ * becomes a scrollable list.
+ */
 export function createEventLog(root: HTMLElement, world: World, opts: EventLogOptions = {}): EventLog {
   root.classList.add('ui-panel', 'ui-log');
   root.setAttribute('aria-label', 'Dziennik zdarzeń');
@@ -35,7 +41,8 @@ export function createEventLog(root: HTMLElement, world: World, opts: EventLogOp
 
   const count = el('span', 'log-count');
   const chevron = el('span', 'log-chevron', ['▾']);
-  const toggle = el('button', 'log-toggle', [el('span', 'log-title', ['📜 Wydarzenia']), count, chevron]);
+  const hint = el('span', 'log-hint');
+  const toggle = el('button', 'log-toggle', [el('span', 'log-title', ['📜 Wydarzenia']), count, hint, chevron]);
   toggle.type = 'button';
   toggle.setAttribute('aria-expanded', 'true');
   const list = el('ol', 'log-list');
@@ -43,15 +50,18 @@ export function createEventLog(root: HTMLElement, world: World, opts: EventLogOp
   const empty = el('p', 'insp-empty', ['Na razie spokojnie…']);
   root.append(toggle, list, empty);
 
-  let collapsed = false;
+  let collapsed = true;
   try {
-    collapsed = localStorage.getItem('sim.log.collapsed') === '1';
+    collapsed = localStorage.getItem('sim.log.collapsed') !== '0';
   } catch {
     /* storage unavailable */
   }
   const applyCollapsed = () => {
     root.classList.toggle('is-collapsed', collapsed);
     toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.title = collapsed ? 'Pokaż więcej zdarzeń' : 'Zwiń dziennik';
+    setText(hint, collapsed ? 'więcej' : 'zwiń');
+    if (collapsed) list.scrollTop = 0;
   };
   applyCollapsed();
   toggle.addEventListener('click', () => {
@@ -96,11 +106,12 @@ export function createEventLog(root: HTMLElement, world: World, opts: EventLogOp
       list.prepend(frag);
       while (list.childElementCount > MAX_ROWS) list.lastElementChild!.remove();
       lastSeen = events[events.length - 1];
-      if (collapsed) unseen += fresh.length;
+      // events that don't fit in the compact view count as unseen
+      if (collapsed) unseen += Math.max(0, fresh.length - COMPACT_ROWS);
     }
     if (!collapsed) unseen = 0;
-    setText(count, collapsed && unseen > 0 ? String(Math.min(unseen, 99)) : '');
-    empty.hidden = list.childElementCount > 0 || collapsed;
+    setText(count, collapsed && unseen > 0 ? `+${Math.min(unseen, 99)}` : '');
+    empty.hidden = list.childElementCount > 0;
   }
 
   update();

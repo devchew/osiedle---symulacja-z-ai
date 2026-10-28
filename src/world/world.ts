@@ -9,6 +9,8 @@ import { createAgents } from '../agents/agent';
 import { computeMood, decayNeeds } from '../agents/needs';
 import { ambientChats, isAgentSleeping, tickConversations, updateAgent } from '../agents/actions';
 import { mostUrgentNeed } from '../agents/brain';
+import { assignBeds } from '../agents/home';
+import { narrateState } from '../agents/narration';
 import { createRelationships } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 
@@ -39,12 +41,13 @@ export function createWorld(seed = 1, opts: WorldOptions = {}): World {
     events: [],
     dialogue: opts.dialogue ?? createProceduralProvider(),
   };
+  assignBeds(world);
   pushEvent(world, 'info', `Nowy dzień na osiedlu. Mieszkańcy: ${agents.map((a) => a.name).join(', ')}`, []);
   return world;
 }
 
 const COMPLAINTS: Record<NeedKey, string[]> = {
-  hunger: ['Burczy mi w brzuchu…', 'Coś bym zjadł(a)'],
+  hunger: ['Burczy mi w brzuchu…', 'Coś by się zjadło'],
   energy: ['Padam z nóg…', 'Oczy same się zamykają'],
   fun: ['Nudy…', 'Przydałaby się jakaś rozrywka'],
   social: ['Z kim by tu pogadać?', 'Trochę samotnie…'],
@@ -74,5 +77,6 @@ export function tickWorld(world: World): void {
   for (const agent of world.agents) {
     agent.mood = computeMood(agent.needs, agent.traits);
     thinkAloud(world, agent);
+    narrateState(world, agent, isAgentSleeping(world, agent));
   }
 }

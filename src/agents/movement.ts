@@ -1,7 +1,7 @@
 import type { Agent } from '../types';
 
 /** tiles per tick (game minute) */
-export const WALK_SPEED = 0.45;
+export const WALK_SPEED = 0.55;
 
 /**
  * Moves the agent along its path by up to `speed` tiles, carrying leftover distance over

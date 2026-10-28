@@ -52,7 +52,16 @@ API:
 
 Notatki z integracji: pierwsza wersja wpadała w spiralę (przerywanie aktywności przy kilku krytycznych potrzebach → wieczne chodzenie). Naprawione progiem przerwania + strojeniem tempa (patrz DECISIONS).
 
-## Fala 3 — dopracowanie (3 agentów)
-- [ ] E „balans/soak”: `tests/soak.test.ts` 7 dni × 6 postaci, strojenie
-- [ ] F „polish wizualny”: animacje, czytelność, responsywność
-- [ ] G „LLM”: `LlmProvider` + proxy Vite middleware (`.env`, `claude-haiku-5-5`, timeout, fallback), przełącznik w UI
+## Fala 3 — dopracowanie (3 agentów) — [x]
+- [x] E „balans/soak”: `tests/soak.test.ts` (7 dni × 6 seedów; `SOAK_SEEDS=1,…,30` przechodzi), własne łóżka (`agents/home.ts`), pory posiłków, wpływ osobowości, omijanie się postaci, narracja zdarzeń (`agents/narration.ts`), metryki `tests/tools/metrics.ts`
+- [x] F „polish wizualny”: pozy (siedzenie, wanna, prysznic, rowerek), fryzury/karnacje, dymki bez nachodzenia, światło bez przenikania przez ściany, zmierzch/świt, chmury/staw/świetliki, pinch/WASD/dwuklik-follow, pomoc `?`, kompaktowy log, `e2e/visual.spec.ts`
+- [x] G „LLM”: `server/llmProxy.ts` (plugin Vite, dev + preview), `src/social/llmProvider.ts`, przełącznik `src/ui/llmToggle.ts`, `.env.example`, `tests/llm.test.ts`
+- [x] Orkiestrator: drzwi pokój hobby → ogród, limit postaci w URL = liczba łóżek
+
+## Pomysły na kolejne fale (backlog)
+- [ ] Mapa: krótsze dystanse / więcej drzwi lub drugi dom (postacie chodzą ~5,7 h na dobę gry)
+- [ ] Więcej łóżek / 4. sypialnia → >6 mieszkańców
+- [ ] Wspomnienia i plotki (rozmowy odnoszą się do wydarzeń z logu)
+- [ ] Zapis/odczyt stanu (localStorage), wybór seeda w UI
+- [ ] Prawdziwy test dialogów AI z kluczem (nie było klucza w sesji budowy)
+- [ ] Ostrzeżenie Vite o imporcie `server/llmProxy` bez rozszerzenia (nieszkodliwe)

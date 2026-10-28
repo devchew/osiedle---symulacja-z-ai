@@ -17,15 +17,15 @@ export const NEED_DECAY: Record<NeedKey, number> = {
 export const SLEEP_DECAY_FACTOR: Record<NeedKey, number> = {
   hunger: 0.4,
   energy: 0,
-  fun: 0.1,
-  social: 0.1,
-  hygiene: 0.4,
+  fun: 0.05,
+  social: 0.02,
+  hygiene: 0.25,
   comfort: 0.1,
 };
 
 /** how strongly traits scale decay: rate *= 1 + trait * factor */
 export const TRAIT_DECAY = {
-  socialPerSociability: 0.4,
+  socialPerSociability: 0.3,
   funPerActivity: 0.3,
   energyPerActivity: 0.15,
   hygienePerNeatness: 0.3,

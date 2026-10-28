@@ -775,6 +775,11 @@ export function isFlatObject(type: string): boolean {
   return drawerFor(type) === rug;
 }
 
+/** objects whose top (tree canopy) should be drawn above walls */
+export function isTallObject(type: string): boolean {
+  return drawerFor(type) === tree;
+}
+
 export function isLampObject(type: string): boolean {
   return drawerFor(type) === lamp;
 }

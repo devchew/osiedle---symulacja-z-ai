@@ -39,14 +39,18 @@ function formatMinutes(min: number): string {
   return h > 0 ? `${h} h ${m} min` : `${m} min`;
 }
 
-function actionText(a: Action | null, world: World): string {
-  if (!a) return '💭 Zastanawia się, co robić';
-  let text = `${a.icon} ${a.label}`;
+/** "what is the agent doing now": icon, label and a short state hint */
+export function actionInfo(a: Action | null, world: World): { icon: string; text: string; state: string } {
+  if (!a) return { icon: '💭', text: 'Zastanawia się, co robić', state: '' };
+  let text = a.label;
+  let state = '';
   if (a.kind === 'talk') {
     const partner = world.agents.find((x) => x.id === a.partnerId);
     if (partner && !a.label.includes(partner.name)) text += ` · ${partner.name}`;
-  }
-  return text;
+    state = a.phase === 'approaching' ? 'podchodzi' : 'rozmawia';
+  } else if (a.kind === 'use') state = a.phase === 'walking' ? 'w drodze' : 'w trakcie';
+  else if (a.kind === 'wander') state = 'spacer';
+  return { icon: a.icon || '•', text, state };
 }
 
 interface BarRow {
@@ -86,7 +90,15 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
   const header = el('header', 'insp-header', [dot, name, el('div', 'insp-actions', [followBtn, closeBtn])]);
 
   const traits = el('div', 'insp-traits');
-  const action = el('div', 'insp-action');
+  const nowIcon = el('span', 'insp-now-icon');
+  const nowText = el('span', 'insp-now-text');
+  const nowState = el('span', 'insp-now-state');
+  const action = el('div', 'insp-now', [
+    nowIcon,
+    el('div', 'insp-now-body', [el('span', 'insp-now-label', ['Co teraz robi']), nowText]),
+    nowState,
+  ]);
+  action.setAttribute('aria-live', 'polite');
 
   const moodRow = barRow('Nastrój', '🙂');
   moodRow.row.classList.add('bar-row--mood');
@@ -212,7 +224,18 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
     if (dot.style.background !== a.color) dot.style.background = a.color;
     setText(name, a.name);
     renderTraits(a);
-    setText(action, actionText(a.action, world));
+    const info = actionInfo(a.action, world);
+    if (nowIcon.textContent !== info.icon) {
+      setText(nowIcon, info.icon);
+      // restart the little pop animation when the activity changes
+      nowIcon.classList.remove('is-pop');
+      void nowIcon.offsetWidth;
+      nowIcon.classList.add('is-pop');
+    }
+    setText(nowText, info.text);
+    setText(nowState, info.state);
+    nowState.hidden = !info.state;
+    action.dataset.state = a.action?.kind === 'use' && a.action.phase === 'using' ? 'busy' : 'moving';
 
     setText(moodRow.row.querySelector('.bar-icon')!, moodEmoji(a.mood));
     setBar(moodRow.fill, a.mood);
@@ -240,7 +263,11 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
     traitsKey = '';
     relKey = '';
     root.hidden = false;
+    // a freshly shown agent gets its bars instantly; later updates glide
+    root.classList.add('no-anim');
     update();
+    void root.offsetWidth;
+    requestAnimationFrame(() => root.classList.remove('no-anim'));
   }
 
   return {
