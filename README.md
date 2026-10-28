@@ -14,7 +14,13 @@ npm run dev          # http://localhost:5173
 klik w postać = inspektor (potrzeby, cel dnia, relacje, wspomnienia), dwuklik = śledzenie,
 T = statystyki (sieć relacji, nastroje), Z = zapis/wczytanie, N = nowy świat, L = pobierz log aktywności, `?` = pomoc.
 
-**Parametry URL:** `?seed=7` (powtarzalny świat), `?hour=21` lub `?tick=2000` (przewiń), `?agents=4` (1–8), `?paused`.
+**Domy:** w oknie „Nowy świat” (klawisz N) do wyboru Dom z ogrodem, Kamienica, Domek nad jeziorem i Akademik.
+
+**Telewizja:** gdy ktoś ogląda TV, nad telewizorem leci pasek wiadomości: prawdziwe nagłówki z polskich serwisów (RSS przez serwer Vite, ustawienie `NEWS_FEEDS`, `off` wyłącza), a bez sieci „Wiadomości z osiedla”. Mieszkańcy potem o nich rozmawiają.
+
+**Tryb na żywo:** `?mode=real` albo zaznaczenie w oknie „Nowy świat”: zegar gry = Twój zegar, pogoda z Open-Meteo dla Twojej lokalizacji (domyślnie Warszawa, `?lat=&lon=`). Bez przyspieszania i zapisów.
+
+**Parametry URL:** `?seed=7` (powtarzalny świat), `?hour=21` lub `?tick=2000` (przewiń), `?agents=4` (1–8), `?map=akademik`, `?mode=real`, `?news=off`, `?paused`.
 
 **Dialogi AI (opcjonalnie, OpenRouter):** `cp .env.example .env`, wpisz `OPENROUTER_API_KEY`, zrestartuj
 `npm run dev` i kliknij przełącznik w lewym górnym rogu. Domyślnie używane są wyłącznie darmowe modele
