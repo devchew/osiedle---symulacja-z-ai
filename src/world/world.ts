@@ -14,6 +14,7 @@ import { narrateState } from '../agents/narration';
 import { createRelationships } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 import { updateMemories } from '../social/memory';
+import { tickIncidents } from './incidents';
 
 export interface WorldOptions {
   agentCount?: number;
@@ -73,6 +74,7 @@ export function tickWorld(world: World): void {
     if (agent.bubble && --agent.bubble.ttl <= 0) agent.bubble = null;
   }
   for (const agent of world.agents) updateAgent(world, agent, time);
+  tickIncidents(world);
   updateMemories(world);
   tickConversations(world, time);
   ambientChats(world);

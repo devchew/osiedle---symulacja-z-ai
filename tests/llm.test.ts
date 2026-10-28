@@ -1,12 +1,14 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type Anthropic from '@anthropic-ai/sdk';
 import { createRng } from '../src/core/rng';
 import { timeFromTick } from '../src/core/time';
 import {
   LLM_MAX_LINE,
   buildLineRequest,
+  fetchLlmStatus,
+  gossipCandidates,
+  modelShortName,
   createLlmProvider,
   describeNeeds,
   describeTraits,
@@ -15,18 +17,23 @@ import {
   type LlmLineRequest,
 } from '../src/social/llmProvider';
 import {
-  LINE_SCHEMA,
-  LLM_MODEL,
+  DEFAULT_MODELS,
+  OPENROUTER_CHAT_URL,
   SYSTEM_PROMPT,
-  buildMessageParams,
+  buildChatRequest,
+  buildHeaders,
   buildUserPrompt,
+  createDailyBudget,
   createLlmHandler,
   createRateLimiter,
-  parseModelMessage,
+  extractJson,
+  parseCompletion,
+  parseDailyLimit,
+  parseModelList,
+  parseModelText,
   validateLineRequest,
-  type MessagesClient,
 } from '../server/llmProxy';
-import type { Agent, ConversationContext, Traits } from '../src/types';
+import type { Agent, ConversationContext, Gossip, Traits } from '../src/types';
 
 function makeAgent(id: number, name: string, traits: Partial<Traits> = {}, extra: Partial<Agent> = {}): Agent {
   return {
@@ -116,7 +123,10 @@ describe('buildLineRequest', () => {
 
 describe('parseLineResponse', () => {
   it('accepts valid bodies and rejects malformed ones', () => {
-    expect(parseLineResponse({ text: 'Hej!', tone: 'positive' })).toEqual({ text: 'Hej!', tone: 'positive' });
+    expect(parseLineResponse({ text: 'Hej!', tone: 'positive' })).toEqual({ text: 'Hej!', tone: 'positive', gossip: null });
+    expect(parseLineResponse({ text: 'Hej!', tone: 'positive', gossip: 1 }, undefined, 2)).toMatchObject({ gossip: 1 });
+    expect(parseLineResponse({ text: 'Hej!', tone: 'positive', gossip: 2 }, undefined, 2)).toMatchObject({ gossip: null });
+    expect(parseLineResponse({ text: 'Hej!', tone: 'positive', gossip: 0.5 }, undefined, 2)).toMatchObject({ gossip: null });
     expect(parseLineResponse({ text: 'Hej!', tone: 'happy' })).toBeNull();
     expect(parseLineResponse({ text: '   ', tone: 'neutral' })).toBeNull();
     expect(parseLineResponse({ tone: 'neutral' })).toBeNull();
@@ -140,6 +150,38 @@ describe('createLlmProvider', () => {
     const sent = JSON.parse(String(init?.body)) as LlmLineRequest;
     expect(sent.topic).toBe('muzyka');
     expect(sent.turn).toBe(2);
+    expect(sent.gossip).toEqual([]);
+  });
+
+  it('sets DialogueLine.gossip to the exact Gossip object the model retold', async () => {
+    const stories: Gossip[] = [
+      { text: 'Bartek przypala obiad', aboutIds: [2], valence: -0.6 },
+      { text: 'Kasia wygrywa w szachy', aboutIds: [3], valence: 0.7 },
+      { text: 'Ola i Bartek tańczą w ogrodzie', aboutIds: [1, 2], valence: 0.5, shared: true },
+      { text: 'Czwarta historia', aboutIds: [3], valence: 0 },
+    ];
+    const fetchMock = vi.fn(async (_u: RequestInfo | URL, _i?: RequestInit) => jsonResponse({ text: 'Słyszysz? Kasia wygrywa w szachy!', tone: 'positive', gossip: 1 }));
+    const provider = createLlmProvider({ fetch: fetchMock as unknown as typeof fetch });
+    const line = await provider.nextLine(makeCtx({ gossip: stories }), rng);
+    expect(line.gossip).toBe(stories[1]);
+    const sent = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as LlmLineRequest;
+    expect(sent.gossip).toEqual([
+      { text: 'Bartek przypala obiad', valence: -0.6, shared: false },
+      { text: 'Kasia wygrywa w szachy', valence: 0.7, shared: false },
+      { text: 'Ola i Bartek tańczą w ogrodzie', valence: 0.5, shared: true },
+    ]);
+    // out-of-range index → plain line
+    fetchMock.mockImplementation(async () => jsonResponse({ text: 'No hej.', tone: 'neutral', gossip: 7 }));
+    expect((await provider.nextLine(makeCtx({ gossip: stories }), rng)).gossip).toBeUndefined();
+  });
+
+  it('offers no stories already told, and none once the speaker told one', () => {
+    const g1: Gossip = { text: 'A robi B', aboutIds: [3], valence: 0 };
+    const g2: Gossip = { text: 'C robi D', aboutIds: [3], valence: 0 };
+    const heard = makeCtx({ gossip: [g1, g2], history: [{ speakerId: 2, text: 'x', tone: 'neutral', gossip: g1 }] });
+    expect(gossipCandidates(heard)).toEqual([g2]);
+    const told = makeCtx({ gossip: [g1, g2], history: [{ speakerId: 1, text: 'x', tone: 'neutral', gossip: g1 }] });
+    expect(gossipCandidates(told)).toEqual([]);
   });
 
   it('rejects on HTTP errors and malformed responses', async () => {
@@ -209,49 +251,105 @@ describe('prompt builder', () => {
     expect(p).toContain('Temat rozmowy: muzyka');
     expect(p).toContain('Bartek: Hej Ola!');
     expect(p).toContain('Napisz następną kwestię postaci Ola.');
+    expect(p).toContain('"gossip" ustaw na null');
     expect(buildUserPrompt({ ...validRequest(), turn: 0, history: [] })).toContain('przywitaj się');
     expect(buildUserPrompt({ ...validRequest(), isLast: true })).toContain('pożegnaj się');
+    expect(SYSTEM_PROMPT).toContain('JSON');
+    expect(SYSTEM_PROMPT).toContain(`maksymalnie ${LLM_MAX_LINE} znaków`);
   });
 
-  it('builds Messages API params with Haiku, a small budget and a JSON schema', () => {
-    const params = buildMessageParams(validRequest());
-    expect(params.model).toBe(LLM_MODEL);
-    expect(LLM_MODEL).toBe('claude-haiku-5-5');
-    expect(params.max_tokens).toBeLessThanOrEqual(1024);
-    expect(params.system).toBe(SYSTEM_PROMPT);
-    expect(params.output_config?.format).toEqual({ type: 'json_schema', schema: LINE_SCHEMA });
-    expect(params.output_config?.effort).toBe('low');
-    expect(params).not.toHaveProperty('temperature');
-    expect(params.messages).toHaveLength(1);
-    expect(params.messages[0].role).toBe('user');
-  });
-});
-
-const msg = (text: string, stop: Anthropic.StopReason = 'end_turn'): Pick<Anthropic.Message, 'content' | 'stop_reason'> => ({
-  stop_reason: stop,
-  content: [{ type: 'text', text, citations: null } as Anthropic.TextBlock],
-});
-
-describe('parseModelMessage', () => {
-  it('parses structured output and sanitizes it', () => {
-    expect(parseModelMessage(msg('{"text":"„Gramy coś?”","tone":"positive"}'))).toEqual({ text: 'Gramy coś?', tone: 'positive' });
+  it('lists numbered stories (with shared flag) mid-conversation only', () => {
+    const r = { ...validRequest(), gossip: [{ text: 'Kasia przypala obiad', valence: -0.6, shared: false }, { text: 'Ola i Bartek tańczą', valence: 0.5, shared: true }] };
+    const p = buildUserPrompt(r);
+    expect(p).toContain('0. Kasia przypala obiad (wstydliwa)');
+    expect(p).toContain('1. Ola i Bartek tańczą (miła; wspólne wspomnienie z: Bartek)');
+    expect(buildUserPrompt({ ...r, isLast: true })).not.toContain('Kasia przypala obiad');
   });
 
-  it('skips thinking blocks and reads the text block', () => {
-    const m = { stop_reason: 'end_turn' as const, content: [{ type: 'thinking', thinking: '', signature: 's' }, ...msg('{"text":"Hej","tone":"neutral"}').content] };
-    expect(parseModelMessage(m as Pick<Anthropic.Message, 'content' | 'stop_reason'>)).toEqual({ text: 'Hej', tone: 'neutral' });
+  it('builds an OpenRouter chat-completions body with the free fallback chain', () => {
+    const body = buildChatRequest(validRequest());
+    expect(body.models).toEqual([...DEFAULT_MODELS]);
+    expect(DEFAULT_MODELS.every((m) => m.endsWith(':free'))).toBe(true);
+    expect(body).not.toHaveProperty('model');
+    expect(body.messages.map((m) => m.role)).toEqual(['system', 'user']);
+    expect(body.messages[0].content).toBe(SYSTEM_PROMPT);
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.max_tokens).toBeLessThanOrEqual(400);
+    expect(body.reasoning).toEqual({ enabled: false });
+    expect(body.stream).toBe(false);
+    expect(buildChatRequest(validRequest(), ['a/b:free']).models).toEqual(['a/b:free']);
   });
 
-  it('rejects refusals, truncation, bad JSON and bad tones', () => {
-    expect(parseModelMessage(msg('{"text":"Hej","tone":"neutral"}', 'refusal'))).toBeNull();
-    expect(parseModelMessage(msg('{"text":"Hej","tone":"neu', 'max_tokens'))).toBeNull();
-    expect(parseModelMessage(msg('Hej!'))).toBeNull();
-    expect(parseModelMessage(msg('{"text":"Hej","tone":"angry"}'))).toBeNull();
-    expect(parseModelMessage({ stop_reason: 'end_turn', content: [] })).toBeNull();
+  it('builds headers with bearer auth and app attribution', () => {
+    const h = buildHeaders('test-key');
+    expect(h.Authorization).toBe('Bearer test-key');
+    expect(h['Content-Type']).toBe('application/json');
+    expect(h['X-OpenRouter-Title']).toBeTruthy();
+    expect(h['HTTP-Referer']).toBeTruthy();
   });
 });
 
-describe('createRateLimiter', () => {
+describe('config parsing', () => {
+  it('parses OPENROUTER_MODELS, dedupes, caps at 3 and defaults to free models', () => {
+    expect(parseModelList(undefined)).toEqual([...DEFAULT_MODELS]);
+    expect(parseModelList('  ')).toEqual([...DEFAULT_MODELS]);
+    expect(parseModelList('a/b:free, c/d ,a/b:free,bad id,x/y,z/w')).toEqual(['a/b:free', 'c/d', 'x/y']);
+    expect(parseDailyLimit('50')).toBe(50);
+    expect(parseDailyLimit('')).toBe(180);
+    expect(parseDailyLimit('-3')).toBe(180);
+  });
+
+  it('shortens model ids for the UI', () => {
+    expect(modelShortName('google/gemma-4-31b-it:free')).toBe('gemma-4-31b-it');
+    expect(modelShortName('openai/gpt-x')).toBe('gpt-x');
+  });
+});
+
+const completion = (content: string, extra: Record<string, unknown> = {}) => ({
+  model: 'google/gemma-4-31b-it:free',
+  choices: [{ finish_reason: 'stop', message: { role: 'assistant', content } }],
+  ...extra,
+});
+
+describe('model output parsing', () => {
+  it('parses plain JSON and sanitizes it', () => {
+    expect(parseModelText('{"text":"„Gramy coś?”","tone":"positive","gossip":null}')).toEqual({ text: 'Gramy coś?', tone: 'positive', gossip: null });
+  });
+
+  it('accepts JSON wrapped in code fences or chatter', () => {
+    expect(extractJson('```json\n{"a":1}\n```')).toEqual({ a: 1 });
+    expect(parseModelText('Oto odpowiedź: {"text":"Hej","tone":"neutral"} :)')).toEqual({ text: 'Hej', tone: 'neutral', gossip: null });
+  });
+
+  it('rejects invalid JSON, bad tones and empty text', () => {
+    expect(parseModelText('Hej!')).toBeNull();
+    expect(parseModelText('{"text":"Hej","tone":"angry"}')).toBeNull();
+    expect(parseModelText('{"text":"  ","tone":"neutral"}')).toBeNull();
+    expect(parseModelText('[1,2]')).toBeNull();
+  });
+
+  it('validates the gossip index against the offered stories', () => {
+    expect(parseModelText('{"text":"Wiesz co?","tone":"neutral","gossip":1}', undefined, 2)?.gossip).toBe(1);
+    expect(parseModelText('{"text":"Wiesz co?","tone":"neutral","gossip":2}', undefined, 2)?.gossip).toBeNull();
+    expect(parseModelText('{"text":"Wiesz co?","tone":"neutral","gossip":"0"}', undefined, 2)?.gossip).toBeNull();
+    expect(parseModelText('{"text":"Wiesz co?","tone":"neutral","gossip":-1}', undefined, 2)?.gossip).toBeNull();
+    expect(parseModelText('{"text":"Wiesz co?","tone":"neutral","gossip":0}')?.gossip).toBeNull();
+  });
+
+  it('reads chat completions and rejects errors / truncation', () => {
+    expect(parseCompletion(completion('{"text":"Hej","tone":"neutral","gossip":null}'))).toEqual({
+      line: { text: 'Hej', tone: 'neutral', gossip: null },
+      model: 'google/gemma-4-31b-it:free',
+    });
+    expect(parseCompletion({ ...completion('{"text":"Hej","tone":"neutral"}'), choices: [{ finish_reason: 'length', message: { content: '{"text":"He' } }] })).toBeNull();
+    expect(parseCompletion(completion('{"text":"Hej","tone":"neutral"}', { error: { code: 502, message: 'x' } }))).toBeNull();
+    expect(parseCompletion({ error: { code: 429, message: 'x' } })).toBeNull();
+    expect(parseCompletion({ choices: [] })).toBeNull();
+    expect(parseCompletion(null)).toBeNull();
+  });
+});
+
+describe('limits', () => {
   it('allows N requests per sliding window', () => {
     let t = 0;
     const rl = createRateLimiter(3, 1000, () => t);
@@ -261,9 +359,25 @@ describe('createRateLimiter', () => {
     t = 1000;
     expect(rl.tryAcquire()).toBe(true);
   });
+
+  it('caps requests per UTC day, resets at midnight and syncs with the account quota', () => {
+    let t = Date.UTC(2026, 9, 28, 23, 59);
+    const d = createDailyBudget(3, () => t);
+    expect([d.tryAcquire(), d.tryAcquire(), d.tryAcquire(), d.tryAcquire()]).toEqual([true, true, true, false]);
+    t = Date.UTC(2026, 9, 29, 0, 1);
+    expect(d.used).toBe(0);
+    expect(d.tryAcquire()).toBe(true);
+    d.sync(48, 50); // account already used 48 of 50 free requests today
+    expect(d.limit).toBe(3);
+    expect(d.used).toBe(48);
+    expect(d.tryAcquire()).toBe(false);
+    const big = createDailyBudget(180, () => t);
+    big.sync(48, 50);
+    expect([big.limit, big.tryAcquire(), big.tryAcquire(), big.tryAcquire()]).toEqual([50, true, true, false]);
+  });
 });
 
-// ------------------------------------------------------------------ HTTP handler (fake SDK client, no network)
+// ------------------------------------------------------------------ HTTP handler (fake fetch, no network)
 
 describe('createLlmHandler', () => {
   let server: Server | null = null;
@@ -283,38 +397,91 @@ describe('createLlmHandler', () => {
     return `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
   }
 
-  const fakeClient = (impl: (p: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>): MessagesClient => ({
-    messages: { create: (p) => impl(p) },
-  });
   const post = (base: string, body: unknown) =>
     fetch(`${base}/api/llm/line`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const fakeUpstream = (impl: (url: string, init: RequestInit) => Response | Promise<Response>) =>
+    vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => impl(String(url), init ?? {}));
 
   it('reports unavailable without a key and refuses lines with 503', async () => {
     const base = await serve(createLlmHandler({ apiKey: undefined }));
-    expect(await (await fetch(`${base}/api/llm/status`)).json()).toEqual({ available: false, model: LLM_MODEL });
+    expect(await (await fetch(`${base}/api/llm/status`)).json()).toEqual({ available: false, provider: 'openrouter', models: [...DEFAULT_MODELS] });
     expect((await post(base, validRequest())).status).toBe(503);
     expect((await fetch(`${base}/other`)).status).toBe(404);
   });
 
-  it('proxies a line through the (fake) SDK client', async () => {
-    const create = vi.fn(async () => msg('{"text":"Słucham teraz jazzu!","tone":"positive"}') as Anthropic.Message);
-    const base = await serve(createLlmHandler({ apiKey: 'test', createClient: () => fakeClient(create) }));
-    expect(await (await fetch(`${base}/api/llm/status`)).json()).toEqual({ available: true, model: LLM_MODEL });
-    const res = await post(base, validRequest());
+  it('proxies a line to OpenRouter (fake fetch) and returns the answering model', async () => {
+    const upstream = fakeUpstream(() => jsonResponse(completion('{"text":"Słucham teraz jazzu!","tone":"positive","gossip":0}')));
+    const models = ['a/one:free', 'b/two:free'];
+    const base = await serve(createLlmHandler({ apiKey: 'test-key', models, fetch: upstream as unknown as typeof fetch }));
+    const status = (await (await fetch(`${base}/api/llm/status`)).json()) as Awaited<ReturnType<typeof fetchLlmStatus>>;
+    expect(status).toEqual({ available: true, provider: 'openrouter', models });
+    const res = await post(base, { ...validRequest(), gossip: [{ text: 'Kasia gra na gitarze', valence: 0.5, shared: false }] });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ text: 'Słucham teraz jazzu!', tone: 'positive' });
-    expect(create).toHaveBeenCalledTimes(1);
+    expect(await res.json()).toEqual({ text: 'Słucham teraz jazzu!', tone: 'positive', gossip: 0, model: 'google/gemma-4-31b-it:free' });
+    expect(upstream).toHaveBeenCalledTimes(1);
+    const [url, init] = upstream.mock.calls[0];
+    expect(String(url)).toBe(OPENROUTER_CHAT_URL);
+    expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer test-key');
+    const sent = JSON.parse(String(init!.body)) as ReturnType<typeof buildChatRequest>;
+    expect(sent.models).toEqual(models);
+    expect(sent.messages[1].content).toContain('0. Kasia gra na gitarze');
   });
 
   it('maps invalid input, unusable output, rate limits and cross-site calls to error codes', async () => {
-    const create = vi.fn(async () => msg('nope') as Anthropic.Message);
+    const upstream = fakeUpstream(() => jsonResponse(completion('nope')));
     const base = await serve(
-      createLlmHandler({ apiKey: 'test', createClient: () => fakeClient(create), limiter: createRateLimiter(2, 60_000), log: () => {} }),
+      createLlmHandler({ apiKey: 'test', fetch: upstream as unknown as typeof fetch, limiter: createRateLimiter(3, 60_000), log: () => {} }),
     );
     expect((await post(base, { junk: true })).status).toBe(400);
+    expect((await post(base, { ...validRequest(), gossip: [1, 2, 3, 4] })).status).toBe(400);
     expect((await post(base, validRequest())).status).toBe(503);
     expect((await post(base, validRequest())).status).toBe(429);
     const cross = await fetch(`${base}/api/llm/line`, { method: 'POST', headers: { Origin: 'https://evil.example' }, body: '{}' });
     expect(cross.status).toBe(403);
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps upstream 429 (and backs off), 402/5xx and timeouts', async () => {
+    let t = 0;
+    let mode: 'r429' | 'r402' | 'hang' | 'ok' = 'r429';
+    const upstream = fakeUpstream((_u, init) => {
+      if (mode === 'r429') return new Response(JSON.stringify({ error: { code: 429, message: 'rate' } }), { status: 429, headers: { 'Retry-After': '30' } });
+      if (mode === 'r402') return jsonResponse({ error: { code: 402, message: 'credits' } }, 402);
+      if (mode === 'hang')
+        return new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
+      return jsonResponse(completion('{"text":"Hej","tone":"neutral","gossip":null}'));
+    });
+    const base = await serve(createLlmHandler({ apiKey: 'k', fetch: upstream as unknown as typeof fetch, timeoutMs: 50, now: () => t, log: () => {} }));
+    expect((await post(base, validRequest())).status).toBe(429);
+    mode = 'ok';
+    expect((await post(base, validRequest())).status).toBe(429); // Retry-After still running, no upstream call
+    expect(upstream).toHaveBeenCalledTimes(1);
+    t = 31_000;
+    expect((await post(base, validRequest())).status).toBe(200);
+    mode = 'r402';
+    expect((await post(base, validRequest())).status).toBe(503);
+    mode = 'hang';
+    expect((await post(base, validRequest())).status).toBe(504);
+  });
+
+  it('stops at the daily budget with 429', async () => {
+    const upstream = fakeUpstream(() => jsonResponse(completion('{"text":"Hej","tone":"neutral"}')));
+    const base = await serve(createLlmHandler({ apiKey: 'k', fetch: upstream as unknown as typeof fetch, daily: createDailyBudget(2) }));
+    expect((await post(base, validRequest())).status).toBe(200);
+    expect((await post(base, { junk: 1 })).status).toBe(400); // invalid input does not spend the budget
+    expect((await post(base, validRequest())).status).toBe(200);
+    const res = await post(base, validRequest());
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: 'daily limit reached' });
+    expect(upstream).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('fetchLlmStatus', () => {
+  it('reads provider + models and degrades gracefully', async () => {
+    const ok = (async () => jsonResponse({ available: true, provider: 'openrouter', models: ['a/b:free', 3] })) as typeof fetch;
+    expect(await fetchLlmStatus(ok)).toEqual({ available: true, provider: 'openrouter', models: ['a/b:free'] });
+    expect(await fetchLlmStatus((async () => jsonResponse({}, 500)) as typeof fetch)).toEqual({ available: false, models: [] });
+    expect(await fetchLlmStatus((async () => { throw new Error('x'); }) as typeof fetch)).toEqual({ available: false, models: [] });
   });
 });

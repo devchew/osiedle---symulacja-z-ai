@@ -6,6 +6,8 @@ import { urgency } from './needs';
 import { chatAcceptanceChance } from '../social/conversation';
 import { goalObjectBias, goalTalkBias, type GoalBias } from './goals';
 
+import { availability } from '../world/incidents';
+
 // Utility AI: every candidate activity advertises how much it would reduce the
 // agent's "discomfort"; the agent picks one of the best few, weighted by score.
 
@@ -238,7 +240,7 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
     if (!def || def.slots.length === 0) continue;
     const slot = freeSlot(obj);
     if (slot < 0) continue;
-    let base = scoreObject(agent, def, time);
+    let base = scoreObject(agent, def, time) * availability(world, obj, def);
     if (!isSleepingObject(def)) base = withGoal(base, goalObjectBias(world, agent, obj, time), calm);
     if (base <= 0) continue;
     if (isSleepingObject(def) && own !== undefined) {

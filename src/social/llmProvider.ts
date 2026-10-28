@@ -1,8 +1,8 @@
-import type { ConversationContext, DialogueLine, DialogueProvider, NeedKey, Tone, Traits } from '../types';
+import type { ConversationContext, DialogueLine, DialogueProvider, Gossip, NeedKey, Tone, Traits } from '../types';
 import { NEED_KEYS, NEED_LABELS } from '../types';
 import { relationshipLabel } from './relationships';
 
-// LLM-backed dialogue. The browser never talks to Anthropic directly: it posts
+// LLM-backed dialogue. The browser never talks to OpenRouter directly: it posts
 // a compact context to the local proxy (server/llmProxy.ts, a Vite plugin),
 // which holds the API key. Any failure rejects the promise, and
 // agents/actions.ts then falls back to the procedural provider.
@@ -12,6 +12,8 @@ export const LLM_LINE_URL = '/api/llm/line';
 /** hard cap on a spoken line (bubble-friendly) */
 export const LLM_MAX_LINE = 70;
 export const LLM_HISTORY_LINES = 6;
+/** at most this many remembered stories are offered to the model per line */
+export const LLM_MAX_GOSSIP = 3;
 const TONES: readonly Tone[] = ['positive', 'neutral', 'negative'];
 
 /** compact, JSON-serialisable context sent to the proxy (no agent objects, no ids) */
@@ -34,11 +36,29 @@ export interface LlmLineRequest {
   history: { speaker: string; text: string }[];
   turn: number;
   isLast: boolean;
+  /** stories the speaker could retell (≤ 3); the model answers with the index of the one it used */
+  gossip?: LlmGossip[];
+}
+
+export interface LlmGossip {
+  /** Polish third-person phrase, e.g. "Ola przypala obiad" */
+  text: string;
+  /** -1 embarrassing .. 1 admirable */
+  valence: number;
+  /** both speaker and listener lived through it */
+  shared: boolean;
 }
 
 export interface LlmLineResponse {
   text: string;
   tone: Tone;
+  /** index into the request's `gossip` when the line retells that story, else null */
+  gossip: number | null;
+}
+
+/** true when `v` is a valid index into a gossip list of length `count` */
+export function isGossipIndex(v: unknown, count: number): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < count;
 }
 
 export function isTone(v: unknown): v is Tone {
@@ -94,7 +114,18 @@ export function describeNeeds(needs: Record<NeedKey, number>): string {
 
 const TIME_OF_DAY = { morning: 'rano', day: 'w ciągu dnia', evening: 'wieczorem', night: 'w nocy' } as const;
 
-export function buildLineRequest(ctx: ConversationContext): LlmLineRequest {
+/**
+ * stories offered to the model for this line: none once the speaker has told one in this
+ * conversation (same rule as the procedural provider), never one already told, at most 3
+ */
+export function gossipCandidates(ctx: ConversationContext): Gossip[] {
+  if (!ctx.gossip?.length) return [];
+  if (ctx.history.some((l) => l.gossip && l.speakerId === ctx.speaker.id)) return [];
+  const told = new Set(ctx.history.filter((l) => l.gossip).map((l) => l.gossip!.text));
+  return ctx.gossip.filter((g) => !told.has(g.text)).slice(0, LLM_MAX_GOSSIP);
+}
+
+export function buildLineRequest(ctx: ConversationContext, candidates: Gossip[] = gossipCandidates(ctx)): LlmLineRequest {
   const names = new Map([
     [ctx.speaker.id, ctx.speaker.name],
     [ctx.listener.id, ctx.listener.name],
@@ -112,20 +143,21 @@ export function buildLineRequest(ctx: ConversationContext): LlmLineRequest {
     history: ctx.history.slice(-LLM_HISTORY_LINES).map((l) => ({ speaker: names.get(l.speakerId) ?? '?', text: l.text })),
     turn: ctx.turn,
     isLast: ctx.isLast,
+    gossip: candidates.map((g) => ({ text: g.text, valence: Math.round(g.valence * 100) / 100, shared: !!g.shared })),
   };
 }
 
-/** validates a proxy response; null when unusable */
-export function parseLineResponse(body: unknown, speakerName?: string): LlmLineResponse | null {
+/** validates a proxy response; null when unusable. An invalid gossip index becomes null. */
+export function parseLineResponse(body: unknown, speakerName?: string, gossipCount = 0): LlmLineResponse | null {
   if (!body || typeof body !== 'object') return null;
-  const { text, tone } = body as Record<string, unknown>;
+  const { text, tone, gossip } = body as Record<string, unknown>;
   const clean = sanitizeLine(text, LLM_MAX_LINE, speakerName);
   if (clean.length < 1 || !isTone(tone)) return null;
-  return { text: clean, tone };
+  return { text: clean, tone, gossip: isGossipIndex(gossip, gossipCount) ? gossip : null };
 }
 
 export interface LlmProviderOptions {
-  /** client-side timeout in ms (default 8000; the proxy itself gives up after ~6 s) */
+  /** client-side timeout in ms (default 14000; the proxy itself gives up after ~12 s) */
   timeoutMs?: number;
   /** injectable for tests */
   fetch?: typeof fetch;
@@ -138,7 +170,7 @@ export interface LlmProviderOptions {
 }
 
 export function createLlmProvider(opts: LlmProviderOptions = {}): DialogueProvider {
-  const timeoutMs = opts.timeoutMs ?? 8000;
+  const timeoutMs = opts.timeoutMs ?? 14_000;
   const doFetch = opts.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const url = `${opts.baseUrl ?? ''}${LLM_LINE_URL}`;
   const cooldownMs = opts.cooldownMs ?? 5000;
@@ -150,6 +182,7 @@ export function createLlmProvider(opts: LlmProviderOptions = {}): DialogueProvid
     async nextLine(ctx: ConversationContext): Promise<DialogueLine> {
       // during a cooldown fail fast: actions.ts uses the procedural line instead
       if (now() < blockedUntil) throw new Error('llm cooling down');
+      const candidates = gossipCandidates(ctx);
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_, reject) => {
@@ -163,16 +196,19 @@ export function createLlmProvider(opts: LlmProviderOptions = {}): DialogueProvid
           doFetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(buildLineRequest(ctx)),
+            body: JSON.stringify(buildLineRequest(ctx, candidates)),
             signal: controller.signal,
           }),
           timeout,
         ]);
         if (!res.ok) throw new Error(`llm http ${res.status}`);
         const body: unknown = await Promise.race([res.json(), timeout]);
-        const parsed = parseLineResponse(body, ctx.speaker.name);
+        const parsed = parseLineResponse(body, ctx.speaker.name, candidates.length);
         if (!parsed) throw new Error('llm malformed response');
-        return { speakerId: ctx.speaker.id, text: parsed.text, tone: parsed.tone };
+        const line: DialogueLine = { speakerId: ctx.speaker.id, text: parsed.text, tone: parsed.tone };
+        // the exact Gossip object from ctx: social/memory spreads it when the conversation ends
+        if (parsed.gossip !== null) line.gossip = candidates[parsed.gossip];
+        return line;
       } catch (err) {
         blockedUntil = now() + cooldownMs;
         throw err;
@@ -185,8 +221,17 @@ export function createLlmProvider(opts: LlmProviderOptions = {}): DialogueProvid
 
 export interface LlmStatus {
   available: boolean;
-  model?: string;
+  provider?: string;
+  /** configured OpenRouter model ids, in fallback order */
+  models: string[];
 }
+
+/** "google/gemma-4-31b-it:free" → "gemma-4-31b-it" */
+export function modelShortName(id: string): string {
+  return id.replace(/^.*\//, '').replace(/:free$/, '');
+}
+
+export const isFreeModel = (id: string): boolean => id.endsWith(':free');
 
 /** asks the proxy whether a key is configured; never throws */
 export async function fetchLlmStatus(doFetch: typeof fetch = fetch, timeoutMs = 3000): Promise<LlmStatus> {
@@ -194,11 +239,16 @@ export async function fetchLlmStatus(doFetch: typeof fetch = fetch, timeoutMs = 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await doFetch(LLM_STATUS_URL, { signal: controller.signal });
-    if (!res.ok) return { available: false };
-    const body = (await res.json()) as Partial<LlmStatus>;
-    return { available: body.available === true, model: typeof body.model === 'string' ? body.model : undefined };
+    if (!res.ok) return { available: false, models: [] };
+    const body = (await res.json()) as Record<string, unknown>;
+    const models = Array.isArray(body.models) ? body.models.filter((m): m is string => typeof m === 'string').slice(0, 8) : [];
+    return {
+      available: body.available === true,
+      provider: typeof body.provider === 'string' ? body.provider : undefined,
+      models,
+    };
   } catch {
-    return { available: false };
+    return { available: false, models: [] };
   } finally {
     clearTimeout(timer);
   }

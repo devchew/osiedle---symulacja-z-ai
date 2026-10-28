@@ -103,5 +103,5 @@ window.__sim = {
   },
 };
 
-// optional LLM dialogue (needs ANTHROPIC_API_KEY on the dev/preview server); procedural otherwise
+// optional LLM dialogue (needs OPENROUTER_API_KEY on the dev/preview server); procedural otherwise
 void createLlmToggle(document.body, world).then((t) => (window.__sim.llm = t));

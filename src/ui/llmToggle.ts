@@ -1,9 +1,9 @@
 import type { DialogueProvider, World } from '../types';
-import { createLlmProvider, fetchLlmStatus, type LlmStatus } from '../social/llmProvider';
+import { createLlmProvider, fetchLlmStatus, isFreeModel, modelShortName, type LlmStatus } from '../social/llmProvider';
 import './llmToggle.css';
 
 // Small pill (top-left) switching world.dialogue between the procedural and the
-// LLM provider. Hidden-ish when the proxy reports no API key.
+// LLM provider (OpenRouter via the local proxy). Hidden-ish when the proxy reports no API key.
 
 const STORAGE_KEY = 'sim.llmDialogue';
 
@@ -49,13 +49,18 @@ export async function createLlmToggle(parent: HTMLElement, world: World): Promis
   button.append(dot, label);
   root.append(button);
 
+  const allFree = status.models.length > 0 && status.models.every(isFreeModel);
+  const aiLabel = allFree || !status.models.length ? 'Dialogi: AI (free)' : `Dialogi: AI (${modelShortName(status.models[0])})`;
+  const modelList = status.models.length ? `\nModele (OpenRouter, kolejno): ${status.models.join(', ')}` : '';
+
   const render = (): void => {
     button.setAttribute('aria-pressed', String(enabled));
     button.classList.toggle('on', enabled);
-    label.textContent = enabled ? 'Dialogi: AI' : 'Dialogi: proceduralne';
-    button.title = enabled
-      ? `Kwestie generuje Claude (${status.model ?? 'LLM'}). Kliknij, by wrócić do proceduralnych.`
-      : 'Kliknij, by kwestie generował Claude (LLM).';
+    label.textContent = enabled ? aiLabel : 'Dialogi: proceduralne';
+    button.title =
+      (enabled
+        ? 'Kwestie generuje AI przez OpenRouter. Kliknij, by wrócić do proceduralnych.'
+        : 'Kliknij, by kwestie generowało AI (OpenRouter).') + modelList;
   };
 
   const setEnabled = (on: boolean): void => {
@@ -75,7 +80,7 @@ export async function createLlmToggle(parent: HTMLElement, world: World): Promis
     button.classList.add('off');
     label.textContent = 'AI: brak klucza';
     // disabled buttons swallow hover in some browsers: put the tooltip on the wrapper too
-    button.title = root.title = 'Dialogi AI wyłączone — ustaw ANTHROPIC_API_KEY w .env i uruchom serwer ponownie';
+    button.title = root.title = 'Dialogi AI wyłączone — ustaw OPENROUTER_API_KEY w .env i uruchom serwer ponownie';
   }
   parent.append(root);
 

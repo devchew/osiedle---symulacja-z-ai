@@ -1,19 +1,65 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import Anthropic from '@anthropic-ai/sdk';
 import { loadEnv, type Connect, type Plugin } from 'vite';
-import type { LlmLineRequest, LlmLineResponse } from '../src/social/llmProvider';
-import { LLM_HISTORY_LINES, LLM_LINE_URL, LLM_MAX_LINE, LLM_STATUS_URL, isTone, sanitizeLine } from '../src/social/llmProvider';
+import type { LlmGossip, LlmLineRequest, LlmLineResponse } from '../src/social/llmProvider';
+import {
+  LLM_HISTORY_LINES,
+  LLM_LINE_URL,
+  LLM_MAX_GOSSIP,
+  LLM_MAX_LINE,
+  LLM_STATUS_URL,
+  isFreeModel,
+  isGossipIndex,
+  isTone,
+  sanitizeLine,
+} from '../src/social/llmProvider';
 
-// Server-side proxy for LLM dialogue lines. Runs inside the Vite dev / preview
-// server only, so ANTHROPIC_API_KEY stays in Node and never reaches the bundle.
+// Server-side proxy for LLM dialogue lines via OpenRouter (chat completions).
+// Runs inside the Vite dev / preview server only, so OPENROUTER_API_KEY stays in
+// Node and never reaches the bundle. The key is never logged.
 
-export const LLM_MODEL = 'claude-haiku-5-5';
-export const LLM_MAX_TOKENS = 400;
-export const LLM_TIMEOUT_MS = 6000;
-export const LLM_RATE_LIMIT = 20; // requests per window, all clients together
+export const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
+export const OPENROUTER_KEY_URL = 'https://openrouter.ai/api/v1/key';
+
+/**
+ * Default model fallback chain: free models only (":free", price 0), chosen from the live
+ * model list (2026-10-28) for multilingual quality + `response_format` support. OpenRouter
+ * tries them in order via the `models` array. A paid model is used only when the user lists
+ * it explicitly in OPENROUTER_MODELS.
+ */
+export const DEFAULT_MODELS: readonly string[] = [
+  // answered every smoke-test call in ~1 s; Gemma's free pool (Google AI Studio) was often 429 upstream
+  'nvidia/nemotron-3.5-super-vl:free',
+  'google/gemma-4-31b-it:free',
+  'google/gemma-4-26b-a4b-it:free',
+];
+/** OpenRouter's `models` routing list; longer env lists are cut */
+export const MAX_MODELS = 3;
+export const LLM_MAX_TOKENS = 300;
+export const LLM_TEMPERATURE = 0.9;
+export const LLM_TIMEOUT_MS = 12_000;
+/** free models: 20 req/min per account (docs) — keep headroom */
+export const LLM_RATE_LIMIT = 15;
 export const LLM_RATE_WINDOW_MS = 60_000;
-export const LLM_MAX_IN_FLIGHT = 4;
+/** free models: 50 or 1000 req per UTC day depending on credits purchased (docs); synced from /api/v1/key at start */
+export const LLM_DAILY_LIMIT = 180;
+export const LLM_MAX_IN_FLIGHT = 3;
 const MAX_BODY_BYTES = 8 * 1024;
+const MODEL_ID = /^[a-z0-9][\w.-]*\/[\w.:-]+$/i;
+
+/** parses OPENROUTER_MODELS ("a/b:free, c/d:free"); falls back to the free defaults */
+export function parseModelList(raw: string | undefined): string[] {
+  const ids = (raw ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => MODEL_ID.test(s));
+  const unique = [...new Set(ids)].slice(0, MAX_MODELS);
+  return unique.length ? unique : [...DEFAULT_MODELS];
+}
+
+export function parseDailyLimit(raw: string | undefined): number {
+  const n = Number.parseInt(raw ?? '', 10);
+  return Number.isFinite(n) && n >= 0 ? n : LLM_DAILY_LIMIT;
+}
 
 // ------------------------------------------------------------ request validation
 
@@ -47,7 +93,19 @@ export function validateLineRequest(body: unknown): LlmLineRequest | null {
     if (!hs || ht === null) return null;
     history.push({ speaker: hs, text: ht });
   }
-  return { speaker, listener, traits, mood, needs, relationship, relationshipLabel, topic, timeOfDay, history, turn, isLast: b.isLast };
+  const gossip: LlmGossip[] = [];
+  if (b.gossip !== undefined) {
+    if (!Array.isArray(b.gossip) || b.gossip.length > LLM_MAX_GOSSIP) return null;
+    for (const g of b.gossip) {
+      if (!g || typeof g !== 'object') return null;
+      const r = g as Record<string, unknown>;
+      const text = str(r.text, 100);
+      const valence = typeof r.valence === 'number' && Number.isFinite(r.valence) ? Math.max(-1, Math.min(1, r.valence)) : null;
+      if (!text || valence === null) return null;
+      gossip.push({ text, valence, shared: r.shared === true });
+    }
+  }
+  return { speaker, listener, traits, mood, needs, relationship, relationshipLabel, topic, timeOfDay, history, turn, isLast: b.isLast, gossip };
 }
 
 // ------------------------------------------------------------ prompt
@@ -58,21 +116,25 @@ export const SYSTEM_PROMPT = [
   'Zasady:',
   `- naturalna, potoczna polszczyzna, jedno krótkie zdanie lub dwa bardzo krótkie, maksymalnie ${LLM_MAX_LINE} znaków;`,
   '- mów w charakterze postaci: uwzględnij nastrój, cechy, potrzeby, relację z rozmówcą, temat i porę dnia;',
-  '- reaguj na ostatnią kwestię rozmówcy, nie powtarzaj wcześniejszych kwestii;',
-  '- unikaj czasowników w czasie przeszłym z rodzajem (np. "zrobiłem/zrobiłam") i form zdradzających płeć mówiącego; wybieraj czas teraźniejszy, przyszły lub formy bezosobowe;',
+  '- reaguj na ostatnią kwestię rozmówcy, nie powtarzaj wcześniejszych kwestii; jeśli rozmówca właśnie opowiedział jakąś historię, odnieś się do niej;',
+  '- unikaj czasowników w czasie przeszłym z rodzajem (np. "zrobiłem/zrobiłam", "byliśmy/byłyśmy") i form zdradzających płeć mówiącego; wybieraj czas teraźniejszy, przyszły lub formy bezosobowe;',
   '- bez cudzysłowów, bez imienia mówiącego na początku, bez emoji, bez opisów didaskaliów;',
   '- pierwsza kwestia rozmowy to powitanie, ostatnia to pożegnanie;',
   '- treści przyjazne rodzinie.',
-  'Podaj też ton kwestii: "positive", "neutral" albo "negative".',
+  'Czasem dostajesz listę historii, które mówiący pamięta (plotki o innych albo wspólne wspomnienia). Jeśli rozmowa na to pozwala, chętnie opowiedz JEDNĄ z nich (nie musisz). Zachowaj czas teraźniejszy i imiona w mianowniku jak w opisie, np. "Słyszysz? Kasia przypala obiad!"; wspólne wspomnienie przywołaj bez czasu przeszłego, np. "Pamiętasz, jak Ola i Tomek tańczą w ogrodzie?" albo "Pamiętasz ten taniec w ogrodzie?" (nigdy "tańczyliśmy"). Nie wymyślaj innych plotek.',
+  'Odpowiedz WYŁĄCZNIE obiektem JSON, bez komentarzy i bez bloku kodu:',
+  '{"text": "<kwestia>", "tone": "positive" | "neutral" | "negative", "gossip": <numer wykorzystanej historii albo null>}',
 ].join('\n');
 
+/** schema we ask for (also documented in the prompt; JSON mode only guarantees an object) */
 export const LINE_SCHEMA = {
   type: 'object',
   properties: {
     text: { type: 'string', description: `kwestia po polsku, maks. ${LLM_MAX_LINE} znaków` },
     tone: { type: 'string', enum: ['positive', 'neutral', 'negative'] },
+    gossip: { type: ['integer', 'null'], description: 'numer opowiedzianej historii albo null' },
   },
-  required: ['text', 'tone'],
+  required: ['text', 'tone', 'gossip'],
   additionalProperties: false,
 } as const;
 
@@ -82,6 +144,12 @@ function moodWord(mood: number): string {
   if (mood >= 40) return 'taki sobie';
   if (mood >= 20) return 'kiepski';
   return 'fatalny';
+}
+
+function valenceWord(v: number): string {
+  if (v > 0.25) return 'miła';
+  if (v < -0.25) return 'wstydliwa';
+  return 'zwykła';
 }
 
 export function buildUserPrompt(r: LlmLineRequest): string {
@@ -98,41 +166,105 @@ export function buildUserPrompt(r: LlmLineRequest): string {
   } else {
     lines.push('Rozmowa dopiero się zaczyna.');
   }
+  const gossip = r.gossip ?? [];
+  if (gossip.length && !r.isLast && r.turn > 0) {
+    lines.push(`Historie, które ${r.speaker} pamięta (możesz opowiedzieć jedną):`);
+    gossip.forEach((g, i) =>
+      lines.push(`${i}. ${g.text} (${valenceWord(g.valence)}${g.shared ? `; wspólne wspomnienie z: ${r.listener}` : ''})`),
+    );
+  } else {
+    lines.push('Tym razem bez opowiadania historii: "gossip" ustaw na null.');
+  }
   const stage = r.isLast ? 'To ostatnia kwestia — pożegnaj się.' : r.turn === 0 ? 'To pierwsza kwestia — przywitaj się.' : `To kwestia nr ${r.turn + 1}.`;
   lines.push(stage, `Napisz następną kwestię postaci ${r.speaker}.`);
   return lines.join('\n');
 }
 
-export function buildMessageParams(r: LlmLineRequest, model = LLM_MODEL): Anthropic.MessageCreateParamsNonStreaming {
+export interface ChatRequestBody {
+  models: string[];
+  messages: { role: 'system' | 'user'; content: string }[];
+  response_format: { type: 'json_object' };
+  max_tokens: number;
+  temperature: number;
+  reasoning: { enabled: false };
+  stream: false;
+}
+
+/** OpenRouter chat-completions body; `models` = ordered fallback list */
+export function buildChatRequest(r: LlmLineRequest, models: readonly string[] = DEFAULT_MODELS): ChatRequestBody {
   return {
-    model,
+    models: [...models],
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: buildUserPrompt(r) },
+    ],
+    // JSON mode works on all default models (json_schema is not supported by the Gemma endpoints)
+    response_format: { type: 'json_object' },
     max_tokens: LLM_MAX_TOKENS,
-    system: SYSTEM_PROMPT,
-    // thinking stays at the model default (adaptive); low effort keeps it short/absent
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: LINE_SCHEMA } },
-    messages: [{ role: 'user', content: buildUserPrompt(r) }],
+    temperature: LLM_TEMPERATURE,
+    // a one-liner needs no thinking; reasoning tokens would also eat max_tokens
+    reasoning: { enabled: false },
+    stream: false,
   };
 }
 
-/** extracts { text, tone } from a Messages API response; null when unusable */
-export function parseModelMessage(msg: Pick<Anthropic.Message, 'content' | 'stop_reason'>, speakerName?: string): LlmLineResponse | null {
-  if (msg.stop_reason !== 'end_turn') return null; // refusal, max_tokens, …
-  const textBlock = msg.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
-  if (!textBlock) return null;
-  let data: unknown;
-  try {
-    data = JSON.parse(textBlock.text);
-  } catch {
-    return null;
-  }
-  if (!data || typeof data !== 'object') return null;
-  const { text, tone } = data as Record<string, unknown>;
-  const clean = sanitizeLine(text, LLM_MAX_LINE, speakerName);
-  if (!clean || !isTone(tone)) return null;
-  return { text: clean, tone };
+export function buildHeaders(apiKey: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    // optional app attribution (docs: HTTP-Referer + X-OpenRouter-Title, X-Title also accepted)
+    'HTTP-Referer': 'http://localhost',
+    'X-OpenRouter-Title': 'Osiedle (sim)',
+  };
 }
 
-// ------------------------------------------------------------ rate limit
+/** finds the JSON object in model text: plain, ```json fenced, or surrounded by chatter */
+export function extractJson(text: string): unknown {
+  const t = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  try {
+    return JSON.parse(t);
+  } catch {
+    const a = t.indexOf('{');
+    const b = t.lastIndexOf('}');
+    if (a < 0 || b <= a) return null;
+    try {
+      return JSON.parse(t.slice(a, b + 1));
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** parses the model's JSON line; null when unusable. An out-of-range gossip index becomes null. */
+export function parseModelText(content: string, speakerName?: string, gossipCount = 0): LlmLineResponse | null {
+  const data = extractJson(content);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const { text, tone, gossip } = data as Record<string, unknown>;
+  const clean = sanitizeLine(text, LLM_MAX_LINE, speakerName);
+  if (!clean || !isTone(tone)) return null;
+  return { text: clean, tone, gossip: isGossipIndex(gossip, gossipCount) ? gossip : null };
+}
+
+/** extracts the line from a chat-completions response body; also returns the model that answered */
+export function parseCompletion(
+  body: unknown,
+  speakerName?: string,
+  gossipCount = 0,
+): { line: LlmLineResponse; model: string } | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, unknown>;
+  if (b.error) return null; // generation error delivered with HTTP 200
+  const choice = Array.isArray(b.choices) ? (b.choices[0] as Record<string, unknown> | undefined) : undefined;
+  if (!choice || choice.error) return null;
+  const finish = choice.finish_reason;
+  if (finish !== 'stop' && finish !== null && finish !== undefined) return null; // length, content_filter, error, tool_calls
+  const content = (choice.message as Record<string, unknown> | undefined)?.content;
+  if (typeof content !== 'string') return null;
+  const line = parseModelText(content, speakerName, gossipCount);
+  return line ? { line, model: typeof b.model === 'string' ? b.model : '?' } : null;
+}
+
+// ------------------------------------------------------------ limits
 
 export interface RateLimiter {
   /** true (and counts the hit) when a request may proceed */
@@ -148,6 +280,50 @@ export function createRateLimiter(limit: number, windowMs: number, now: () => nu
       if (hits.length >= limit) return false;
       hits.push(t);
       return true;
+    },
+  };
+}
+
+export interface DailyBudget extends RateLimiter {
+  readonly used: number;
+  readonly limit: number;
+  /** adopts the account's real free-model counter (OpenRouter /api/v1/key) for today */
+  sync(used: number, accountLimit: number): void;
+}
+
+/** requests per UTC day (OpenRouter's free-model quota resets per UTC day) */
+export function createDailyBudget(limit: number, now: () => number = Date.now): DailyBudget {
+  const dayOf = (): string => new Date(now()).toISOString().slice(0, 10);
+  let day = dayOf();
+  let used = 0;
+  let cap = limit;
+  const roll = (): void => {
+    const d = dayOf();
+    if (d !== day) {
+      day = d;
+      used = 0;
+      cap = limit;
+    }
+  };
+  return {
+    get used() {
+      roll();
+      return used;
+    },
+    get limit() {
+      roll();
+      return cap;
+    },
+    tryAcquire() {
+      roll();
+      if (used >= cap) return false;
+      used++;
+      return true;
+    },
+    sync(accountUsed, accountLimit) {
+      roll();
+      if (Number.isFinite(accountLimit) && accountLimit >= 0) cap = Math.min(limit, accountLimit);
+      if (Number.isFinite(accountUsed) && accountUsed > used) used = accountUsed;
     },
   };
 }
@@ -190,43 +366,55 @@ function isSameOrigin(req: IncomingMessage): boolean {
   }
 }
 
-/** minimal surface of the SDK client we use; injectable for tests */
-export interface MessagesClient {
-  messages: {
-    create(params: Anthropic.MessageCreateParamsNonStreaming, opts?: { timeout?: number; maxRetries?: number }): Promise<Anthropic.Message>;
-  };
+/** reads the account's free-model daily counter; never throws, never logs the key */
+export async function fetchKeyInfo(
+  apiKey: string,
+  doFetch: typeof fetch = fetch,
+  timeoutMs = 5000,
+): Promise<{ used: number; limit: number; usageUsd: number | null } | null> {
+  try {
+    const res = await doFetch(OPENROUTER_KEY_URL, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    const data = ((await res.json()) as { data?: Record<string, unknown> }).data;
+    const free = data?.free_model_daily_requests as { used?: unknown; limit?: unknown } | undefined;
+    if (typeof free?.used !== 'number' || typeof free.limit !== 'number') return null;
+    return { used: free.used, limit: free.limit, usageUsd: typeof data?.usage === 'number' ? data.usage : null };
+  } catch {
+    return null;
+  }
 }
 
 export interface LlmHandlerOptions {
   apiKey: string | undefined;
-  model?: string;
+  models?: readonly string[];
   timeoutMs?: number;
   limiter?: RateLimiter;
-  /** factory for the SDK client (tests inject a fake) */
-  createClient?: (apiKey: string) => MessagesClient;
+  daily?: DailyBudget;
+  /** injectable for tests (server-side fetch to OpenRouter) */
+  fetch?: typeof fetch;
   log?: (msg: string) => void;
+  now?: () => number;
 }
 
 export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFunction {
-  const model = opts.model ?? LLM_MODEL;
+  const models = opts.models?.length ? [...opts.models] : [...DEFAULT_MODELS];
   const timeoutMs = opts.timeoutMs ?? LLM_TIMEOUT_MS;
   const limiter = opts.limiter ?? createRateLimiter(LLM_RATE_LIMIT, LLM_RATE_WINDOW_MS);
+  const daily = opts.daily ?? createDailyBudget(LLM_DAILY_LIMIT);
   const log = opts.log ?? ((m: string) => console.warn(`[llm] ${m}`));
-  let client: MessagesClient | null = null;
+  const doFetch = opts.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+  const now = opts.now ?? Date.now;
   let inFlight = 0;
-
-  const getClient = (): MessagesClient => {
-    if (!client) {
-      const key = opts.apiKey!;
-      client = opts.createClient ? opts.createClient(key) : (new Anthropic({ apiKey: key }) as MessagesClient);
-    }
-    return client;
-  };
+  /** upstream said 429 + Retry-After: don't hammer it */
+  let upstreamBlockedUntil = 0;
 
   return (req, res, next) => {
     const path = (req.url ?? '').split('?')[0];
     if (path === LLM_STATUS_URL && req.method === 'GET') {
-      sendJson(res, 200, { available: !!opts.apiKey, model });
+      sendJson(res, 200, { available: !!opts.apiKey, provider: 'openrouter', models });
       return;
     }
     if (path !== LLM_LINE_URL) {
@@ -234,9 +422,11 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
       return;
     }
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
-    if (!opts.apiKey) return sendJson(res, 503, { error: 'ANTHROPIC_API_KEY not set' });
+    if (!opts.apiKey) return sendJson(res, 503, { error: 'OPENROUTER_API_KEY not set' });
     if (!isSameOrigin(req)) return sendJson(res, 403, { error: 'forbidden' });
-    if (inFlight >= LLM_MAX_IN_FLIGHT || !limiter.tryAcquire()) return sendJson(res, 429, { error: 'rate limited' });
+    if (now() < upstreamBlockedUntil || inFlight >= LLM_MAX_IN_FLIGHT || !limiter.tryAcquire()) {
+      return sendJson(res, 429, { error: 'rate limited' });
+    }
 
     inFlight++;
     void (async () => {
@@ -249,23 +439,64 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
         }
         const request = validateLineRequest(body);
         if (!request) return sendJson(res, 400, { error: 'invalid request' });
-        const msg = await getClient().messages.create(buildMessageParams(request, model), { timeout: timeoutMs, maxRetries: 0 });
-        const line = parseModelMessage(msg, request.speaker);
-        if (!line) {
-          log(`unusable model output (stop_reason=${msg.stop_reason})`);
+        // counted only for requests that actually go upstream
+        if (!daily.tryAcquire()) return sendJson(res, 429, { error: 'daily limit reached' });
+
+        let upstream: Response;
+        try {
+          upstream = await doFetch(OPENROUTER_CHAT_URL, {
+            method: 'POST',
+            headers: buildHeaders(opts.apiKey!),
+            body: JSON.stringify(buildChatRequest(request, models)),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+        } catch (err) {
+          const name = (err as Error).name;
+          if (name === 'TimeoutError' || name === 'AbortError') return sendJson(res, 504, { error: 'timeout' });
+          log(`network error: ${(err as Error).message}`);
+          return sendJson(res, 503, { error: 'upstream unreachable' });
+        }
+
+        if (!upstream.ok) {
+          const status = upstream.status;
+          let detail = '';
+          try {
+            const e = (await upstream.json()) as { error?: { message?: unknown } };
+            if (typeof e.error?.message === 'string') detail = e.error.message.slice(0, 160);
+          } catch {
+            /* non-JSON error body */
+          }
+          log(`OpenRouter HTTP ${status}${detail ? `: ${detail}` : ''}`);
+          if (status === 429) {
+            const retry = Number.parseInt(upstream.headers.get('retry-after') ?? '', 10);
+            upstreamBlockedUntil = now() + (Number.isFinite(retry) && retry > 0 ? Math.min(retry, 600) : 20) * 1000;
+            return sendJson(res, 429, { error: 'upstream rate limited' });
+          }
+          if (status === 408) return sendJson(res, 504, { error: 'timeout' });
+          return sendJson(res, 503, { error: 'upstream error' }); // 400/401/402/403/502/503…
+        }
+
+        let completion: unknown;
+        try {
+          completion = await upstream.json();
+        } catch (err) {
+          const name = (err as Error).name;
+          if (name === 'TimeoutError' || name === 'AbortError') return sendJson(res, 504, { error: 'timeout' });
           return sendJson(res, 503, { error: 'unusable model output' });
         }
-        sendJson(res, 200, line);
-      } catch (err) {
-        if (err instanceof Anthropic.APIConnectionTimeoutError) {
-          sendJson(res, 504, { error: 'timeout' });
-        } else if (err instanceof Anthropic.APIError) {
-          log(`API error ${err.status ?? ''}: ${err.message}`);
-          sendJson(res, 503, { error: 'upstream error' });
-        } else {
-          log(`error: ${(err as Error).message}`);
-          sendJson(res, 503, { error: 'proxy error' });
+        const parsed = parseCompletion(completion, request.speaker, request.gossip?.length ?? 0);
+        if (!parsed) {
+          const c = completion as { error?: { message?: unknown }; choices?: { finish_reason?: unknown }[]; model?: unknown };
+          log(
+            `unusable model output (model=${String(c?.model ?? '?')}, finish=${String(c?.choices?.[0]?.finish_reason ?? '-')}` +
+              `${typeof c?.error?.message === 'string' ? `, error=${c.error.message.slice(0, 120)}` : ''})`,
+          );
+          return sendJson(res, 503, { error: 'unusable model output' });
         }
+        sendJson(res, 200, { ...parsed.line, model: parsed.model });
+      } catch (err) {
+        log(`error: ${(err as Error).message}`);
+        sendJson(res, 503, { error: 'proxy error' });
       } finally {
         inFlight--;
       }
@@ -279,10 +510,25 @@ export function llmProxy(): Plugin {
   return {
     name: 'sim-llm-proxy',
     configResolved(config) {
-      // '' prefix: read all vars from .env files (server-side only, nothing is exposed to import.meta.env)
+      // '' prefix: read all vars from .env files server-side; only VITE_* vars are ever exposed
+      // to import.meta.env, so OPENROUTER_* stays out of the bundle
       const env = loadEnv(config.mode, config.envDir, '');
-      const apiKey = (env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '').trim() || undefined;
-      handler = createLlmHandler({ apiKey });
+      const pick = (k: string): string | undefined => (env[k] || process.env[k] || '').trim() || undefined;
+      const apiKey = pick('OPENROUTER_API_KEY');
+      const models = parseModelList(pick('OPENROUTER_MODELS'));
+      const daily = createDailyBudget(parseDailyLimit(pick('OPENROUTER_DAILY_LIMIT')));
+      const log = (m: string): void => config.logger.warn(`[llm] ${m}`);
+      const paid = models.filter((m) => !isFreeModel(m));
+      if (apiKey && paid.length) log(`OPENROUTER_MODELS contains non-free models (may cost money): ${paid.join(', ')}`);
+      handler = createLlmHandler({ apiKey, models, daily, log });
+      if (apiKey && config.command === 'serve' && !process.env.VITEST) {
+        // align the daily guard with the account's real free-model quota (50 or 1000 per UTC day)
+        void fetchKeyInfo(apiKey).then((info) => {
+          if (!info) return;
+          daily.sync(info.used, info.limit);
+          config.logger.info(`[llm] OpenRouter free requests today: ${info.used}/${info.limit}; proxy cap ${daily.limit}`);
+        });
+      }
     },
     configureServer(server) {
       server.middlewares.use((req, res, next) => (handler ? handler(req, res, next) : next()));

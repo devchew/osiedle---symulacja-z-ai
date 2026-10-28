@@ -27,3 +27,5 @@
 | 2026-10-28 | Pamięć: per świat, klucz = tekst historii; świadkowie ≤6 kafli i nieśpiący; połowiczny zanik 2,5 dnia (przeżyte) / 1,5 (zasłyszane); max 12 wspomnień; plotka tylko o osobach trzecich; zmiana opinii ±1..3 × zaufanie; `DialogueLine.gossip?`, `Gossip.shared?` | plotki rozchodzą się i mają skutki |
 | 2026-10-28 | Cele dnia: 13 rodzajów, losowane o 6:00 wg osobowości, wygasają o 22:00, premia w scoringu słabnie przy pilnej potrzebie; stan w WeakMap (`agents/goals.ts`) | mniej przypadkowe dni |
 | 2026-10-28 | Drzemka w dzień tylko przy energii < 28; brak zaczepiania w łóżku i łazience; id rozmów per świat | realizm i determinizm |
+| 2026-10-28 | AI: OpenRouter, wyłącznie modele `:free` (łańcuch w `models`, płatny tylko jawnie w `OPENROUTER_MODELS`); JSON mode; reasoning off | twardy limit $2 na koncie, prośba o darmowe modele |
+| 2026-10-28 | Limity AI: 15/min, 3 równolegle, timeout 12/14 s, budżet dzienny 180 (sync z `/api/v1/key`), upstream 429 → pauza wg `Retry-After` | limity free tier OpenRouter |
