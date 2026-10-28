@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Osiedle — render demo</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #6f9b5c;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      #info {
+        position: fixed;
+        left: 12px;
+        top: 12px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.85);
+        color: #2a2a33;
+        font-size: 13px;
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        pointer-events: none;
+      }
+      #help {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.75);
+        color: #444;
+        font-size: 12px;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="world"></canvas>
+    <div id="info"></div>
+    <div id="help">przeciągnij = przesuń · kółko = zoom · klik = zaznacz · 2×klik = śledź · spacja = pauza · n = +1h · +/- = tempo</div>
+    <script type="module" src="/src/render/demo.ts"></script>
+  </body>
+</html>
