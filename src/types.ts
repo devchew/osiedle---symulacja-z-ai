@@ -189,6 +189,8 @@ export interface DialogueLine {
   speakerId: number;
   text: string;
   tone: Tone;
+  /** the story this line retells, if any (set by the provider; read by social/memory to spread gossip) */
+  gossip?: Gossip;
 }
 
 export interface Conversation {
@@ -246,6 +248,8 @@ export interface Gossip {
   aboutIds: number[];
   /** -1 embarrassing / bad .. 1 nice / admirable */
   valence: number;
+  /** recall only: both speaker and listener lived through it ("Pamiętasz, jak …?") */
+  shared?: boolean;
 }
 
 export interface SimEvent {

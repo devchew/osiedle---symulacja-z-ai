@@ -1,9 +1,11 @@
-import type { Agent, NeedKey, ObjectDef, SimEventKind, World } from '../types';
+import type { Agent, Gossip, NeedKey, ObjectDef, SimEventKind, World } from '../types';
 import { pushEvent } from '../world/events';
 
 // Small story beats for the event log: mishaps and successes during activities,
 // mood swings and neglected needs. Polish texts avoid gendered past tense and
-// never decline names ("Ola: …", "Ola ↔ Bartek: …").
+// never decline names ("Ola: …", "Ola ↔ Bartek: …"). Story-worthy events carry
+// a Gossip (third person, present tense, name first and not declined, e.g.
+// "Ola przypala obiad") that residents remember and retell (social/memory.ts).
 
 /** at most this many narration events per game hour across the whole world */
 export const NARRATION_PER_HOUR = 4;
@@ -20,9 +22,15 @@ const NEED_LOW: Partial<Record<NeedKey, { at: number; reset: number; texts: stri
   hygiene: { at: 8, reset: 40, texts: ['najwyższa pora na prysznic'] },
 };
 
+/** a log text and, optionally, the retellable story (without the subject's name) */
+type Beat = [log: string, gossip?: string];
+
 interface Mishap {
   chance: number;
-  text: string[];
+  /** variants: [log text, gossip predicate] */
+  text: Beat[];
+  /** story valence (-1..1); used when the beat has a gossip predicate */
+  valence?: number;
   icon: string;
   /** scale of the object's effects for this use (mishaps < 1) */
   scale?: number;
@@ -34,30 +42,30 @@ interface Mishap {
 /** rolled when an agent starts using an object */
 const ON_START: Record<string, Mishap[]> = {
   stove: [
-    { chance: 0.08, text: ['przypala obiad 🔥', 'przypala sos 🔥'], icon: '🔥', scale: 0.6, bump: { fun: -5 } },
-    { chance: 0.05, text: ['wymyśla nowy przepis 🍽️'], icon: '✨', bump: { fun: 8 } },
+    { chance: 0.08, text: [['przypala obiad 🔥', 'przypala obiad'], ['przypala sos 🔥', 'przypala sos']], valence: -0.5, icon: '🔥', scale: 0.6, bump: { fun: -5 } },
+    { chance: 0.05, text: [['wymyśla nowy przepis 🍽️', 'wymyśla nowy przepis']], valence: 0.5, icon: '✨', bump: { fun: 8 } },
   ],
-  grill: [{ chance: 0.05, text: ['przypala kiełbaski 🔥'], icon: '🔥', scale: 0.7 }],
-  shower: [{ chance: 0.06, text: ['zimna woda pod prysznicem! 🥶'], icon: '🥶', bump: { comfort: -10 } }],
-  computer: [{ chance: 0.05, text: ['komputer się zawiesza 💻'], icon: '😤', scale: 0.5, bump: { fun: -5 } }],
-  piano: [{ chance: 0.06, text: ['ćwiczy nowy utwór 🎶'], icon: '🎶', bump: { fun: 5 } }],
-  fridge: [{ chance: 0.03, text: ['w lodówce pustki…'], icon: '😕', scale: 0.5 }],
-  tv: [{ chance: 0.05, text: ['leci ulubiony serial! 📺'], icon: '😍', bump: { fun: 6 } }],
-  bathtub: [{ chance: 0.05, text: ['piana po sam sufit 🛁'], icon: '🛁', bump: { fun: 5 } }],
+  grill: [{ chance: 0.05, text: [['przypala kiełbaski 🔥', 'przypala kiełbaski na grillu']], valence: -0.5, icon: '🔥', scale: 0.7 }],
+  shower: [{ chance: 0.06, text: [['zimna woda pod prysznicem! 🥶', 'bierze lodowaty prysznic']], valence: -0.2, icon: '🥶', bump: { comfort: -10 } }],
+  computer: [{ chance: 0.05, text: [['komputer się zawiesza 💻', 'klnie na zawieszony komputer']], valence: -0.3, icon: '😤', scale: 0.5, bump: { fun: -5 } }],
+  piano: [{ chance: 0.06, text: [['ćwiczy nowy utwór 🎶', 'ćwiczy nowy utwór na pianinie']], valence: 0.4, icon: '🎶', bump: { fun: 5 } }],
+  fridge: [{ chance: 0.03, text: [['w lodówce pustki…', 'wyjada ostatnie zapasy z lodówki']], valence: -0.3, icon: '😕', scale: 0.5 }],
+  tv: [{ chance: 0.05, text: [['leci ulubiony serial! 📺']], icon: '😍', bump: { fun: 6 } }],
+  bathtub: [{ chance: 0.05, text: [['piana po sam sufit 🛁', 'robi w wannie pianę po sam sufit']], valence: 0.2, icon: '🛁', bump: { fun: 5 } }],
 };
 
 /** rolled when an agent finishes a full session */
 const ON_FINISH: Record<string, Mishap[]> = {
   fishing_spot: [
-    { chance: 0.18, text: ['złowiony szczupak! 🐟', 'piękny karp na haczyku! 🐟'], icon: '🐟', bump: { fun: 10 } },
-    { chance: 0.08, text: ['ryba się zerwała…'], icon: '😩', bump: { fun: -3 } },
+    { chance: 0.18, text: [['złowiony szczupak! 🐟', 'łowi wielkiego szczupaka'], ['piękny karp na haczyku! 🐟', 'łowi pięknego karpia']], valence: 0.6, icon: '🐟', bump: { fun: 10 } },
+    { chance: 0.08, text: [['ryba się zerwała…', 'gubi rybę tuż przy brzegu']], valence: -0.3, icon: '😩', bump: { fun: -3 } },
   ],
-  computer: [{ chance: 0.1, text: ['wygrana partia! 🏆'], icon: '🏆', bump: { fun: 8 } }],
-  treadmill: [{ chance: 0.1, text: ['nowy rekord na bieżni! 🏅'], icon: '🏅', bump: { fun: 8 } }],
-  exercise_bike: [{ chance: 0.1, text: ['20 km na rowerku! 🏅'], icon: '🏅', bump: { fun: 8 } }],
-  flowerbed: [{ chance: 0.1, text: ['tulipany zakwitły 🌷'], icon: '🌷', bump: { fun: 6 } }],
-  bench: [{ chance: 0.08, text: ['chwila spokoju na ławce 🌿'], icon: '🌿', bump: { comfort: 5 } }],
-  bookshelf: [{ chance: 0.08, text: ['książka skończona — świetne zakończenie 📖'], icon: '📖', bump: { fun: 6 } }],
+  computer: [{ chance: 0.1, text: [['wygrana partia! 🏆', 'wygrywa partię na komputerze']], valence: 0.4, icon: '🏆', bump: { fun: 8 } }],
+  treadmill: [{ chance: 0.1, text: [['nowy rekord na bieżni! 🏅', 'bije rekord na bieżni']], valence: 0.6, icon: '🏅', bump: { fun: 8 } }],
+  exercise_bike: [{ chance: 0.1, text: [['20 km na rowerku! 🏅', 'robi 20 km na rowerku']], valence: 0.5, icon: '🏅', bump: { fun: 8 } }],
+  flowerbed: [{ chance: 0.1, text: [['tulipany zakwitły 🌷', 'ma najpiękniejsze tulipany w ogrodzie']], valence: 0.5, icon: '🌷', bump: { fun: 6 } }],
+  bench: [{ chance: 0.08, text: [['chwila spokoju na ławce 🌿']], icon: '🌿', bump: { comfort: 5 } }],
+  bookshelf: [{ chance: 0.08, text: [['książka skończona — świetne zakończenie 📖', 'kończy świetną książkę']], valence: 0.3, icon: '📖', bump: { fun: 6 } }],
 };
 
 const recentEvents = new WeakMap<World, number[]>();
@@ -70,9 +78,15 @@ function budget(world: World): boolean {
   return list.length < NARRATION_PER_HOUR;
 }
 
-function narrate(world: World, kind: SimEventKind, text: string, ids: number[]): void {
+function narrate(world: World, kind: SimEventKind, text: string, ids: number[], gossip?: Gossip): void {
   recentEvents.get(world)?.push(world.tick);
-  pushEvent(world, kind, text, ids);
+  pushEvent(world, kind, text, ids, gossip);
+}
+
+/** story about a single agent: "<name> <predicate>" */
+function story(agent: Agent, predicate: string | undefined, valence: number | undefined): Gossip | undefined {
+  if (!predicate || valence === undefined) return undefined;
+  return { text: `${agent.name} ${predicate}`, aboutIds: [agent.id], valence };
 }
 
 const effectScale = new WeakMap<Agent, number>();
@@ -89,7 +103,8 @@ function roll(world: World, agent: Agent, list: Mishap[] | undefined): boolean {
     if (m.scale !== undefined) effectScale.set(agent, m.scale);
     if (m.bump) for (const [k, v] of Object.entries(m.bump) as [NeedKey, number][]) agent.needs[k] = Math.max(0, Math.min(100, agent.needs[k] + v));
     agent.bubble = { kind: 'thought', text: m.icon, ttl: 25 };
-    narrate(world, m.kind ?? 'use', `${agent.name}: ${world.rng.pick(m.text)}`, [agent.id]);
+    const [log, predicate] = world.rng.pick(m.text);
+    narrate(world, m.kind ?? 'use', `${agent.name}: ${log}`, [agent.id], story(agent, predicate, m.valence));
     return true;
   }
   return false;
@@ -102,7 +117,11 @@ export function onStartUse(world: World, agent: Agent, def: ObjectDef, others: A
     const other = others[0];
     world.relationships.adjust(agent.id, other.id, -2);
     agent.bubble = { kind: 'speech', text: 'Oddaj pilota!', ttl: 25, tone: 'negative' };
-    narrate(world, 'relationship', `${agent.name} ↔ ${other.name}: kłótnia o pilota 📺`, [agent.id, other.id]);
+    narrate(world, 'relationship', `${agent.name} ↔ ${other.name}: kłótnia o pilota 📺`, [agent.id, other.id], {
+      text: `${agent.name} i ${other.name} kłócą się o pilota`,
+      aboutIds: [agent.id, other.id],
+      valence: -0.5,
+    });
     return;
   }
   roll(world, agent, ON_START[def.id]);
@@ -137,13 +156,13 @@ export function narrateState(world: World, agent: Agent, sleeping: boolean): voi
     f.moodHigh = true;
     if (world.tick - f.lastMood >= STATE_COOLDOWN && budget(world)) {
       f.lastMood = world.tick;
-      narrate(world, 'mood', `${agent.name} ma świetny humor ☀️`, [agent.id]);
+      narrate(world, 'mood', `${agent.name} ma świetny humor ☀️`, [agent.id], story(agent, 'ma świetny humor', 0.3));
     }
   } else if (!f.moodLow && agent.mood <= MOOD_LOW) {
     f.moodLow = true;
     if (world.tick - f.lastMood >= STATE_COOLDOWN && budget(world)) {
       f.lastMood = world.tick;
-      narrate(world, 'mood', `${agent.name}: kiepski dzień 🌧️`, [agent.id]);
+      narrate(world, 'mood', `${agent.name}: kiepski dzień 🌧️`, [agent.id], story(agent, 'ma kiepski dzień', -0.3));
     }
   }
 

@@ -6,6 +6,10 @@ import { AGENT_NAMES, createAgent, createAgents } from '../src/agents/agent';
 import { NEED_DECAY, applyEffects, computeMood, decayNeeds, lowestNeed, urgency } from '../src/agents/needs';
 import { findPath, nearestWalkable } from '../src/agents/pathfinding';
 import { WALK_SPEED, stepAgent } from '../src/agents/movement';
+import { GOALS, QUIET_GOALS, goalConversation, goalDayOf, goalHistory, goalObjectBias, goalOf, goalUseEnd, updateGoal, type GoalKind } from '../src/agents/goals';
+import { scoreCandidates } from '../src/agents/brain';
+import { createWorld, tickWorld } from '../src/world/world';
+import { timeFromTick } from '../src/core/time';
 
 /** '#' = solid, anything else walkable */
 function gridFrom(rows: string[]): Grid {
@@ -245,5 +249,112 @@ describe('agents', () => {
   it('is deterministic per seed', () => {
     const spawns = [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }];
     expect(createAgents(3, spawns, createRng(7))).toEqual(createAgents(3, spawns, createRng(7)));
+  });
+});
+
+describe('daily goals', () => {
+  // a fresh world starts at 07:00 on goal day 0
+  const setGoal = (world: ReturnType<typeof createWorld>, agent: Agent, kind: GoalKind) => {
+    // re-roll until the wanted goal comes up (pick is personality-weighted, every kind has weight > 0)
+    for (let i = 0; i < 500 && goalOf(agent)?.kind !== kind; i++) {
+      updateGoal(world, agent, timeFromTick(world.tick + 1440 * (i + 1)));
+    }
+    expect(goalOf(agent)?.kind).toBe(kind);
+  };
+
+  it('every resident gets a goal on the first tick, a new one at 06:00, and it expires at 22:00', () => {
+    const world = createWorld(7);
+    tickWorld(world);
+    for (const a of world.agents) {
+      const g = goalOf(a)!;
+      expect(g.label.length).toBeGreaterThan(3);
+      expect(g.icon).toBeTruthy();
+      expect(g.done).toBe(false);
+    }
+    const a = world.agents[0];
+    expect(goalDayOf(timeFromTick(0).tick)).toBe(0);
+    // 22:00 on day 1 = tick 15 h after 07:00
+    updateGoal(world, a, timeFromTick(15 * 60));
+    expect(goalOf(a)!.expired || goalOf(a)!.done).toBe(true);
+    // 06:00 next day: a fresh goal
+    updateGoal(world, a, timeFromTick(23 * 60));
+    expect(goalOf(a)!.expired).toBe(false);
+    expect(goalHistory(a).length).toBe(2);
+  });
+
+  it('a goal with two steps completes after two qualifying sessions and logs an event', () => {
+    const world = createWorld(3);
+    const a = world.agents[0];
+    setGoal(world, a, 'exercise');
+    goalUseEnd(world, a, 'treadmill', 5, false); // too short
+    expect(goalOf(a)!.progressText).toBe('0/2');
+    goalUseEnd(world, a, 'treadmill', 30, false);
+    expect(goalOf(a)!.progressText).toBe('1/2');
+    expect(goalOf(a)!.progress).toBe(0.5);
+    const fun = a.needs.fun;
+    goalUseEnd(world, a, 'exercise_bike', 40, true);
+    const g = goalOf(a)!;
+    expect(g.done).toBe(true);
+    expect(g.progressText).toBe('✓');
+    expect(a.needs.fun).toBeGreaterThan(Math.min(99, fun));
+    const ev = world.events[world.events.length - 1];
+    expect(ev.text).toBe(`${a.name}: cel dnia wykonany — ${GOALS.exercise.done}`);
+    expect(ev.gossip?.aboutIds).toEqual([a.id]);
+  });
+
+  it('grill counts only with company; talk goals complete with the chosen partner', () => {
+    const world = createWorld(3);
+    const a = world.agents[0];
+    setGoal(world, a, 'grill');
+    goalUseEnd(world, a, 'grill', 50, true);
+    expect(goalOf(a)!.done).toBe(false);
+
+    setGoal(world, a, 'meet');
+    const g = goalOf(a, world)!;
+    const partner = world.agents.find((x) => x.id === g.partnerId)!;
+    expect(g.label).toContain(partner.name);
+    const other = world.agents.find((x) => x !== a && x !== partner)!;
+    goalConversation(world, a, other);
+    expect(goalOf(a)!.done).toBe(false);
+    goalConversation(world, partner, a);
+    expect(goalOf(a)!.done).toBe(true);
+  });
+
+  it('pulls choices towards the goal during the day, not at night or with urgent needs', () => {
+    const world = createWorld(3);
+    const a = world.agents[0];
+    setGoal(world, a, 'fish');
+    const spot = world.objects.find((o) => o.type === 'fishing_spot')!;
+    const noon = timeFromTick(5 * 60);
+    const night = timeFromTick(16 * 60);
+    expect(goalObjectBias(world, a, spot, noon).add).toBeGreaterThan(0);
+    expect(goalObjectBias(world, a, spot, night)).toEqual({ mult: 1, add: 0 });
+    a.needs = fullNeeds();
+    a.needs.fun = 70;
+    const score = (needs: Partial<Needs>) => {
+      Object.assign(a.needs, needs);
+      return scoreCandidates(world, a, noon).find((d) => d.kind === 'use' && d.objectUid === spot.uid)?.score ?? 0;
+    };
+    const calm = score({});
+    const hungry = score({ hunger: 5 });
+    expect(calm).toBeGreaterThan(hungry);
+    const fridge = world.objects.find((o) => o.type === 'fridge')!;
+    const food = scoreCandidates(world, a, noon).find((d) => d.kind === 'use' && d.objectUid === fridge.uid)?.score ?? 0;
+    expect(food).toBeGreaterThan(hungry);
+  });
+
+  it('goal choice follows personality', () => {
+    const world = createWorld(1);
+    const a = world.agents[0];
+    const count = (traits: Traits) => {
+      a.traits = traits;
+      let quiet = 0;
+      for (let d = 1; d <= 400; d++) {
+        updateGoal(world, a, timeFromTick(world.tick + 1440 * d));
+        if (QUIET_GOALS.includes(goalOf(a)!.kind)) quiet++;
+      }
+      return quiet;
+    };
+    expect(count({ ...neutral, sociability: -0.9 })).toBeGreaterThan(count({ ...neutral, sociability: 0.9 }) * 2);
   });
 });

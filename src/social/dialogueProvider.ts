@@ -1,4 +1,4 @@
-import type { ConversationContext, DayPhase, DialogueLine, DialogueProvider, Rng, Tone } from '../types';
+import type { ConversationContext, DayPhase, DialogueLine, DialogueProvider, Gossip, Rng, Tone } from '../types';
 
 // Procedural Polish dialogue. Lines are short (bubble-friendly) and avoid
 // gendered past-tense verb forms. Slots: {name} listener name, {pora} time of
@@ -171,37 +171,134 @@ function pickFresh(pool: readonly string[], used: Set<string>, rng: Rng): string
   return rng.pick(pool);
 }
 
-function compose(ctx: ConversationContext, tone: Tone, rng: Rng): string {
+function compose(ctx: ConversationContext, tone: Tone, rng: Rng): Composed {
   const used = new Set(ctx.history.map((l) => l.text));
   const f = (pool: readonly string[]): string => fill(pickFresh(pool, used, rng), ctx, rng);
 
   if (ctx.turn === 0 && !ctx.isLast) {
-    if (tone !== 'negative' && rng.chance(0.35)) return f(TIME_GREETINGS[ctx.time.phase]);
-    return f(GREETINGS[tone]);
+    if (tone !== 'negative' && rng.chance(0.35)) return { text: f(TIME_GREETINGS[ctx.time.phase]) };
+    return { text: f(GREETINGS[tone]) };
   }
-  if (ctx.isLast) return f(FAREWELLS[tone]);
+  if (ctx.isLast) return { text: f(FAREWELLS[tone]) };
+
+  const prev = ctx.history[ctx.history.length - 1];
+  if (prev?.gossip && prev.speakerId !== ctx.speaker.id && rng.chance(0.8)) return gossipReaction(prev.gossip, tone, rng);
+
+  const story = chooseGossip(ctx, rng);
+  if (story) return tellGossip(story, ctx, used, rng);
 
   const topical = TOPIC_LINES[ctx.topic];
   const body = topical && rng.chance(0.85) ? f(topical[tone]) : f(SMALL_TALK[tone]);
-  const prev = ctx.history[ctx.history.length - 1];
   if (prev && prev.speakerId !== ctx.speaker.id) {
     const reaction = f(REACTIONS[prev.tone][tone]);
     const roll = rng.next();
-    if (roll < 0.2) return reaction;
+    if (roll < 0.2) return { text: reaction };
     if (roll < 0.55) {
       const combined = `${reaction} ${body}`;
-      if (combined.length <= MAX_LINE_LENGTH) return combined;
+      if (combined.length <= MAX_LINE_LENGTH) return { text: combined };
     }
   }
-  return body;
+  return { text: body };
+}
+
+// ---------------------------------------------------------------- gossip
+
+/** gossip lines may be a bit longer than ordinary ones */
+export const MAX_GOSSIP_LINE = 70;
+
+type Valence = 'good' | 'plain' | 'bad';
+const valenceOf = (g: Gossip): Valence => (g.valence > 0.25 ? 'good' : g.valence < -0.25 ? 'bad' : 'plain');
+
+/** retelling a story the listener does not know; {g} = Gossip.text */
+export const GOSSIP_TELL: Record<Valence, readonly string[]> = {
+  good: ['Wiesz, że {g}? Super!', 'Podobno {g}!', 'Mówią, że {g}!', 'Słychać, że {g}. Brawo!'],
+  plain: ['Wiesz, że {g}?', 'Podobno {g}.', 'Mówią, że {g}…'],
+  bad: ['Mówią, że {g}… Ech.', 'Podobno {g}. No wiesz!', 'Wiesz, że {g}? Ha!', 'Tylko nikomu: {g}!'],
+};
+
+/** "remember when" for a moment both lived through */
+export const GOSSIP_SHARED: Record<Valence, readonly string[]> = {
+  good: ['Pamiętasz, jak {g}? Cudnie!', 'A pamiętasz, jak {g}?'],
+  plain: ['Pamiętasz, jak {g}?', 'A pamiętasz, jak {g}?'],
+  bad: ['Pamiętasz, jak {g}? Ha!', 'Pamiętasz, jak {g}? Ech…'],
+};
+
+/** listener's reaction to a story */
+export const GOSSIP_REACTIONS: Record<Valence | 'shared', readonly string[]> = {
+  good: ['No proszę!', 'Ale super!', 'Serio? Brawo!', 'Kto by pomyślał!'],
+  plain: ['No proszę…', 'Serio?', 'Kto by pomyślał!', 'Ciekawe…'],
+  bad: ['Serio?!', 'Nie wierzę!', 'No coś ty!', 'Ojej…', 'To ci dopiero!'],
+  shared: ['Jasne, że pamiętam!', 'Pewnie! Co to był za dzień!', 'Ha, jak dziś!', 'Oj tak, pamiętam!'],
+};
+
+const FOLLOW_UPS: readonly string[] = ['Skąd to wiesz?', 'Tylko nie mów nikomu.', 'Muszę to zobaczyć.', 'No, no…'];
+
+/** shortens a gossip phrase to `max` chars at a word boundary */
+export function fitGossip(text: string, max: number): string {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, Math.max(1, max - 1));
+  const sp = cut.lastIndexOf(' ');
+  return `${(sp > max * 0.5 ? cut.slice(0, sp) : cut).replace(/[\s,;:–-]+$/, '')}…`;
+}
+
+/** chance that the speaker brings up a story on this turn */
+export function gossipChance(ctx: ConversationContext, shared: boolean): number {
+  const t = ctx.speaker.traits;
+  let p = 0.24 + t.sociability * 0.14 + t.cheerfulness * 0.05;
+  if (ctx.topic === 'plotki') p += 0.3;
+  if (shared && ctx.topic === 'wspomnienia') p += 0.3;
+  if (ctx.turn >= 2) p += 0.08; // mid-conversation, after the warm-up
+  return clamp(p, 0.05, 0.8);
+}
+
+function chooseGossip(ctx: ConversationContext, rng: Rng): Gossip | null {
+  if (!ctx.gossip || ctx.gossip.length === 0) return null;
+  // one story per conversation from each speaker is plenty
+  if (ctx.history.some((l) => l.gossip && l.speakerId === ctx.speaker.id)) return null;
+  const told = new Set(ctx.history.filter((l) => l.gossip).map((l) => l.gossip!.text));
+  const fresh = ctx.gossip.filter((g) => !told.has(g.text));
+  if (fresh.length === 0) return null;
+  const g = fresh.length > 1 && rng.chance(0.3) ? rng.pick(fresh) : fresh[0];
+  return rng.chance(gossipChance(ctx, !!g.shared)) ? g : null;
+}
+
+function tellGossip(g: Gossip, ctx: ConversationContext, used: Set<string>, rng: Rng): Composed {
+  const v = valenceOf(g);
+  const tpl = pickFresh((g.shared ? GOSSIP_SHARED : GOSSIP_TELL)[v], used, rng);
+  const room = MAX_GOSSIP_LINE - (tpl.length - 3);
+  const text = tpl.replace('{g}', fitGossip(g.text, room));
+  let tone: Tone = 'neutral';
+  if (v === 'good') tone = 'positive';
+  else if (v === 'bad' && ctx.speaker.traits.cheerfulness < -0.3) tone = 'negative';
+  else if (g.shared && v !== 'bad') tone = 'positive';
+  return { text, tone, gossip: g };
+}
+
+function gossipReaction(g: Gossip, tone: Tone, rng: Rng): Composed {
+  const pool = g.shared ? GOSSIP_REACTIONS.shared : GOSSIP_REACTIONS[valenceOf(g)];
+  let text = rng.pick(pool);
+  if (!g.shared && rng.chance(0.3)) text = `${text} ${rng.pick(FOLLOW_UPS)}`;
+  const t: Tone = g.valence > 0.25 || g.shared ? 'positive' : tone === 'negative' ? 'negative' : 'neutral';
+  return { text, tone: t };
+}
+
+interface Composed {
+  text: string;
+  /** overrides the chosen tone */
+  tone?: Tone;
+  gossip?: Gossip;
 }
 
 export function createProceduralProvider(): DialogueProvider {
   return {
     name: 'procedural',
     nextLine(ctx: ConversationContext, rng: Rng): DialogueLine {
-      const tone = chooseTone(ctx, rng);
-      return { speakerId: ctx.speaker.id, text: compose(ctx, tone, rng), tone };
+      const chosen = chooseTone(ctx, rng);
+      const c = compose(ctx, chosen, rng);
+      const line: DialogueLine = { speakerId: ctx.speaker.id, text: c.text, tone: c.tone ?? chosen };
+      if (c.gossip) line.gossip = c.gossip;
+      return line;
     },
   };
 }

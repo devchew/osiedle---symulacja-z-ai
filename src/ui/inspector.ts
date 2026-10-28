@@ -2,6 +2,7 @@ import './ui.css';
 import { NEED_ICONS, NEED_KEYS, NEED_LABELS } from '../types';
 import type { Action, Agent, NeedKey, Traits, World } from '../types';
 import { relationshipLabel } from '../social/relationships';
+import { goalOf } from '../agents/goals';
 import { el, moodEmoji, setBar, setText } from './dom';
 
 export interface InspectorOptions {
@@ -100,6 +101,23 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
   ]);
   action.setAttribute('aria-live', 'polite');
 
+  // goal of the day: same layout as "Co teraz robi", warmer tint
+  const goalIcon = el('span', 'insp-now-icon');
+  // own class: e2e tests address the activity row by .insp-now-text
+  const goalText = el('span', 'insp-goal-text');
+  Object.assign(goalText.style, { fontWeight: '650', fontSize: '13.5px', lineHeight: '1.25', overflowWrap: 'anywhere' });
+  const goalState = el('span', 'insp-now-state');
+  const goal = el('div', 'insp-now insp-goal', [
+    goalIcon,
+    el('div', 'insp-now-body', [el('span', 'insp-now-label', ['Cel dnia']), goalText]),
+    goalState,
+  ]);
+  goal.style.marginTop = '8px';
+  goal.style.background = 'linear-gradient(135deg, rgba(255, 196, 92, 0.16), rgba(255, 196, 92, 0.05))';
+  goal.style.borderColor = 'rgba(255, 196, 92, 0.22)';
+  goalIcon.style.width = goalIcon.style.height = '30px';
+  goalIcon.style.fontSize = '17px';
+
   const moodRow = barRow('Nastrój', '🙂');
   moodRow.row.classList.add('bar-row--mood');
   const needRows = new Map<NeedKey, BarRow>();
@@ -127,6 +145,7 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
     header,
     traits,
     action,
+    goal,
     el('div', 'insp-mood', [moodRow.row]),
     section('Potrzeby', needsBox),
     section('Relacje', relList, relEmpty),
@@ -236,6 +255,23 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
     setText(nowState, info.state);
     nowState.hidden = !info.state;
     action.dataset.state = a.action?.kind === 'use' && a.action.phase === 'using' ? 'busy' : 'moving';
+
+    const g = goalOf(a, world);
+    goal.hidden = !g;
+    if (g) {
+      setText(goalIcon, g.icon);
+      setText(goalText, g.label);
+      setText(goalState, g.progressText);
+      goalState.hidden = !g.progressText;
+      goalState.title = g.done ? 'Wykonany' : g.expired ? 'Nie udało się dziś' : 'Postęp';
+      const look = g.done ? 'done' : g.expired ? 'expired' : 'active';
+      if (goal.dataset.state !== look) {
+        goal.dataset.state = look;
+        goalState.style.background = g.done ? 'rgba(120, 200, 120, 0.3)' : '';
+        goalState.style.color = g.done ? 'var(--ui-good)' : '';
+        goalText.style.opacity = g.expired ? '0.6' : '';
+      }
+    }
 
     setText(moodRow.row.querySelector('.bar-icon')!, moodEmoji(a.mood));
     setBar(moodRow.fill, a.mood);

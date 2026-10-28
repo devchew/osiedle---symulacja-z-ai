@@ -23,3 +23,7 @@
 | 2026-10-28 | Kolejność: fala 4 świat+pamięć, 5 dynamika społeczna, 6 AI | decyzja użytkownika po przeglądzie |
 | 2026-10-28 | AI w fali 6 przez OpenRouter (proxy przepięte z `@anthropic-ai/sdk` na API OpenRouter) | decyzja użytkownika |
 | 2026-10-28 | Plotki: kontrakt `Gossip` (tekst 3. osoba, czas teraźniejszy, imiona nieodmieniane) w zdarzeniach i kontekście rozmowy; pamięć w `social/memory.ts` | pamięć i dialogi bez zmian w `Agent` |
+| 2026-10-28 | Mapa 44×29: centralny salon/kuchnia, 4 sypialnie (8 łóżek) i 2 łazienki przy hubie, drzwi do ogrodu z każdej sypialni | krótsze trasy, do 8 mieszkańców |
+| 2026-10-28 | Pamięć: per świat, klucz = tekst historii; świadkowie ≤6 kafli i nieśpiący; połowiczny zanik 2,5 dnia (przeżyte) / 1,5 (zasłyszane); max 12 wspomnień; plotka tylko o osobach trzecich; zmiana opinii ±1..3 × zaufanie; `DialogueLine.gossip?`, `Gossip.shared?` | plotki rozchodzą się i mają skutki |
+| 2026-10-28 | Cele dnia: 13 rodzajów, losowane o 6:00 wg osobowości, wygasają o 22:00, premia w scoringu słabnie przy pilnej potrzebie; stan w WeakMap (`agents/goals.ts`) | mniej przypadkowe dni |
+| 2026-10-28 | Drzemka w dzień tylko przy energii < 28; brak zaczepiania w łóżku i łazience; id rozmów per świat | realizm i determinizm |

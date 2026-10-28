@@ -3,44 +3,46 @@ import { createGrid, markSolid, setTile } from './grid';
 import { OBJECT_DEFS, footprint } from './objects';
 
 export const MAP_WIDTH = 44;
-export const MAP_HEIGHT = 30;
+export const MAP_HEIGHT = 29;
 
 /*
- Default map (44x30), generated dump. House x1..30 y1..20, garden around it.
+ Default map (44x29), generated dump. Compact house x13..28 y5..22 with a hobby wing (x7..13 y10..17):
+ bedrooms + bathrooms (north y6..9, south y18..21) open straight onto the living/kitchen hub (y11..16);
+ every bedroom also has a garden door, the kitchen opens onto the terrace, grill and pond (east),
+ the hobby room onto the orchard (west). Walking per resident went from ~6 h to ~4.8 h per game day.
  Legend: # wall, D door, ' ' wood floor, . tile floor, , grass, : path, ~ water, @ spawn
  B bed, F fridge, S stove, T dining_table, = counter, H shower, U bathtub, W toilet, K sink,
  V tv, O sofa, R bookshelf, P piano, C computer, E exercise_bike, M treadmill, L bench,
  G grill, * flowerbed, f fishing_spot, Z wardrobe, p plant, l lamp, r rug, Y tree, b bush
 
- Y,,,,,,,,,,,,,,,,,,,,,,,,,Y,,,,,,,,,,,,,,,,,
- ,##############################,Y,,,,,,,,,,,
- ,#B l B  #B l B p#HUUW#B l B p#,,,,,,,,,,Y,,
- ,#B   B  #B   B  #....#B   B  #b,,,,***,,,,,
- ,# rrr   # rrr   #....# rrr   #,,,,,,,,,,,,,
- ,# rrr   # rrr   #...K# rrr   #,,,,,,,,,,,,,
- ,#       #     CC#....#RR     #b,,,,,,,,,,,,
- ,#p    ZZ#ZZ     #p...#     ZZ#,,,,,,,,,,,Y,
- ,####D#######D#####D######D####,,,,,,,,,,,,,
- ,#p @     l   @       l   @   D:::,,,,,,,,,,
- ,#      @           @        pD:::,,LL,,,,,,
- ,#####D#########DD#########D###,,:,,,,,,,,,,
- ,#F=SS.==F.#RRPP   VVV p#W...H#,,:,,~~~~,,,b
- ,#.........#       rrr  #.....#,,:,~~~~~~,,,
- ,#.........#       rrr  #....K#b,:f~~~~~~,,,
- ,#..TTT....#    @  OOOl #######,,:,~~~~~~f,,
- ,#..TTT....D            #E MCC#,,:,~~~~~~,,,
- ,#.........#  rrr @     #  M  #b,:,,~~~~,,,,
- ,#.........#  rrr       D     #,,:,,,,f,,,,b
- ,#l.......p#p          p#    p#,,:,,,,,,,,,,
- ,###D############DD############,,:,,,,LL,,,,
- ,,,,:,b,,,b,,,,,,::,,b,,,,,,b,,,,:,,,,,,,,,,
- ,,,,:,,,LL,,***b,::,,,,,GG,,,,,,,:@,,,,,,,Y,
- ,,,,:,,,,,,,,,,,,::,@,,,,,,,,,,,,:,,,,,,,,,,
- ,,,,:::::::::::::::::::::::::::::::::::::,,,
- ,,,,,,,,,@,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
- ,,,,,,,,,,,Y,,,,,,,,,,,,,,,,Y,,,,,,,,,Y,,,,,
- ,,Y,,,,,,,,,,,,,,,,,,,Y,,,,,,,,,,,,,,,,,,,,,
- ,,,,,,,Y,,,,,,,,,,,,,,,,,,,,,,,,Y,,,,,,,,,,,
+ ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+ ,,,,,,,,,,,,,,,,,,,,,,Y,,,,,,,,,,,,,,,,,,,,,
+ ,,,,,Y,,,,Y,,,,,Y,,,,,,,,,,,,,,,,,,,,,,,,,,,
+ ,Y,,,,,,,,,,,,,,,,,,,,,,,,,Y,,,,,,,,,,,,,Y,,
+ ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Y,,,,,,,,,
+ ,,,,,,,,,,,,,################,,,,,,,,,,,,,,,
+ ,,,,,,,,,,,,b#BlBp#HUUW#BlBp#b,,,,,,,,,,,,,,
+ ,,,,,,b,,LL,,#B B #....#B B #,,,,,,b,,,,,,,,
+ ,,,,,,,,,,,,,Drrr #...K# rrrD,,,,,,,,,,,,,,,
+ ,,Y,,,,,,,,,,#rrr #...p# rrr#,,,,,,,,,,,,,,,
+ ,,,,,,,##########D#D####D####GG,,LL,,,,,,,Y,
+ ,,,,,,,#ME CC#VVV l FSSF.RRp#,,,,,,,,,,,,,,,
+ ,,,,,GG#M    #r@r   ........#::,,~~~,,,,,,,,
+ ,,,,,,,# r@r Drrr @ .....@..D:@,~~~~~,,b,,,,
+ ,,,,@::D rrr #OOO   TTT@....D::f~~~~~f,,,,,,
+ ,,,,:,,#PP RR#    @ TTT...@.#::,~~~~~,,,,,,,
+ ,,,,:,,#     #p   l .......l#,:,,~~~,,,,,,,,
+ ,***:,,##########D#D####D####LL,,,f,,,,,,,,,
+ ,,,,:,,,,,,,,#rrr #.HUU# rrr#,:,,,,,,,,,Y,,,
+ ,,,,:,,,,,,,,Drrrp#....#prrrD,:,,,,@,,,,,,,,
+ ,,,,:,b,Y,,,,#BlB #W..K#BlB #,:***,,,,,,,,,,
+ ,,,,:,,,,,,,b#B B #...p#B B #b:,,,,,,,,,,,,,
+ ,Y,,:,,,,,,,,################,:,,,,,,,,,,,,,
+ ,,,,:,,,,,,,,,,,b,,,,,,,,b,,,,:,,,,,,,,,,,,Y
+ ,,,,:::::::::::::::::::::::::::,,,,,,,,,,,,,
+ ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+ ,,,,,,,,,,,,,,,,,Y,,,,,,,,,,,,,,,,,,,Y,,,,,,
+ ,,,Y,,,,,,Y,,,,,,,,,,,,,Y,,,,,,Y,,,,,,,,,,,,
  ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 */
 
@@ -56,46 +58,46 @@ export function createDefaultMap(): { grid: Grid; objects: ObjectInstance[]; spa
   const door = (x: number, y: number) => setTile(g, x, y, 'door');
 
   // ---------------------------------------------------------------- garden ground
-  // paths: front door south, back door, east corridor door, loop along the bottom
-  vLine(17, 21, 24, 'path');
-  vLine(18, 21, 24, 'path');
-  vLine(4, 21, 24, 'path');
-  hLine(24, 4, 40, 'path');
-  hLine(9, 31, 33, 'path');
-  hLine(10, 31, 33, 'path');
-  vLine(33, 9, 24, 'path');
+  fill(rect(29, 12, 2, 4), 'path'); // terrace in front of the kitchen doors
+  vLine(30, 16, 24, 'path'); // around the house
+  hLine(24, 4, 30, 'path');
+  vLine(4, 15, 23, 'path');
+  hLine(14, 4, 6, 'path'); // hobby room door
   // pond with rounded corners
-  fill(rect(35, 12, 6, 6), 'water');
-  for (const [x, y] of [[35, 12], [40, 12], [35, 17], [40, 17]]) setTile(g, x, y, 'grass');
+  fill(rect(32, 12, 5, 5), 'water');
+  for (const [x, y] of [[32, 12], [36, 12], [32, 16], [36, 16]]) setTile(g, x, y, 'grass');
 
   // ---------------------------------------------------------------- house shell
-  fill(rect(1, 1, 30, 20), 'wall');
+  // Compact house: bedrooms and bathrooms (north y6..9, south y18..21) open straight
+  // onto the living/kitchen hub (y11..16); the hobby room is a west wing. Every bedroom
+  // also has a door to the garden, the kitchen opens onto the terrace and the pond.
+  fill(rect(13, 5, 16, 18), 'wall');
+  fill(rect(7, 10, 7, 8), 'wall');
   const rooms: { id: string; name: string; r: RectArea; floor: TileKind }[] = [
-    { id: 'bedroom1', name: 'Sypialnia 1', r: rect(2, 2, 7, 6), floor: 'floor' },
-    { id: 'bedroom2', name: 'Sypialnia 2', r: rect(10, 2, 7, 6), floor: 'floor' },
-    { id: 'bathroom', name: 'Łazienka', r: rect(18, 2, 4, 6), floor: 'tile' },
-    { id: 'bedroom3', name: 'Sypialnia 3', r: rect(23, 2, 7, 6), floor: 'floor' },
-    { id: 'hall', name: 'Korytarz', r: rect(2, 9, 28, 2), floor: 'floor' },
-    { id: 'kitchen', name: 'Kuchnia', r: rect(2, 12, 9, 8), floor: 'tile' },
-    { id: 'living', name: 'Salon', r: rect(12, 12, 12, 8), floor: 'floor' },
-    { id: 'bathroom2', name: 'Mała łazienka', r: rect(25, 12, 5, 3), floor: 'tile' },
-    { id: 'hobby', name: 'Pokój hobby', r: rect(25, 16, 5, 4), floor: 'floor' },
+    { id: 'bedroom1', name: 'Sypialnia 1', r: rect(14, 6, 4, 4), floor: 'floor' },
+    { id: 'bathroom', name: 'Łazienka', r: rect(19, 6, 4, 4), floor: 'tile' },
+    { id: 'bedroom2', name: 'Sypialnia 2', r: rect(24, 6, 4, 4), floor: 'floor' },
+    { id: 'hobby', name: 'Pokój hobby', r: rect(8, 11, 5, 6), floor: 'floor' },
+    { id: 'living', name: 'Salon', r: rect(14, 11, 6, 6), floor: 'floor' },
+    { id: 'kitchen', name: 'Kuchnia', r: rect(20, 11, 8, 6), floor: 'tile' },
+    { id: 'bedroom3', name: 'Sypialnia 3', r: rect(14, 18, 4, 4), floor: 'floor' },
+    { id: 'bathroom2', name: 'Mała łazienka', r: rect(19, 18, 4, 4), floor: 'tile' },
+    { id: 'bedroom4', name: 'Sypialnia 4', r: rect(24, 18, 4, 4), floor: 'floor' },
   ];
   for (const room of rooms) fill(room.r, room.floor);
-  // doors
-  [[5, 8], [13, 8], [19, 8], [26, 8]].forEach(([x, y]) => door(x, y)); // bedrooms/bathroom -> hall
-  [[6, 11], [16, 11], [17, 11], [27, 11]].forEach(([x, y]) => door(x, y)); // hall -> kitchen/living/bathroom2
-  door(11, 16); // kitchen <-> living
-  door(24, 18); // living <-> hobby
-  door(17, 20); door(18, 20); // front door
-  door(4, 20); // kitchen back door
-  door(30, 9); door(30, 10); // hall -> east garden
-  door(30, 18); // hobby room -> garden (shortcut to the pond)
+  // the hub is one open space: no wall between the living room and the kitchen
+  [[17, 10], [19, 10], [24, 10]].forEach(([x, y]) => door(x, y)); // north rooms -> hub
+  [[17, 17], [19, 17], [24, 17]].forEach(([x, y]) => door(x, y)); // south rooms -> hub
+  door(13, 13); // hub -> hobby room
+  door(28, 13); door(28, 14); // kitchen -> terrace
+  door(7, 14); // hobby room -> orchard
+  [[13, 8], [28, 8], [13, 19], [28, 19]].forEach(([x, y]) => door(x, y)); // bedroom garden doors
 
   g.rooms = [
     ...rooms.map(({ id, name, r }) => ({ id, name, rect: r })),
-    { id: 'garden', name: 'Ogród', rect: rect(31, 0, 13, 30) },
-    { id: 'yard', name: 'Przed domem', rect: rect(0, 21, 31, 9) },
+    { id: 'orchard', name: 'Sad', rect: rect(0, 0, 7, 29) },
+    { id: 'garden', name: 'Ogród', rect: rect(29, 0, 15, 29) },
+    { id: 'yard', name: 'Przed domem', rect: rect(7, 23, 22, 6) },
   ];
 
   // ---------------------------------------------------------------- objects
@@ -107,93 +109,84 @@ export function createDefaultMap(): { grid: Grid; objects: ObjectInstance[]; spa
     if (def.blocking) for (const p of footprint(obj, def)) markSolid(g, p.x, p.y, true);
   };
 
-  // bedrooms: two single beds each, wardrobe, lamp
-  for (const bx of [2, 10, 23]) {
-    put('bed', bx, 2);
-    put('bed', bx + 4, 2);
-    put('lamp', bx + 2, 2);
+  // bedrooms: two single beds each (beds are assigned in this order, pairs share a room);
+  // north ones along the north wall, south ones along the south wall
+  for (const [x, y] of [[14, 6], [24, 6], [14, 20], [24, 20]]) {
+    put('bed', x, y);
+    put('bed', x + 2, y);
+    put('lamp', x + 1, y);
   }
-  put('rug', 3, 4);
-  put('wardrobe', 7, 7);
-  put('plant', 2, 7);
-  put('wardrobe', 10, 7);
-  put('rug', 11, 4);
-  put('computer', 15, 6);
-  put('plant', 16, 2);
-  put('rug', 24, 4);
-  put('wardrobe', 28, 7);
-  put('plant', 29, 2);
-  put('bookshelf', 23, 6);
+  put('rug', 14, 8);
+  put('plant', 17, 6);
+  put('rug', 25, 8);
+  put('plant', 27, 6);
+  put('rug', 14, 18);
+  put('plant', 17, 19);
+  put('rug', 25, 18);
+  put('plant', 24, 19);
 
   // bathroom
-  put('shower', 18, 2);
-  put('bathtub', 19, 2);
-  put('toilet', 21, 2);
-  put('sink', 21, 5);
-  put('plant', 18, 7);
-
-  // hall
-  put('plant', 2, 9);
-  put('plant', 29, 10);
-  put('lamp', 10, 9);
-  put('lamp', 22, 9);
-
-  // kitchen
-  put('fridge', 2, 12);
-  put('counter', 3, 12);
-  put('stove', 4, 12);
-  put('counter', 7, 12);
-  put('counter', 8, 12);
-  put('fridge', 9, 12);
-  put('dining_table', 4, 15);
-  put('plant', 10, 19);
-  put('lamp', 2, 19);
-
-  // living room
-  put('bookshelf', 12, 12);
-  put('piano', 14, 12);
-  put('tv', 19, 12);
-  put('rug', 19, 13);
-  put('sofa', 19, 15);
-  put('lamp', 22, 15);
-  put('plant', 23, 12);
-  put('plant', 12, 19);
-  put('plant', 23, 19);
-  put('rug', 14, 17);
-
+  put('shower', 19, 6);
+  put('bathtub', 20, 6);
+  put('toilet', 22, 6);
+  put('sink', 22, 8);
+  put('plant', 22, 9);
   // small bathroom
-  put('toilet', 25, 12);
-  put('shower', 29, 12);
-  put('sink', 29, 14);
+  put('shower', 20, 18);
+  put('bathtub', 21, 18);
+  put('toilet', 19, 20);
+  put('sink', 22, 20);
+  put('plant', 22, 21);
 
   // hobby room
-  put('exercise_bike', 25, 16);
-  put('treadmill', 27, 16);
-  put('computer', 28, 16);
-  put('plant', 29, 19);
+  put('treadmill', 8, 11);
+  put('exercise_bike', 9, 11);
+  put('computer', 11, 11);
+  put('piano', 8, 15);
+  put('bookshelf', 11, 15);
+  put('rug', 9, 13);
 
-  // garden
-  put('grill', 24, 22);
-  put('bench', 8, 22);
-  put('flowerbed', 12, 22);
-  put('bench', 36, 10);
-  put('bench', 38, 20);
-  put('flowerbed', 36, 3);
-  put('fishing_spot', 34, 14);
-  put('fishing_spot', 38, 18);
-  put('fishing_spot', 41, 15);
+  // living room
+  put('tv', 14, 11);
+  put('rug', 14, 12);
+  put('sofa', 14, 14);
+  put('lamp', 18, 11);
+  put('plant', 14, 16);
+  put('lamp', 18, 16);
+
+  // kitchen
+  put('fridge', 20, 11);
+  put('stove', 21, 11);
+  put('fridge', 23, 11);
+  put('dining_table', 20, 14);
+  put('bookshelf', 25, 11);
+  put('plant', 27, 11);
+  put('lamp', 27, 16);
+
+  // gardens: everything within a few steps of the doors
+  put('grill', 29, 10);
+  put('bench', 29, 17);
+  put('bench', 33, 10);
+  put('fishing_spot', 31, 14);
+  put('fishing_spot', 34, 17);
+  put('fishing_spot', 37, 14);
+  put('flowerbed', 31, 20);
+  put('bench', 9, 7);
+  put('grill', 5, 12);
+  put('flowerbed', 1, 17);
   const trees: [number, number][] = [
-    [2, 27], [7, 28], [11, 26], [22, 27], [28, 26], [32, 28], [38, 26], [42, 22], [42, 7], [41, 2], [32, 1], [0, 0], [26, 0],
+    [1, 3], [5, 2], [2, 9], [1, 22], [3, 27], [10, 2], [16, 2], [22, 1], [27, 3], [34, 4], [41, 3], [42, 10],
+    [40, 18], [43, 23], [37, 26], [31, 27], [24, 27], [17, 26], [10, 27], [8, 20],
   ];
   for (const [x, y] of trees) put('tree', x, y);
   const bushes: [number, number][] = [
-    [31, 3], [31, 6], [31, 14], [31, 17], [6, 21], [10, 21], [21, 21], [28, 21], [15, 22], [43, 12], [43, 18],
+    [12, 6], [12, 21], [29, 6], [29, 21], [16, 23], [25, 23], [6, 7], [6, 20], [39, 13], [35, 7],
   ];
   for (const [x, y] of bushes) put('bush', x, y);
 
   const spawnPoints: Vec2[] = [
-    { x: 4, y: 9 }, { x: 8, y: 10 }, { x: 14, y: 9 }, { x: 20, y: 10 }, { x: 26, y: 9 },
-    { x: 16, y: 15 }, { x: 18, y: 17 }, { x: 20, y: 23 }, { x: 34, y: 22 }, { x: 9, y: 25 },
+    { x: 15, y: 12 }, { x: 18, y: 13 }, { x: 23, y: 14 }, { x: 26, y: 15 }, { x: 18, y: 15 },
+    { x: 10, y: 13 }, { x: 30, y: 13 }, { x: 35, y: 19 }, { x: 4, y: 14 }, { x: 25, y: 13 },
   ];
   return { grid: g, objects, spawnPoints };
 }

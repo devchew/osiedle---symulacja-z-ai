@@ -12,6 +12,7 @@ import { conversationDelta, describeConversation, startConversation, willAcceptC
 import { relationshipLabel } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 import { onConversationEnd, recallFor } from '../social/memory';
+import { goalConversation, goalUseEnd, goalUseTick, updateGoal } from './goals';
 
 const TALK_EFFECTS = { social: 0.7, fun: 0.12 };
 const APPROACH_TIMEOUT = 60;
@@ -27,7 +28,13 @@ const BLOCKED_GIVE_UP = 12;
 const DESPERATE = 4;
 
 const fallbackDialogue = createProceduralProvider();
-let nextConversationId = 1;
+/** conversation ids are per world, so two worlds with the same seed stay identical */
+const conversationIds = new WeakMap<World, number>();
+function nextConversationId(world: World): number {
+  const id = (conversationIds.get(world) ?? 0) + 1;
+  conversationIds.set(world, id);
+  return id;
+}
 
 export function objectByUid(world: World, uid: number): ObjectInstance | undefined {
   return world.objects.find((o) => o.uid === uid);
@@ -146,6 +153,7 @@ export function endAction(world: World, agent: Agent): void {
         const def = world.objectDefs[obj.type];
         agent.pos = slotStandTile(obj, def, a.slot);
         if (isSleepingObject(def)) pushEvent(world, 'info', `${agent.name} wstaje z łóżka`, [agent.id]);
+        else goalUseEnd(world, agent, obj.type, usedFor.get(agent) ?? 0, a.ticksLeft <= 0);
       }
     }
   }
@@ -179,6 +187,7 @@ function satisfied(agent: Agent, def: ObjectDef): boolean {
 // ---------------------------------------------------------------- per-tick update
 
 export function updateAgent(world: World, agent: Agent, time: GameTime): void {
+  updateGoal(world, agent, time);
   if (!agent.action) startNext(world, agent, time);
   const a = agent.action!;
 
@@ -201,6 +210,7 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
         return;
       }
       applyEffects(agent, def.effects, useEffectScale(agent));
+      goalUseTick(world, agent, obj);
       a.ticksLeft--;
       const used = (usedFor.get(agent) ?? 0) + 1;
       usedFor.set(agent, used);
@@ -323,7 +333,7 @@ function invite(world: World, agent: Agent, partner: Agent): void {
     return;
   }
   endAction(world, partner);
-  const conv = startConversation(nextConversationId++, agent, partner, world.tick, world.rng);
+  const conv = startConversation(nextConversationId(world), agent, partner, world.tick, world.rng);
   world.conversations.push(conv);
   for (const [self, other] of [
     [agent, partner],
@@ -376,6 +386,7 @@ function endConversation(world: World, conv: Conversation): void {
   }
   if (conv.lines.length < 2) return;
   onConversationEnd(world, conv);
+  goalConversation(world, a, b);
   a.stats.conversations++;
   b.stats.conversations++;
   const before = world.relationships.get(a.id, b.id);
@@ -447,6 +458,6 @@ export function ambientChats(world: World): void {
   for (const group of byObject.values()) {
     if (group.length < 2 || !world.rng.chance(AMBIENT_CHAT_CHANCE)) continue;
     const [x, y] = group;
-    world.conversations.push(startConversation(nextConversationId++, x, y, world.tick, world.rng));
+    world.conversations.push(startConversation(nextConversationId(world), x, y, world.tick, world.rng));
   }
 }

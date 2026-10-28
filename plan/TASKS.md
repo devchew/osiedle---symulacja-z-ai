@@ -58,26 +58,29 @@ Notatki z integracji: pierwsza wersja wpadała w spiralę (przerywanie aktywnoś
 - [x] G „LLM”: `server/llmProxy.ts` (plugin Vite, dev + preview), `src/social/llmProvider.ts`, przełącznik `src/ui/llmToggle.ts`, `.env.example`, `tests/llm.test.ts`
 - [x] Orkiestrator: drzwi pokój hobby → ogród, limit postaci w URL = liczba łóżek
 
-## Fala 4 — świat i pamięć (3 agentów) — [~] w toku
+## Fala 4 — świat i pamięć (3 agentów) — [x]
 Przygotowanie (orkiestrator) [x]: kontrakt `Gossip` w `types.ts` (`SimEvent.gossip?`, `ConversationContext.gossip?`), `pushEvent(…, gossip?)`, stub `src/social/memory.ts` (`updateMemories`, `recallFor`, `onConversationEnd`) podpięty w `world.ts` i `actions.ts`.
 
-### [ ] H „mapa” — `src/world/map.ts`, `src/world/grid.ts`, `tests/world.test.ts`
+### [x] H „mapa” — `src/world/map.ts`, `src/world/grid.ts`, `tests/world.test.ts`
 - Zwarty dom z krótszymi drogami (cel: chodzenie ≤ ~3,5 h/dobę gry vs 5,7 h), 4. sypialnia → 8 łóżek, ogród bliżej, zachowane wszystkie typy aktywności
 - Done: testy world + soak zielone, zrzut obejrzany
+- Wynik: dom z centralnym salonem/kuchnią, 4 sypialnie (8 łóżek) z drzwiami do ogrodu, 2 łazienki; chodzenie 6,0 → 4,8 h/dobę (cel 3,5 h nieosiągnięty — krótsze trasy = więcej aktywności i spacerów)
 
-### [ ] I „pamięć i plotki” — `src/social/**`, `src/agents/narration.ts`, `tests/social.test.ts`, `tests/memory.test.ts`
+### [x] I „pamięć i plotki” — `src/social/**`, `src/agents/narration.ts`, `tests/social.test.ts`, `tests/memory.test.ts`
 - Wspomnienia per postać (z `world.events` z `gossip`), zanikanie, plotki rozchodzą się w rozmowach, wpływają na opinie o osobach trzecich
 - Dialog proceduralny wplata plotki („Słyszałeś? Ola przypala obiad!”), narracja wypełnia `gossip`
 - Done: testy pamięci; w soak ≥ X rozmów z plotką/tydzień
+- Wynik: ~16–29 linii z plotką/tydzień (co druga rozmowa), 11–21 przypadków rozejścia się plotki, zmiany opinii o osobach trzecich
 
-### [ ] J „cele dnia” — `src/agents/brain.ts`, `actions.ts`, `goals.ts` (nowy), `home.ts`, `needs.ts`, `src/ui/inspector.ts`, `tests/soak.test.ts`, `tests/sim.test.ts`, `tests/agents.test.ts`
+### [x] J „cele dnia” — `src/agents/brain.ts`, `actions.ts`, `goals.ts` (nowy), `home.ts`, `needs.ts`, `src/ui/inspector.ts`, `tests/soak.test.ts`, `tests/sim.test.ts`, `tests/agents.test.ts`
 - Rano każdy losuje cel/nastrój dnia (zależny od osobowości), który przesuwa wybory; cel widoczny w inspektorze; zdarzenie w logu przy realizacji
 - Done: metryka w soak (cele realizowane w ≥ 60% dni)
+- Wynik: 13 rodzajów celów, 82% dni z wykonanym celem, wybór zależny od osobowości
+- Orkiestrator: drzemki tylko przy energii < 28 (57 → 20 drzemek / 72 dni postaci), id rozmów per świat (determinizm), brak zaczepiania w łazience
 
 ## Pomysły na kolejne fale (backlog)
-- [ ] Mapa: krótsze dystanse / więcej drzwi lub drugi dom (postacie chodzą ~5,7 h na dobę gry)
-- [ ] Więcej łóżek / 4. sypialnia → >6 mieszkańców
-- [ ] Wspomnienia i plotki (rozmowy odnoszą się do wydarzeń z logu)
+- [ ] Mniej bezcelowych spacerów (wander w `brain.ts`), testy `sim.test.ts` z koordynatami z mapy zamiast na sztywno
+- [ ] Inspektor: sekcja „Wspomnienia” (`agentMemories` z `social/memory.ts`)
 - [ ] Zapis/odczyt stanu (localStorage), wybór seeda w UI
 - [ ] Fala 6: dialogi AI przez **OpenRouter** (zamiast bezpośredniego Anthropic SDK) + test z prawdziwym kluczem
 - [ ] Ostrzeżenie Vite o imporcie `server/llmProxy` bez rozszerzenia (nieszkodliwe)

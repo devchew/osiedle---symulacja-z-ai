@@ -3,6 +3,7 @@ import { createWorld, tickWorld } from '../../src/world/world';
 import { NEED_KEYS } from '../../src/types';
 import type { Agent, NeedKey, Traits, World } from '../../src/types';
 import { timeFromTick } from '../../src/core/time';
+import { goalHistory, type GoalRecord } from '../../src/agents/goals';
 
 export interface AgentMetrics {
   id: number;
@@ -35,6 +36,8 @@ export interface AgentMetrics {
   gardenNightTicks: number;
   /** ticks spent eating (food objects) per hour of day */
   eatingByHour: number[];
+  /** daily goals, one per goal day (06:00–06:00) */
+  goals: GoalRecord[];
 }
 
 export interface RunMetrics {
@@ -42,8 +45,12 @@ export interface RunMetrics {
   days: number;
   agents: AgentMetrics[];
   doubleBookings: number;
-  /** max number of events (excluding conversations and sleep) in any single game hour */
+  /** max number of narration events (excluding conversations, sleep and daily goals) in any single game hour */
   maxEventsPerHour: number;
+  /** max number of "cel dnia wykonany" events in any single game hour */
+  maxGoalEventsPerHour: number;
+  /** max number of all story events (narration + goals) in any single game hour */
+  maxStoriesPerHour: number;
   eventCounts: Record<string, number>;
   /** fingerprint for determinism checks */
   fingerprint: string;
@@ -84,6 +91,7 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
     bedsUsed: 0,
     gardenNightTicks: 0,
     eatingByHour: new Array(24).fill(0),
+    goals: [],
   }));
   const lowStreak = new Array(world.agents.length).fill(0);
   const stuck = new Array(world.agents.length).fill(0);
@@ -91,6 +99,8 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
   const beds = world.agents.map(() => new Set<number>());
   let doubleBookings = 0;
   const eventsPerHour = new Map<number, number>();
+  const goalsPerHour = new Map<number, number>();
+  const storiesPerHour = new Map<number, number>();
   const eventCounts: Record<string, number> = {};
   let lastEventTick = -1;
 
@@ -151,7 +161,9 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
         eventCounts[k] = (eventCounts[k] ?? 0) + 1;
         if (e.kind === 'conversation' || e.kind === 'relationship' || /spać|wstaje/.test(e.text)) continue;
         const h = Math.floor(world.tick / 60);
-        eventsPerHour.set(h, (eventsPerHour.get(h) ?? 0) + 1);
+        storiesPerHour.set(h, (storiesPerHour.get(h) ?? 0) + 1);
+        const bucket = e.text.includes('cel dnia') ? goalsPerHour : eventsPerHour;
+        bucket.set(h, (bucket.get(h) ?? 0) + 1);
       }
       lastEventTick = world.events[world.events.length - 1].tick;
     }
@@ -161,6 +173,7 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
     ms[idx].conversations = agent.stats.conversations;
     ms[idx].distinctActivities = Object.keys(ms[idx].activityTicks).length;
     ms[idx].bedsUsed = beds[idx].size;
+    ms[idx].goals = [...goalHistory(agent)];
   });
 
   return {
@@ -169,6 +182,8 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
     agents: ms,
     doubleBookings,
     maxEventsPerHour: Math.max(0, ...eventsPerHour.values()),
+    maxGoalEventsPerHour: Math.max(0, ...goalsPerHour.values()),
+    maxStoriesPerHour: Math.max(0, ...storiesPerHour.values()),
     eventCounts,
     fingerprint: JSON.stringify([world.rng.state(), world.agents.map((a) => [a.pos, a.needs, a.stats])]),
     world,
@@ -179,7 +194,9 @@ const r1 = (v: number) => Math.round(v * 10) / 10;
 
 /** compact human-readable summary */
 export function formatMetrics(m: RunMetrics): string {
-  const out: string[] = [`seed ${m.seed}, ${m.days} days, doubleBookings=${m.doubleBookings}, maxEventsPerHour=${m.maxEventsPerHour}`];
+  const out: string[] = [
+    `seed ${m.seed}, ${m.days} days, doubleBookings=${m.doubleBookings}, maxEventsPerHour=${m.maxEventsPerHour} goals/h=${m.maxGoalEventsPerHour} stories/h=${m.maxStoriesPerHour}`,
+  ];
   for (const a of m.agents) {
     const t = a.traits;
     const top = Object.entries(a.activityTicks)
@@ -192,6 +209,7 @@ export function formatMetrics(m: RunMetrics): string {
         `walk=${a.walkTicks} wait=${a.waitTicks} wander=${a.wanderTicks} bedWalk=${a.bedWalkTicks} beds=${a.bedsUsed} gardenNight=${a.gardenNightTicks}`,
     );
     out.push(`        ${top}`);
+    out.push(`        goals: ${a.goals.map((g) => `${g.kind}${g.done ? '✓' : g.open ? '…' : '✗'}`).join(' ')}`);
   }
   const eat = new Array(24).fill(0);
   for (const a of m.agents) a.eatingByHour.forEach((v, h) => (eat[h] += v));

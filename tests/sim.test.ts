@@ -51,7 +51,9 @@ describe('beds', () => {
   });
 
   it('agents beyond the bed count get none and still live', () => {
-    const world = createWorld(2, { agentCount: 8 });
+    // independent of the map's bed count: two more residents than beds
+    const beds = createWorld(2).objects.filter((o) => o.type === 'bed').length;
+    const world = createWorld(2, { agentCount: beds + 2 });
     expect(world.agents.filter((a) => bedOf(a) === undefined)).toHaveLength(2);
     for (let i = 0; i < DAY; i++) tickWorld(world);
   });

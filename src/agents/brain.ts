@@ -4,6 +4,7 @@ import { slotStandTile } from '../world/objects';
 import { bedOf } from './home';
 import { urgency } from './needs';
 import { chatAcceptanceChance } from '../social/conversation';
+import { goalObjectBias, goalTalkBias, type GoalBias } from './goals';
 
 // Utility AI: every candidate activity advertises how much it would reduce the
 // agent's "discomfort"; the agent picks one of the best few, weighted by score.
@@ -69,6 +70,9 @@ export const TRAIT_AFFINITY = {
   hygienePerNeatness: 0.5,
 } as const;
 
+/** below this energy a daytime nap is allowed */
+const NAP_ENERGY = 28;
+
 export function isSleepingObject(def: ObjectDef | undefined): boolean {
   return !!def?.tags?.includes('sleep');
 }
@@ -123,6 +127,18 @@ function servedUrgency(agent: Agent, def: ObjectDef): number {
   return Math.min(1, u);
 }
 
+/** 0..1: the agent's most pressing need overall; goal bonuses fade as it grows */
+function overallUrgency(agent: Agent): number {
+  let u = 0;
+  for (const k of NEED_KEYS) u = Math.max(u, urgency(agent.needs[k]) * NEED_WEIGHT[k]);
+  return Math.min(1, u);
+}
+
+/** applies a daily-goal bias; the additive part only while no need is pressing */
+function withGoal(score: number, bias: GoalBias, calm: number): number {
+  return bias.add === 0 && bias.mult === 1 ? score : score * bias.mult + bias.add * calm;
+}
+
 function scoreObject(agent: Agent, def: ObjectDef, time: GameTime): number {
   const dur = averageDuration(def);
   const tags = def.tags ?? [];
@@ -154,7 +170,8 @@ function scoreObject(agent: Agent, def: ObjectDef, time: GameTime): number {
     const evening = h >= 20 && h < 22;
     if (night) score *= agent.needs.energy < 85 ? 2.5 : 1;
     else if (evening) score *= 1.3;
-    else if (agent.needs.energy > 25) score *= 0.15;
+    // daytime naps only when really tired; otherwise a rested-enough bed beats idling
+    else if (agent.needs.energy > NAP_ENERGY) return 0;
     // take care of a pressing need before turning in, unless exhausted
     if (agent.needs.energy > 20 && (agent.needs.hunger < 25 || agent.needs.social < 20 || agent.needs.hygiene < 25)) score *= 0.5;
   } else {
@@ -187,7 +204,9 @@ export function canChat(other: Agent, world: World): boolean {
   if (a.kind === 'talk') return false;
   if (a.kind === 'use') {
     const obj = world.objects.find((o) => o.uid === a.objectUid);
-    if (obj && isSleepingObject(world.objectDefs[obj.type])) return false;
+    const def = obj && world.objectDefs[obj.type];
+    // nobody gets chatted up in bed or in the bathroom
+    if (def && (isSleepingObject(def) || def.tags?.includes('hygiene'))) return false;
   }
   return true;
 }
@@ -211,6 +230,8 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
   const own = bedOf(agent);
   const ownObj = own === undefined ? undefined : world.objects.find((o) => o.uid === own);
   const ownFree = !!ownObj && (ownObj.reservedBy[0] === null || ownObj.reservedBy[0] === agent.id);
+  // urgency 0.35 (need ~35) already halves the goal pull; 0.7+ removes it
+  const calm = Math.max(0, 1 - overallUrgency(agent) / 0.7);
 
   for (const obj of world.objects) {
     const def = world.objectDefs[obj.type];
@@ -218,6 +239,7 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
     const slot = freeSlot(obj);
     if (slot < 0) continue;
     let base = scoreObject(agent, def, time);
+    if (!isSleepingObject(def)) base = withGoal(base, goalObjectBias(world, agent, obj, time), calm);
     if (base <= 0) continue;
     if (isSleepingObject(def) && own !== undefined) {
       if (obj.uid === own) base *= OWN_BED_BONUS;
@@ -239,7 +261,8 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
     const busy = other.action?.kind === 'wander' || other.path.length > 0 ? 0.5 : 1;
     // people sense who is in the mood for a chat
     const receptive = 0.3 + chatAcceptanceChance(other, agent, world.relationships.get(other.id, agent.id));
-    const score = (busy * receptive * socialRelief * (1 + rel / 200) * (1 + 0.5 * agent.traits.sociability)) / (1 + dist / talkReach);
+    const appeal = busy * receptive * socialRelief * (1 + rel / 200) * (1 + 0.5 * agent.traits.sociability);
+    const score = withGoal(appeal, goalTalkBias(agent, other.id, time), calm) / (1 + dist / talkReach);
     if (score > 0) out.push({ kind: 'talk', partnerId: other.id, score });
   }
 
