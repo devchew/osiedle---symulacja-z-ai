@@ -102,6 +102,15 @@ Przygotowanie [x]: stub `src/world/incidents.ts` (`tickIncidents`, `availability
 - Wynik (15 min w przeglądarce, seed 42): urwane rozmowy 16/24 → 0/14, wstawanie zaraz po usiądnięciu 47 → 0, zmiany zdania 23 → 0; przeglądarka = headless (deterministycznie)
 - [x] `tests/behaviour.test.ts` — regresja tych wzorców
 
+## Fala 7 — świat zewnętrzny i domy (3 agentów) — [~] w toku
+Przygotowanie [x]: rejestr domów `src/world/maps/index.ts` (`MAPS`, `getMap`, `bedCount`, `mapIdOf`), `WorldOptions.mapId`, `?map=`; stub `src/world/news.ts` (`tickNews`, `currentHeadline`, `newsFor`) + `ConversationContext.news?`; stub `src/realtime/realtime.ts` (`startRealtime`) + `?mode=real`.
+### [ ] O „telewizja i wiadomości” — `server/newsProxy.ts`, `vite.config.ts`, `src/world/news.ts`, `src/render/**`, `src/social/dialogueProvider.ts`, `src/social/llmProvider.ts`, `server/llmProxy.ts`, `tests/news.test.ts`
+- Prawdziwe nagłówki RSS przez proxy (cache, fallback), wiadomości z osiedla gdy brak sieci; ekran TV pokazuje nagłówek; oglądający rozmawiają o newsach
+### [ ] P „tryb rzeczywisty” — `src/realtime/**`, `src/world/incidents.ts` (źródło pogody), `src/ui/hud.ts`, `tests/realtime.test.ts`
+- Zegar = czas lokalny (1 min gry = 1 min), pogoda z Open-Meteo (lokalizacja z przeglądarki lub domyślna), blokada prędkości/replay
+### [ ] Q „domy” — `src/world/maps/**`, `src/world/map.ts`, `src/world/world.ts`, `src/ui/newWorld.ts`, `src/ui/saves.ts`, `src/ui/savePanel.ts`, `tests/world.test.ts`, `tests/maps.test.ts`, `e2e/**`
+- 2–3 nowe domy (np. kamienica, domek nad jeziorem, akademik), wybór domu i trybu rzeczywistego w oknie „Nowy świat”, `map`/`mode` w zapisach i linkach
+
 ## Pomysły na kolejne fale (backlog)
 - [ ] Mniej bezcelowych spacerów (wander w `brain.ts`), testy `sim.test.ts` z koordynatami z mapy zamiast na sztywno
 - [ ] Goście z zewnątrz (wymaga rozróżnienia mieszkaniec/gość w kontraktach)

@@ -9,6 +9,7 @@ import { randomWalkableTile } from '../world/grid';
 import { slotStandTile, slotUsePos } from '../world/objects';
 import { pushEvent } from '../world/events';
 import { trace } from '../world/trace';
+import { newsFor } from '../world/news';
 import { availability } from '../world/incidents';
 import { chatAcceptanceChance, conversationDelta, describeConversation, startConversation, type ConversationMood } from '../social/conversation';
 import { feltSympathy, recordConversation, recordFriction, statusOf } from '../social/relationships';
@@ -554,6 +555,7 @@ export function tickConversations(world: World, time: GameTime): void {
       isLast: turn === conv.maxLines - 1,
       time,
       gossip: recallFor(world, speaker, listener),
+      news: newsFor(world, speaker),
     };
     conv.nextLineIn = world.rng.int(LINE_TICKS[0], LINE_TICKS[1]);
     const result = world.dialogue.nextLine(ctx, world.rng);

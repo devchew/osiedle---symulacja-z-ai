@@ -219,6 +219,8 @@ export interface ConversationContext {
   time: GameTime;
   /** stories the speaker remembers and could bring up (about third persons or shared moments) */
   gossip?: Gossip[];
+  /** TV news headlines the speaker saw recently (newest first) */
+  news?: string[];
 }
 
 export interface DialogueProvider {

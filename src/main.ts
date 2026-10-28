@@ -2,7 +2,8 @@ import type { SimControls } from './types';
 import { createLoop } from './core/loop';
 import { formatClock, timeFromTick } from './core/time';
 import { createWorld, tickWorld } from './world/world';
-import { createDefaultMap } from './world/map';
+import { bedCount, getMap } from './world/maps';
+import { startRealtime } from './realtime/realtime';
 import { createRenderer } from './render/renderer';
 import { createHud } from './ui/hud';
 import { createInspector } from './ui/inspector';
@@ -35,9 +36,12 @@ const weather: WeatherOfFn = (w) => weatherOf(w);
 // URL: ?seed, ?agents (≤ beds), ?tick (replay to that tick) or ?hour (that hour of day 1), ?check, ?paused
 const params = new URLSearchParams(location.search);
 // one bed per resident: more agents than beds would leave someone sleepless
-const beds = createDefaultMap().objects.filter((o) => o.type === 'bed').length;
+const mapDef = getMap(params.get('map'));
+const beds = bedCount(mapDef);
 const start = parseStartParams(params, beds, randomSeed);
-const world = createWorld(start.seed, { agentCount: start.agentCount });
+const world = createWorld(start.seed, { agentCount: start.agentCount, mapId: mapDef.id });
+// ?mode=real: clock and weather follow the real world (no deterministic replay)
+const realtimeMode = params.get('mode') === 'real';
 const history = createMoodHistory();
 history.record(world);
 
@@ -74,6 +78,7 @@ async function main(): Promise<void> {
   };
 
   if (start.paused) loop.setPaused(true);
+  if (realtimeMode) await startRealtime({ world, loop, controls, step, parent: document.body });
   let llm: LlmToggle | undefined;
 
   const newWorld = createNewWorldDialog({ seed: world.seed, agentCount: world.agents.length, maxAgents: beds });

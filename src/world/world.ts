@@ -2,7 +2,8 @@ import type { Agent, DialogueProvider, NeedKey, World } from '../types';
 import { NEED_ICONS } from '../types';
 import { createRng } from '../core/rng';
 import { timeFromTick } from '../core/time';
-import { createDefaultMap } from './map';
+import { getMap, setMapId } from './maps';
+import { tickNews } from './news';
 import { WORLD_OBJECT_DEFS } from './objects';
 import { pushEvent } from './events';
 import { createAgents } from '../agents/agent';
@@ -21,11 +22,14 @@ import { tickGatherings } from '../agents/groups';
 export interface WorldOptions {
   agentCount?: number;
   dialogue?: DialogueProvider;
+  /** house layout id from src/world/maps (default 'dom') */
+  mapId?: string;
 }
 
 export function createWorld(seed = 1, opts: WorldOptions = {}): World {
   const rng = createRng(seed);
-  const map = createDefaultMap();
+  const mapDef = getMap(opts.mapId);
+  const map = mapDef.create();
   const agents = createAgents(opts.agentCount ?? 6, map.spawnPoints, rng);
   const relationships = createRelationships();
   // housemates already know each other a bit
@@ -45,6 +49,7 @@ export function createWorld(seed = 1, opts: WorldOptions = {}): World {
     events: [],
     dialogue: opts.dialogue ?? createProceduralProvider(),
   };
+  setMapId(world, mapDef.id);
   assignBeds(world);
   initIncidents(world);
   pushEvent(world, 'info', `Nowy dzień na osiedlu. Mieszkańcy: ${agents.map((a) => a.name).join(', ')}`, []);
@@ -78,6 +83,7 @@ export function tickWorld(world: World): void {
   }
   for (const agent of world.agents) updateAgent(world, agent, time);
   tickIncidents(world);
+  tickNews(world);
   updateMemories(world);
   tickConversations(world, time);
   // relationship status and gatherings are updated right before ambient chats pick pairs
