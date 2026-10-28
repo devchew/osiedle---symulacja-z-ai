@@ -33,3 +33,6 @@
 | 2026-10-28 | `availability` mnoży wynik po premiach celów i społecznych | deszcz/awaria zawsze wygrywa z premią |
 | 2026-10-28 | Zdarzenia świata: własne strumienie RNG z seeda; awaria = zamiana `obj.type` na `repair_<type>`, naprawa z istniejącego utility AI, fachowiec po 8 h | pogoda stabilna przy strojeniu agentów, brak zmian w agentach |
 | 2026-10-28 | Zapis = seed + liczba postaci + tick (+ odcisk `check`); odczyt = przeładowanie z parametrami URL i replay; statystyki pod klawiszem T (S przesuwa kamerę) | determinizm zamiast serializacji stanu |
+| 2026-10-28 | Log aktywności (trace) w symulacji, ring buffer 30k wpisów per świat, bez wpływu na RNG | diagnoza zachowań („chaos”) na podstawie danych |
+| 2026-10-28 | „Zaspokojone” kończy aktywność dopiero po 20 min; cooldown 45 min na ten sam obiekt; rozmowa przy obiekcie social przedłuża pobyt (≤60 min, od 20 min zmierza do pożegnania) | postacie siadały i wstawały co 2 min, rozmowy urywały się w połowie |
+| 2026-10-28 | Zaproszenie: zajęty samotną czynnością → ×0,45 szans, odmowa z powodem; przy obiekcie social rozmowa na miejscu | mniej porzucania czynności, czytelniejszy log |

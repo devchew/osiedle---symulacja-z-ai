@@ -282,7 +282,7 @@ function applyRain(world: World, s: IncidentState): void {
       if (a.phase === 'using') a.ticksLeft = Math.min(a.ticksLeft, RAIN_GRACE);
       else {
         // still on the way: change of plans (the goal bonus can outweigh the rain penalty)
-        endAction(world, agent);
+        endAction(world, agent, 'deszcz — zmiana planów');
         waitForRain(agent, s.eventRng);
       }
       continue;
@@ -297,7 +297,7 @@ function applyRain(world: World, s: IncidentState): void {
         continue;
       }
       if (!outdoors) continue;
-      endAction(world, agent);
+      endAction(world, agent, 'deszcz');
     }
     if (outdoors) {
       const target = nearestIndoor(world.grid, agent.pos);
@@ -356,7 +356,7 @@ function breakSomething(world: World, s: IncidentState): void {
   const baseType = obj.type;
   const def = world.objectDefs[baseType];
   const culprit = usersOf(world, obj, 'using')[0];
-  for (const a of usersOf(world, obj)) endAction(world, a);
+  for (const a of usersOf(world, obj)) endAction(world, a, 'awaria obiektu');
   if (culprit) culprit.bubble = { kind: 'speech', text: s.eventRng.pick(['Ups… 😳', 'Ojej, coś trzasnęło!', 'To nie moja wina!']), ttl: 30, tone: 'negative' };
 
   obj.type = REPAIR_PREFIX + baseType;
@@ -385,7 +385,7 @@ function fix(world: World, s: IncidentState, b: Breakdown, by: Agent | null): vo
   const obj = world.objects.find((o) => o.uid === b.uid);
   s.broken.delete(b.uid);
   if (!obj) return;
-  for (const a of usersOf(world, obj)) endAction(world, a);
+  for (const a of usersOf(world, obj)) endAction(world, a, 'naprawa zakończona');
   obj.type = b.baseType;
   obj.reservedBy = world.objectDefs[b.baseType].slots.map(() => null);
   const acc = ACCUSATIVE[b.baseType] ?? OBJECT_DEFS[b.baseType]?.name.toLowerCase() ?? b.baseType;

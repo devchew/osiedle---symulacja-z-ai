@@ -1,6 +1,6 @@
 import type { Agent, Conversation, ConversationContext, DialogueLine, GameTime, ObjectDef, ObjectInstance, Vec2, World } from '../types';
 import { NEED_KEYS } from '../types';
-import { decide, hasCriticalNeed, isSleepingObject, rememberTalk, rememberUse, canChat, type Decision } from './brain';
+import { decide, engagement, rememberLeft, hasCriticalNeed, isSleepingObject, rememberTalk, rememberUse, canChat, type Decision } from './brain';
 import { onFinishUse, onStartUse, useEffectScale } from './narration';
 import { applyEffects } from './needs';
 import { findPath, nearestWalkable } from './pathfinding';
@@ -8,7 +8,9 @@ import { WALK_SPEED, stepAgent } from './movement';
 import { randomWalkableTile } from '../world/grid';
 import { slotStandTile, slotUsePos } from '../world/objects';
 import { pushEvent } from '../world/events';
-import { conversationDelta, describeConversation, startConversation, willAcceptChat, type ConversationMood } from '../social/conversation';
+import { trace } from '../world/trace';
+import { availability } from '../world/incidents';
+import { chatAcceptanceChance, conversationDelta, describeConversation, startConversation, type ConversationMood } from '../social/conversation';
 import { feltSympathy, recordConversation, recordFriction, statusOf } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 import { onConversationEnd, recallFor } from '../social/memory';
@@ -18,6 +20,13 @@ import { gatheringOf as gatheringOfAgent, noticeCompetition, onHeadingTo } from 
 const TALK_EFFECTS = { social: 0.7, fun: 0.12 };
 const APPROACH_TIMEOUT = 60;
 const MIN_USE_BEFORE_INTERRUPT = 10;
+/** "needs satisfied" may end an activity only after this long (no sit-down, stand-up flicker) */
+const MIN_USE_BEFORE_SATISFIED = 20;
+/** a chat keeps people seated a bit longer so it can finish; past WRAP_UP it heads for a goodbye */
+const MAX_CHAT_EXTENSION = 60;
+const CHAT_WRAP_UP = 20;
+/** don't start an ambient chat with someone about to leave */
+const MIN_TICKS_LEFT_FOR_CHAT = 15;
 const REPATH_EVERY = 8;
 const LINE_TICKS: [number, number] = [11, 15];
 const AMBIENT_CHAT_CHANCE = 0.02;
@@ -137,22 +146,64 @@ function sameTarget(a: Decision, b: Decision): boolean {
   return a.kind === b.kind;
 }
 
+function describeDecision(world: World, d: Decision): string {
+  switch (d.kind) {
+    case 'use': {
+      const obj = objectByUid(world, d.objectUid);
+      return obj ? `${world.objectDefs[obj.type]?.name ?? obj.type}#${obj.uid}` : `obiekt#${d.objectUid}`;
+    }
+    case 'talk':
+      return `rozmowa z ${agentById(world, d.partnerId)?.name ?? d.partnerId}`;
+    case 'wander':
+      return 'spacer';
+    case 'idle':
+      return 'bezczynność';
+  }
+}
+
+/** human-readable current action for the trace */
+export function describeAction(world: World, agent: Agent): string {
+  const a = agent.action;
+  if (!a) return 'nic';
+  switch (a.kind) {
+    case 'use': {
+      const obj = objectByUid(world, a.objectUid);
+      const name = obj ? `${world.objectDefs[obj.type]?.name ?? obj.type}#${obj.uid}` : `#${a.objectUid}`;
+      return `${a.phase === 'walking' ? 'idzie do' : 'używa'}: ${name} (zostało ${a.ticksLeft} min)`;
+    }
+    case 'talk':
+      return `${a.phase === 'approaching' ? 'podchodzi do' : 'rozmawia z'}: ${agentById(world, a.partnerId)?.name ?? a.partnerId}`;
+    case 'wander':
+      return 'spacer';
+    case 'idle':
+      return a.label;
+  }
+}
+
 function startNext(world: World, agent: Agent, time: GameTime): void {
   noticeCompetition(world, agent, time);
   const failed: Decision[] = [];
   for (let attempt = 0; attempt < 4; attempt++) {
-    const d = decide(world, agent, time, (c) => failed.some((f) => sameTarget(f, c)));
-    if (tryStart(world, agent, d, time)) return;
+    let top: Decision[] = [];
+    const d = decide(world, agent, time, (c) => failed.some((f) => sameTarget(f, c)), (c) => (top = c));
+    const alts = top.filter((c) => c !== d).map((c) => `${describeDecision(world, c)} ${c.score.toFixed(1)}`).join(', ');
+    trace(world, agent, 'decide', `${describeDecision(world, d)} ${d.score.toFixed(1)}${alts ? ` | inne: ${alts}` : ''}${failed.length ? ` | po porażce: ${failed.map((f) => describeDecision(world, f)).join(', ')}` : ''}`);
+    if (tryStart(world, agent, d, time)) {
+      trace(world, agent, 'start', describeAction(world, agent));
+      return;
+    }
     failed.push(d);
   }
   tryStart(world, agent, { kind: 'idle', score: 0 }, time);
+  trace(world, agent, 'start', `${describeAction(world, agent)} (nic innego nie wyszło)`);
 }
 
 // ---------------------------------------------------------------- ending actions
 
 /** stops whatever the agent is doing, releasing reservations */
-export function endAction(world: World, agent: Agent): void {
+export function endAction(world: World, agent: Agent, reason = 'koniec'): void {
   const a = agent.action;
+  if (a) trace(world, agent, 'end', `${describeAction(world, agent)} — ${reason}`);
   if (a?.kind === 'use') {
     const obj = objectByUid(world, a.objectUid);
     if (obj) {
@@ -160,6 +211,7 @@ export function endAction(world: World, agent: Agent): void {
       if (a.phase === 'using') {
         const def = world.objectDefs[obj.type];
         agent.pos = slotStandTile(obj, def, a.slot);
+        rememberLeft(agent, obj.uid, world.tick);
         if (isSleepingObject(def)) pushEvent(world, 'info', `${agent.name} wstaje z łóżka`, [agent.id]);
         else goalUseEnd(world, agent, obj.type, usedFor.get(agent) ?? 0, a.ticksLeft <= 0);
       }
@@ -202,12 +254,14 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
   switch (a.kind) {
     case 'use': {
       const obj = objectByUid(world, a.objectUid);
-      if (!obj) return endAction(world, agent);
+      if (!obj) return endAction(world, agent, 'obiekt zniknął');
       const def = world.objectDefs[obj.type];
       if (a.phase === 'walking') {
         if (walk(world, agent) !== 'moving') {
           a.phase = 'using';
+          trace(world, agent, 'arrive', `${def.name}#${obj.uid} na ${a.ticksLeft} min`);
           usedFor.set(agent, 0);
+          chatExtension.delete(agent);
           a.label = def.verb;
           agent.pos = slotUsePos(obj, def, a.slot);
           agent.stats.objectsUsed++;
@@ -222,28 +276,43 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
       a.ticksLeft--;
       const used = (usedFor.get(agent) ?? 0) + 1;
       usedFor.set(agent, used);
-      const done = a.ticksLeft <= 0 || satisfied(agent, def);
+      let done = a.ticksLeft <= 0 || (used >= MIN_USE_BEFORE_SATISFIED && satisfied(agent, def));
+      // mid-chat at a shared object: stay until the conversation wraps up (within reason)
+      if (done && !isSleepingObject(def) && !hasCriticalNeed(agent) && inAmbientChat(world, agent) && availability(world, obj, def) >= 0.5) {
+        const ext = (chatExtension.get(agent) ?? 0) + 1;
+        chatExtension.set(agent, ext);
+        if (ext <= MAX_CHAT_EXTENSION) {
+          a.ticksLeft = Math.max(a.ticksLeft, 1);
+          done = false;
+          if (ext === CHAT_WRAP_UP) {
+            // time to go: the next line is the farewell
+            const conv = world.conversations.find((c) => c.participants.includes(agent.id));
+            if (conv) conv.maxLines = Math.min(conv.maxLines, conv.lines.length + 1);
+          }
+        }
+      }
       if (done || (used >= MIN_USE_BEFORE_INTERRUPT && interruptedByNeed(agent, def))) {
-        endAction(world, agent);
+        endAction(world, agent, a.ticksLeft <= 0 ? 'czas minął' : done ? 'potrzeby zaspokojone' : `przerwane: pilna potrzeba (${worstNeed(agent)})`);
         if (!isSleepingObject(def)) onFinishUse(world, agent, def, done);
       }
       return;
     }
     case 'talk': {
       const partner = agentById(world, a.partnerId);
-      if (!partner) return endAction(world, agent);
+      if (!partner) return endAction(world, agent, 'brak partnera');
       if (a.phase === 'talking') {
         applyEffects(agent, TALK_EFFECTS);
         faceTowards(agent, partner.pos);
-        if (!world.conversations.some((c) => c.id === a.conversationId)) endAction(world, agent);
+        if (!world.conversations.some((c) => c.id === a.conversationId)) endAction(world, agent, 'rozmowa skończona');
         return;
       }
       a.ticksLeft--;
-      if (a.ticksLeft <= 0 || !canChat(partner, world)) return endAction(world, agent);
+      if (a.ticksLeft <= 0) return endAction(world, agent, 'za długo podchodzi');
+      if (!canChat(partner, world)) return endAction(world, agent, `${partner.name} zajęty/a: ${describeAction(world, partner)}`);
       if (dist(agent.pos, partner.pos) <= TALK_DISTANCE) return invite(world, agent, partner);
       if (agent.path.length === 0 || a.ticksLeft % REPATH_EVERY === 0) {
         const path = pathToAgent(world, agent, partner);
-        if (!path) return endAction(world, agent);
+        if (!path) return endAction(world, agent, 'brak drogi do partnera');
         agent.path = path;
       }
       walk(world, agent);
@@ -252,18 +321,31 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
     case 'wander':
       a.ticksLeft--;
       if (walk(world, agent) !== 'moving' || a.ticksLeft <= 0) {
+        trace(world, agent, 'end', 'spacer — koniec');
         agent.action = null;
         agent.path = [];
       }
       return;
     case 'idle':
       agent.stats.ticksIdle++;
-      if (--a.ticksLeft <= 0) agent.action = null;
+      if (--a.ticksLeft <= 0) {
+        trace(world, agent, 'end', `${a.label} — koniec`);
+        agent.action = null;
+      }
       return;
   }
 }
 
 const usedFor = new WeakMap<Agent, number>();
+const chatExtension = new WeakMap<Agent, number>();
+
+function inAmbientChat(world: World, agent: Agent): boolean {
+  return world.conversations.some((c) => c.participants.includes(agent.id));
+}
+
+function worstNeed(agent: Agent): string {
+  return NEED_KEYS.reduce((w, k) => (agent.needs[k] < agent.needs[w] ? k : w), NEED_KEYS[0]);
+}
 
 function usersOf(world: World, obj: ObjectInstance, self: Agent): Agent[] {
   return world.agents.filter(
@@ -333,21 +415,34 @@ function invite(world: World, agent: Agent, partner: Agent): void {
   agent.path = [];
   const rel = world.relationships.get(partner.id, agent.id);
   rememberTalk(world, agent.id, partner.id);
-  if (!willAcceptChat(partner, agent, rel, world.rng)) {
-    world.relationships.adjust(agent.id, partner.id, -1);
-    recordFriction(world, agent.id, partner.id);
-    agent.bubble = { kind: 'thought', text: '🙁', ttl: 20 };
-    pushEvent(world, 'conversation', `${partner.name} nie ma ochoty na rozmowę z: ${agent.name}`, [agent.id, partner.id]);
+  const eng = engagement(world, partner);
+  trace(world, agent, 'invite', `${partner.name} (sympatia ${Math.round(rel)}), ${partner.name} teraz: ${describeAction(world, partner)}`);
+  if (!world.rng.chance(chatAcceptanceChance(partner, agent, rel) * eng.acceptFactor)) {
+    trace(world, partner, 'refuse', `zaproszenie od ${agent.name}${eng.busyWith ? ` (zajęcie: ${eng.busyWith})` : ''}`);
+    world.relationships.adjust(agent.id, partner.id, eng.busyWith ? 0 : -1);
+    if (!eng.busyWith) recordFriction(world, agent.id, partner.id);
+    agent.bubble = { kind: 'thought', text: eng.busyWith ? '🙂' : '🙁', ttl: 20 };
+    partner.bubble = { kind: 'speech', text: eng.busyWith ? world.rng.pick(BUSY_LINES) : world.rng.pick(NO_MOOD_LINES), ttl: 20, tone: 'neutral' };
+    pushEvent(
+      world,
+      'conversation',
+      eng.busyWith
+        ? `${partner.name} nie ma teraz czasu dla: ${agent.name} (${eng.busyWith})`
+        : `${partner.name} nie ma ochoty na rozmowę z: ${agent.name}`,
+      [agent.id, partner.id],
+    );
+    trace(world, agent, 'end', `podchodzi do: ${partner.name} — odmowa`);
     agent.action = null;
     return;
   }
-  endAction(world, partner);
+  trace(world, partner, 'accept', `zaproszenie od ${agent.name}${eng.chatInPlace ? ' (rozmowa na miejscu)' : ''}`);
+  // seated at a table/sofa/bench: chat right there, without leaving it
+  if (!eng.chatInPlace) endAction(world, partner, `przerwane: zaproszenie od ${agent.name}`);
   const conv = startConversation(nextConversationId(world), agent, partner, world.tick, world.rng, moodOf(world, agent.id, partner.id));
   world.conversations.push(conv);
-  for (const [self, other] of [
-    [agent, partner],
-    [partner, agent],
-  ] as const) {
+  trace(world, agent, 'conv-start', `z ${partner.name}, temat: ${conv.topic}, do ${conv.maxLines} kwestii`);
+  trace(world, partner, 'conv-start', `z ${agent.name}, temat: ${conv.topic}`);
+  for (const [self, other] of eng.chatInPlace ? ([[agent, partner]] as const) : ([[agent, partner], [partner, agent]] as const)) {
     self.path = [];
     self.action = {
       kind: 'talk',
@@ -361,6 +456,9 @@ function invite(world: World, agent: Agent, partner: Agent): void {
     faceTowards(self, other.pos);
   }
 }
+
+const BUSY_LINES = ['Może później!', 'Chwilkę, coś kończę…', 'Teraz nie bardzo, sorry!', 'Daj mi skończyć!'];
+const NO_MOOD_LINES = ['Nie teraz…', 'Wybacz, nie mam nastroju', 'Innym razem'];
 
 // ---------------------------------------------------------------- conversations
 
@@ -382,10 +480,13 @@ function say(world: World, conv: Conversation, line: DialogueLine): void {
   if (speaker) speaker.bubble = { kind: 'speech', text: line.text, ttl: LINE_TICKS[1] + 3, tone: line.tone };
 }
 
-function endConversation(world: World, conv: Conversation): void {
+function endConversation(world: World, conv: Conversation, reason = 'koniec tematu'): void {
   world.conversations = world.conversations.filter((c) => c !== conv);
   const [a, b] = conv.participants.map((id) => agentById(world, id));
   if (!a || !b) return;
+  for (const [p, o] of [[a, b], [b, a]] as const) {
+    trace(world, p, 'conv-end', `z ${o.name}: ${conv.lines.length}/${conv.maxLines} kwestii — ${reason}`);
+  }
   rememberTalk(world, a.id, b.id);
   for (const p of [a, b]) {
     if (p.action?.kind === 'talk' && p.action.conversationId === conv.id) {
@@ -420,15 +521,20 @@ function moodOf(world: World, a: number, b: number): ConversationMood | undefine
 export function tickConversations(world: World, time: GameTime): void {
   for (const conv of [...world.conversations]) {
     const [a, b] = conv.participants.map((id) => agentById(world, id));
-    if (
-      !a || !b ||
-      !inThisConversation(world, a, conv) || !inThisConversation(world, b, conv) ||
-      dist(a.pos, b.pos) > 3.5 ||
-      hasCriticalNeed(a) || hasCriticalNeed(b)
-    ) {
-      endConversation(world, conv);
+    const broken = !a || !b
+      ? 'brak uczestnika'
+      : conv.lines.length >= conv.maxLines && !conv.pending ? null
+      : !inThisConversation(world, a, conv) ? `${a.name} odchodzi: ${describeAction(world, a)}`
+      : !inThisConversation(world, b, conv) ? `${b.name} odchodzi: ${describeAction(world, b)}`
+      : dist(a.pos, b.pos) > 3.5 ? 'za daleko od siebie'
+      : hasCriticalNeed(a) ? `${a.name}: krytyczna potrzeba (${worstNeed(a)})`
+      : hasCriticalNeed(b) ? `${b.name}: krytyczna potrzeba (${worstNeed(b)})`
+      : null;
+    if (broken) {
+      endConversation(world, conv, broken);
       continue;
     }
+    if (!a || !b) continue;
     if (conv.pending || --conv.nextLineIn > 0) continue;
     if (conv.lines.length >= conv.maxLines) {
       endConversation(world, conv);
@@ -473,7 +579,7 @@ export function ambientChats(world: World): void {
   const seated: Agent[] = [];
   for (const ag of world.agents) {
     const a = ag.action;
-    if (a?.kind !== 'use' || a.phase !== 'using' || busy.has(ag.id)) continue;
+    if (a?.kind !== 'use' || a.phase !== 'using' || busy.has(ag.id) || a.ticksLeft < MIN_TICKS_LEFT_FOR_CHAT) continue;
     const obj = objectByUid(world, a.objectUid);
     if (!obj || !world.objectDefs[obj.type].social) continue;
     byObject.set(obj.uid, [...(byObject.get(obj.uid) ?? []), ag]);
@@ -504,6 +610,9 @@ export function ambientChats(world: World): void {
     const [x, y] = pairs[world.rng.weightedIndex(weights)];
     busy.add(x.id);
     busy.add(y.id);
-    world.conversations.push(startConversation(nextConversationId(world), x, y, world.tick, world.rng, moodOf(world, x.id, y.id)));
+    const conv = startConversation(nextConversationId(world), x, y, world.tick, world.rng, moodOf(world, x.id, y.id));
+    world.conversations.push(conv);
+    trace(world, x, 'conv-start', `przy okazji z ${y.name}, temat: ${conv.topic}, do ${conv.maxLines} kwestii`);
+    trace(world, y, 'conv-start', `przy okazji z ${x.name}, temat: ${conv.topic}`);
   }
 }

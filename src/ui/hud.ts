@@ -36,6 +36,7 @@ export const HELP_KEYS: [string, string][] = [
   ['T', 'statystyki: relacje, nastrój'],
   ['Z', 'zapis, wczytanie, link'],
   ['N', 'nowy świat'],
+  ['L', 'pobierz log aktywności (.txt)'],
   ['przeciągnij', 'przesuń widok'],
   ['WASD / strzałki', 'przesuń widok'],
   ['kółko / szczypnięcie', 'przybliż i oddal'],

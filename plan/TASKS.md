@@ -95,6 +95,13 @@ Przygotowanie [x]: stub `src/world/incidents.ts` (`tickIncidents`, `availability
 - Smoke test: 10 prawdziwych wywołań, 100% 200, 0,7–1,4 s, koszt $0
 - [ ] Do poprawy: model czasem używa form z rodzajem („Słyszałeś?”), czasem zły ton dla wstydliwej historii
 
+## Poprawka „chaos” (orkiestrator, po uwagach użytkownika) — [x]
+- [x] Log aktywności `src/world/trace.ts` (decyzje z kandydatami, start/koniec akcji z powodem, zaproszenia, rozmowy); klawisz L = pobierz .txt, `window.__sim.trace()`
+- [x] Narzędzia: `scripts/observe.mjs` (N minut w Chromium: zrzuty, FPS, log), `scripts/analyze-trace.mjs`, `tests/tools/trace.test.ts` (analiza headless)
+- [x] Poprawki: min. 20 min użycia przed „zaspokojone”, cooldown powrotu do obiektu (45 min), rozmowa przy stole przedłuża pobyt i kończy się pożegnaniem, brak rozmów „przy okazji” tuż przed wyjściem, zajęci odmawiają z powodem, rozmowa na miejscu przy obiektach social, `canChat` uwzględnia rozmowy poboczne
+- Wynik (15 min w przeglądarce, seed 42): urwane rozmowy 16/24 → 0/14, wstawanie zaraz po usiądnięciu 47 → 0, zmiany zdania 23 → 0; przeglądarka = headless (deterministycznie)
+- [x] `tests/behaviour.test.ts` — regresja tych wzorców
+
 ## Pomysły na kolejne fale (backlog)
 - [ ] Mniej bezcelowych spacerów (wander w `brain.ts`), testy `sim.test.ts` z koordynatami z mapy zamiast na sztywno
 - [ ] Goście z zewnątrz (wymaga rozróżnienia mieszkaniec/gość w kontraktach)

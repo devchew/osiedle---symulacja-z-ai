@@ -12,7 +12,7 @@ npm run dev          # http://localhost:5173
 
 **Sterowanie widokiem:** Spacja = pauza, 1–4 = prędkość, przeciągnij/WASD = przesuń, kółko/szczypnięcie = zoom,
 klik w postać = inspektor (potrzeby, cel dnia, relacje, wspomnienia), dwuklik = śledzenie,
-T = statystyki (sieć relacji, nastroje), Z = zapis/wczytanie, N = nowy świat, `?` = pomoc.
+T = statystyki (sieć relacji, nastroje), Z = zapis/wczytanie, N = nowy świat, L = pobierz log aktywności, `?` = pomoc.
 
 **Parametry URL:** `?seed=7` (powtarzalny świat), `?hour=21` lub `?tick=2000` (przewiń), `?agents=4` (1–8), `?paused`.
 
@@ -20,6 +20,8 @@ T = statystyki (sieć relacji, nastroje), Z = zapis/wczytanie, N = nowy świat, 
 `npm run dev` i kliknij przełącznik w lewym górnym rogu. Domyślnie używane są wyłącznie darmowe modele
 (`:free`); listę można zmienić w `OPENROUTER_MODELS`. Klucz zostaje na serwerze Vite. Bez klucza
 dialogi są proceduralne.
+
+**Analiza zachowań:** `node scripts/observe.mjs "http://localhost:5173/?seed=42" 15 test-results/observe` (15 min w Chromium) i `node scripts/analyze-trace.mjs test-results/observe/trace.txt`.
 
 **Testy:** `npm test` (logika + 7-dniowy soak), `npm run test:e2e` (Playwright, zrzuty w `test-results/shots/`).
 

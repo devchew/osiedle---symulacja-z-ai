@@ -20,6 +20,7 @@ import type { RelationOfFn, WeatherOfFn } from './ui/extras';
 
 import { relationOf } from './social/relationships';
 import { weatherOf } from './world/incidents';
+import { formatTrace } from './world/trace';
 
 // adapters from the simulation's views to the UI's small interfaces (ui/extras.ts)
 /** statuses worth an icon on the relationship network (the rest is shown by colour / thickness) */
@@ -132,7 +133,18 @@ async function main(): Promise<void> {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') select(null);
     else if (e.code === 'KeyN' && !e.repeat && !isTypingTarget(e)) newWorld.setOpen(true);
+    else if (e.code === 'KeyL' && !e.repeat && !isTypingTarget(e)) downloadTrace();
   });
+
+  // L: download the detailed activity trace (decisions, action starts/ends with reasons, chats)
+  function downloadTrace(): void {
+    const blob = new Blob([formatTrace(world)], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `osiedle-log-seed${world.seed}-t${world.tick}.txt`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
 
   let lastAutosaveHour = Math.floor(world.tick / 60);
   setInterval(() => {
@@ -162,6 +174,7 @@ async function main(): Promise<void> {
     },
     stats,
     savePanel,
+    trace: (agentId) => formatTrace(world, agentId),
   };
 
   // optional LLM dialogue (needs OPENROUTER_API_KEY on the dev/preview server); procedural otherwise
@@ -181,6 +194,8 @@ declare global {
       tick: (n: number) => void;
       stats: ReturnType<typeof createStatsPanel>;
       savePanel: ReturnType<typeof createSavePanel>;
+      /** detailed activity trace as text (optionally one agent) */
+      trace: (agentId?: number) => string;
       /** set once /api/llm/status has answered */
       llm?: LlmToggle;
     };

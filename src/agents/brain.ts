@@ -95,6 +95,19 @@ export function isMealTime(time: GameTime): boolean {
 /** recently used object types per agent, newest last */
 const recentUses = new WeakMap<Agent, string[]>();
 
+/** the object an agent just walked away from, and when: no sitting straight back down */
+const leftObject = new WeakMap<Agent, { uid: number; tick: number }>();
+const LEFT_COOLDOWN = 45;
+
+export function rememberLeft(agent: Agent, uid: number, tick: number): void {
+  leftObject.set(agent, { uid, tick });
+}
+
+function justLeft(agent: Agent, uid: number, tick: number): boolean {
+  const l = leftObject.get(agent);
+  return !!l && l.uid === uid && tick - l.tick < LEFT_COOLDOWN;
+}
+
 export function rememberUse(agent: Agent, type: string): void {
   const list = recentUses.get(agent) ?? [];
   list.push(type);
@@ -206,6 +219,8 @@ export function hasCriticalNeed(agent: Agent): boolean {
 export function canChat(other: Agent, world: World): boolean {
   const a = other.action;
   if (hasCriticalNeed(other)) return false;
+  // already chatting (also a chat "on the side" at a table or bench)
+  if (world.conversations.some((c) => c.participants.includes(other.id))) return false;
   if (!a) return true;
   if (a.kind === 'talk') return false;
   if (a.kind === 'use') {
@@ -215,6 +230,27 @@ export function canChat(other: Agent, world: World): boolean {
     if (def && (isSleepingObject(def) || def.tags?.includes('hygiene'))) return false;
   }
   return true;
+}
+
+export interface Engagement {
+  /** multiplier on the chance to accept an invitation */
+  acceptFactor: number;
+  /** using a shared object (table, sofa, bench…): can chat without leaving it */
+  chatInPlace: boolean;
+  /** what they are busy with, for refusals ("łowi ryby") */
+  busyWith: string | null;
+}
+
+/** how absorbed someone is in what they are doing right now */
+export function engagement(world: World, agent: Agent): Engagement {
+  const a = agent.action;
+  if (a?.kind !== 'use' || a.phase !== 'using') return { acceptFactor: 1, chatInPlace: false, busyWith: null };
+  const obj = world.objects.find((o) => o.uid === a.objectUid);
+  const def = obj && world.objectDefs[obj.type];
+  if (!def) return { acceptFactor: 1, chatInPlace: false, busyWith: null };
+  if (def.social) return { acceptFactor: 1, chatInPlace: true, busyWith: null };
+  // a solo activity with time left: likely "maybe later"
+  return a.ticksLeft > 10 ? { acceptFactor: 0.45, chatInPlace: false, busyWith: def.verb.toLowerCase() } : { acceptFactor: 1, chatInPlace: false, busyWith: null };
 }
 
 /** recent conversation partners: pair key -> tick of the last chat */
@@ -246,6 +282,7 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
     if (!def || def.slots.length === 0) continue;
     const slot = freeSlot(obj);
     if (slot < 0) continue;
+    if (justLeft(agent, obj.uid, world.tick)) continue;
     let base = scoreObject(agent, def, time);
     if (!isSleepingObject(def)) {
       base = withGoal(base, goalObjectBias(world, agent, obj, time), calm);
@@ -273,8 +310,8 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
     const rel = world.relationships.get(agent.id, other.id);
     const dist = Math.hypot(other.pos.x - agent.pos.x, other.pos.y - agent.pos.y);
     const busy = other.action?.kind === 'wander' || other.path.length > 0 ? 0.5 : 1;
-    // people sense who is in the mood for a chat
-    const receptive = 0.3 + chatAcceptanceChance(other, agent, world.relationships.get(other.id, agent.id));
+    // people sense who is in the mood for a chat (and who is absorbed in something)
+    const receptive = 0.3 + chatAcceptanceChance(other, agent, world.relationships.get(other.id, agent.id)) * engagement(world, other).acceptFactor;
     const bond = talkStatusFactor(world, agent.id, other.id);
     const appeal = busy * receptive * socialRelief * (1 + rel / 200) * (1 + 0.5 * agent.traits.sociability) * bond;
     const score = withGoal(appeal, goalTalkBias(agent, other.id, time), calm) / (1 + dist / talkReach);
@@ -290,11 +327,18 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
 }
 
 /** picks among the top candidates, weighted by score², so behaviour is purposeful but not robotic */
-export function decide(world: World, agent: Agent, time: GameTime, exclude?: (d: Decision) => boolean): Decision {
+export function decide(
+  world: World,
+  agent: Agent,
+  time: GameTime,
+  exclude?: (d: Decision) => boolean,
+  onCandidates?: (top: Decision[]) => void,
+): Decision {
   const candidates = scoreCandidates(world, agent, time)
     .filter((d) => !exclude?.(d))
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
+  onCandidates?.(candidates);
   const i = world.rng.weightedIndex(candidates.map((c) => c.score * c.score));
   return candidates[i] ?? { kind: 'idle', score: 0 };
 }
