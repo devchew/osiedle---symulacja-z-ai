@@ -184,8 +184,13 @@ function compose(ctx: ConversationContext, tone: Tone, rng: Rng): Composed {
   const prev = ctx.history[ctx.history.length - 1];
   if (prev?.gossip && prev.speakerId !== ctx.speaker.id && rng.chance(0.8)) return gossipReaction(prev.gossip, tone, rng);
 
+  if (prev && prev.speakerId !== ctx.speaker.id && isNewsLine(prev.text) && rng.chance(0.8)) return newsReaction(prev.text, tone, rng);
+
   const story = chooseGossip(ctx, rng);
   if (story) return tellGossip(story, ctx, used, rng);
+
+  const headline = chooseNews(ctx, rng);
+  if (headline) return tellNews(headline, used, rng);
 
   const topical = TOPIC_LINES[ctx.topic];
   const body = topical && rng.chance(0.85) ? f(topical[tone]) : f(SMALL_TALK[tone]);
@@ -281,6 +286,84 @@ function gossipReaction(g: Gossip, tone: Tone, rng: Rng): Composed {
   if (!g.shared && rng.chance(0.3)) text = `${text} ${rng.pick(FOLLOW_UPS)}`;
   const t: Tone = g.valence > 0.25 || g.shared ? 'positive' : tone === 'negative' ? 'negative' : 'neutral';
   return { text, tone: t };
+}
+
+// ---------------------------------------------------------------- TV news
+
+/** a headline seen on TV; {h} = „headline” (verbatim, shortened at a word boundary). No gendered forms. */
+export const NEWS_TELL: readonly string[] = [
+  'W wiadomościach mówili: {h}',
+  'Podobno w telewizji: {h}',
+  'W telewizji podają: {h}',
+  'Widzisz, co w wiadomościach? {h}',
+  'Leci w wiadomościach: {h}',
+];
+
+/** reactions to a headline, by its kind (in-sim bulletins carry a prefix, see world/news.ts) */
+export const NEWS_REACTIONS = {
+  good: ['Dobre wieści!', 'No proszę, brawo!', 'Wreszcie coś miłego!', 'To się nazywa news!'],
+  urgent: ['Ojej, to niedobrze.', 'No coś takiego!', 'Oby szybko to ogarnąć.', 'To ci dopiero!'],
+  wet: ['Ech, trzeba wziąć parasol.', 'No to zostaję w domu.', 'Znowu leje? Ech.'],
+  dry: ['Super, w sam raz na spacer!', 'No to idziemy do ogrodu!', 'Wreszcie ładna pogoda!'],
+  world: ['No coś takiego!', 'Świat zwariował.', 'Ciekawe, co z tego wyniknie.', 'Kto by pomyślał…', 'Nie nadążam za tym wszystkim.'],
+  grumpy: ['Wolę nie oglądać wiadomości.', 'Same nowiny, a nic się nie zmienia.', 'Ech, szkoda nerwów.'],
+} as const;
+
+const NEWS_PREFIXES = NEWS_TELL.map((t) => t.slice(0, t.indexOf('{h}')));
+
+/** true for a line that retells a TV headline */
+export function isNewsLine(text: string): boolean {
+  return text.includes('„') && NEWS_PREFIXES.some((p) => text.startsWith(p));
+}
+
+/** the headline quoted in a line, without a trailing "…" */
+function quoted(text: string): string | null {
+  const m = /„([^”]+)”/.exec(text);
+  return m ? m[1].replace(/…$/, '').trim() : null;
+}
+
+/** a news line from a template: the headline is shortened so that the whole line fits `max` chars */
+export function newsLine(tpl: string, headline: string, max = MAX_GOSSIP_LINE): string {
+  const room = max - (tpl.length - 3) - 2;
+  return tpl.replace('{h}', `„${fitGossip(headline, room)}”`);
+}
+
+/** chance that the speaker brings up a headline on this turn */
+export function newsChance(ctx: ConversationContext): number {
+  let p = 0.2 + ctx.speaker.traits.sociability * 0.06;
+  if (ctx.topic === 'polityka' || ctx.topic === 'plotki') p += 0.2;
+  if (ctx.topic === 'pogoda' && ctx.news?.some((n) => n.startsWith('Pogoda:'))) p += 0.2;
+  if (ctx.turn >= 2) p += 0.05;
+  return clamp(p, 0.05, 0.5);
+}
+
+function chooseNews(ctx: ConversationContext, rng: Rng): string | null {
+  if (!ctx.news?.length || ctx.turn === 0 || ctx.isLast) return null;
+  // one headline per speaker per conversation
+  if (ctx.history.some((l) => l.speakerId === ctx.speaker.id && isNewsLine(l.text))) return null;
+  const said = ctx.history.map((l) => (isNewsLine(l.text) ? quoted(l.text) : null)).filter((q): q is string => !!q);
+  const fresh = ctx.news.filter((n) => !said.some((q) => n.startsWith(q)));
+  if (!fresh.length) return null;
+  const h = fresh.length > 1 && rng.chance(0.3) ? rng.pick(fresh) : fresh[0];
+  return rng.chance(newsChance(ctx)) ? h : null;
+}
+
+function tellNews(headline: string, used: Set<string>, rng: Rng): Composed {
+  const tpl = pickFresh(NEWS_TELL, used, rng);
+  const tone: Tone = headline.startsWith('Dobre wieści:') ? 'positive' : 'neutral';
+  return { text: newsLine(tpl, headline), tone };
+}
+
+function newsReaction(text: string, tone: Tone, rng: Rng): Composed {
+  const h = quoted(text) ?? '';
+  if (/^(Dobre wieści|Z osiedla):/.test(h)) return { text: rng.pick(NEWS_REACTIONS.good), tone: tone === 'negative' ? 'neutral' : 'positive' };
+  if (h.startsWith('Pilne:')) return { text: rng.pick(NEWS_REACTIONS.urgent), tone: 'neutral' };
+  if (h.startsWith('Pogoda:')) {
+    const wet = /deszcz|burz|pada/.test(h) && !/bez deszczu/.test(h);
+    return { text: rng.pick(wet ? NEWS_REACTIONS.wet : NEWS_REACTIONS.dry), tone: wet ? 'neutral' : 'positive' };
+  }
+  if (tone === 'negative') return { text: rng.pick(NEWS_REACTIONS.grumpy), tone: 'negative' };
+  return { text: rng.pick(NEWS_REACTIONS.world), tone: 'neutral' };
 }
 
 interface Composed {

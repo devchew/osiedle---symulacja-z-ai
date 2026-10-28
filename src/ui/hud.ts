@@ -3,6 +3,8 @@ import { formatClock } from '../core/time';
 import type { DayPhase, SimControls, World } from '../types';
 import { el, isTypingTarget, moodEmoji, setText } from './dom';
 import type { WeatherOfFn } from './extras';
+import '../realtime/realtime.css';
+import { isRealtime, realtimeStatus } from '../realtime/state';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
 
@@ -77,6 +79,17 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
   });
   const controlsBox = el('div', 'hud-controls', [pauseBtn, ...speedBtns]);
 
+  // real-time mode: live badge with real temperature and place; speed is locked at 1×
+  const realtime = isRealtime(world);
+  const liveTemp = el('span', 'hud-live-temp');
+  const livePlace = el('span', 'hud-live-place');
+  const live = el('div', 'hud-live', [el('span', 'hud-live-pill', ['⏱ NA ŻYWO']), el('div', 'hud-live-info', [liveTemp, livePlace])]);
+  live.hidden = !realtime;
+  if (realtime) {
+    for (const b of speedBtns) b.hidden = true;
+    timeBox.after(live);
+  }
+
   const pop = el('span', 'hud-stat');
   const mood = el('span', 'hud-stat');
   const statsBox = el('div', 'hud-stats', [pop, mood]);
@@ -136,7 +149,12 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
   });
   const toolsBox = el('div', 'hud-tools', [...extras, helpBtn]);
 
-  root.append(timeBox, controlsBox, statsBox, toolsBox, help);
+  root.append(timeBox, ...(realtime ? [live] : []), controlsBox, statsBox, toolsBox, help);
+  if (realtime) {
+    // keys 1–4 do nothing here
+    const speedRow = help.querySelectorAll('dd')[HELP.findIndex(([k]) => k === '1–4')];
+    if (speedRow) speedRow.textContent = 'prędkość — zablokowana w trybie na żywo';
+  }
 
   let lastKey = '';
   function update(): void {
@@ -153,11 +171,29 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
       weather.setAttribute('aria-label', `Pogoda: ${w.label}`);
     }
 
+    if (realtime) {
+      const rs = realtimeStatus(world);
+      setText(liveTemp, rs?.temperature != null ? `${Math.round(rs.temperature)}°C` : '–°C');
+      setText(livePlace, rs?.place ?? '');
+      const where = rs?.place ?? '';
+      const upd = rs?.weatherUpdatedAt ? new Date(rs.weatherUpdatedAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : null;
+      live.title =
+        'Tryb na żywo: zegar gry to Twój czas lokalny (1 minuta gry = 1 minuta).\n' +
+        (upd ? `Pogoda prawdziwa: ${where} · Open-Meteo, aktualizacja ${upd}.\n` : `Brak danych pogodowych (${where}) — pogoda symulowana.\n`) +
+        'Przyspieszanie jest wyłączone; po pauzie symulacja dogania aktualny czas. Zapis i linki są niedostępne.';
+    }
+
     const key = `${controls.paused}|${controls.speed}`;
     if (key !== lastKey) {
       lastKey = key;
       setText(pauseBtn, controls.paused ? '▶' : '⏸');
-      pauseBtn.title = controls.paused ? 'Wznów (spacja)' : 'Pauza (spacja)';
+      pauseBtn.title = realtime
+        ? controls.paused
+          ? 'Wznów (spacja) — symulacja dogoni aktualny czas'
+          : 'Pauza (spacja) — po wznowieniu symulacja dogoni aktualny czas'
+        : controls.paused
+          ? 'Wznów (spacja)'
+          : 'Pauza (spacja)';
       pauseBtn.setAttribute('aria-pressed', String(controls.paused));
       pauseBtn.classList.toggle('is-active', controls.paused);
       speedBtns.forEach((b, i) => {
@@ -195,7 +231,7 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
       return;
     }
     const idx = ['1', '2', '3', '4'].indexOf(e.key);
-    if (idx >= 0) {
+    if (idx >= 0 && !realtime) {
       controls.setSpeed(SPEEDS[idx]);
       update();
     }

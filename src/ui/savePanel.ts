@@ -1,9 +1,15 @@
 import './ui.css';
+import './houses.css';
 import { formatClock, timeFromTick } from '../core/time';
 import type { World } from '../types';
 import { el, isTypingTarget, setText } from './dom';
-import { linkFor, readSaves, SAVE_VERSION, saveFromWorld, SLOT_COUNT, writeSave, type SaveData } from './saves';
+import { getMap, mapIdOf } from '../world/maps';
+import { isRealtime } from '../realtime/state';
+import { linkFor, mapOfSave, readSaves, SAVE_VERSION, saveFromWorld, SLOT_COUNT, writeSave, type SaveData } from './saves';
 import { toast } from './toast';
+
+/** shown instead of saving in real-time mode (?mode=real) */
+export const REALTIME_SAVE_NOTE = 'W trybie na żywo zapis i linki są niedostępne — stan zależy od prawdziwego czasu i pogody.';
 
 export interface SavePanelOptions {
   /** AI dialogues are on (replays may differ) */
@@ -23,7 +29,7 @@ export interface SavePanel {
 
 function describe(s: SaveData): string {
   const t = timeFromTick(s.tick);
-  return `Dzień ${t.day}, ${formatClock(t)} · 👥 ${s.agentCount} · ziarno ${s.seed}`;
+  return `${getMap(mapOfSave(s)).name} · Dzień ${t.day}, ${formatClock(t)} · 👥 ${s.agentCount} · ziarno ${s.seed}`;
 }
 
 function savedWhen(s: SaveData): string {
@@ -69,12 +75,13 @@ export function createSavePanel(world: World, opts: SavePanelOptions): SavePanel
 
   const linkBtn = el('button', 'ui-btn save-link', ['🔗 Kopiuj link']);
   linkBtn.type = 'button';
-  linkBtn.title = 'Link odtwarza ten świat w tej samej chwili (ziarno, mieszkańcy, czas)';
+  linkBtn.title = 'Link odtwarza ten świat w tej samej chwili (dom, ziarno, mieszkańcy, czas)';
   const linkField = el('input', 'save-link-field');
   linkField.readOnly = true;
   linkField.hidden = true;
   linkField.setAttribute('aria-label', 'Link do tej chwili');
   linkBtn.addEventListener('click', async () => {
+    if (isRealtime(world)) return;
     const url = linkFor(saveFromWorld(world));
     const ok = await copyText(url, linkField);
     toast(ok ? 'Link skopiowany do schowka' : 'Skopiuj link z pola poniżej');
@@ -87,6 +94,8 @@ export function createSavePanel(world: World, opts: SavePanelOptions): SavePanel
     opts.onNewWorld();
   });
 
+  const realtimeNote = el('p', 'save-realtime-note', [REALTIME_SAVE_NOTE]);
+  realtimeNote.setAttribute('role', 'note');
   const note = el('p', 'save-note', [
     'Zapis to ziarno świata i czas — wczytanie odtwarza symulację od początku. ',
     el('span', 'save-note-ai', ['Przy dialogach AI odtworzony przebieg może się różnić.']),
@@ -95,6 +104,7 @@ export function createSavePanel(world: World, opts: SavePanelOptions): SavePanel
   root.append(
     el('header', 'panel-header', [el('h2', 'panel-title', ['💾 Zapis gry']), closeBtn]),
     current,
+    realtimeNote,
     list,
     el('div', 'save-actions', [linkBtn, newBtn]),
     linkField,
@@ -109,7 +119,7 @@ export function createSavePanel(world: World, opts: SavePanelOptions): SavePanel
     location.assign(linkFor(s, { paused: opts.isPaused() }));
   }
 
-  function slotRow(label: string, s: SaveData | null, slot: number | 'auto'): HTMLElement {
+  function slotRow(label: string, s: SaveData | null, slot: number | 'auto', live: boolean): HTMLElement {
     const meta = el('span', 'save-meta', [s ? describe(s) : 'pusty']);
     const when = el('span', 'save-when', [s ? savedWhen(s) : '']);
     if (s?.ai) {
@@ -123,7 +133,9 @@ export function createSavePanel(world: World, opts: SavePanelOptions): SavePanel
       const saveBtn = el('button', 'ui-btn ui-btn--small save-btn-save', ['Zapisz']);
       saveBtn.type = 'button';
       saveBtn.title = s ? 'Nadpisz ten slot' : 'Zapisz w tym slocie';
+      saveBtn.disabled = live;
       saveBtn.addEventListener('click', () => {
+        if (isRealtime(world)) return;
         const ok = writeSave(slot, saveFromWorld(world, opts.isAi()));
         toast(ok ? `Zapisano w slocie ${slot + 1}` : 'Nie udało się zapisać (pamięć przeglądarki niedostępna)', ok ? 'info' : 'warn');
         render();
@@ -132,10 +144,10 @@ export function createSavePanel(world: World, opts: SavePanelOptions): SavePanel
     }
     const loadBtn = el('button', 'ui-btn ui-btn--small ui-btn--primary save-btn-load', ['Wczytaj']);
     loadBtn.type = 'button';
-    loadBtn.disabled = !s;
+    loadBtn.disabled = !s || live;
     if (s) loadBtn.addEventListener('click', () => load(s));
     buttons.push(loadBtn);
-    const row = el('li', `save-slot${s ? '' : ' is-empty'}`, [info, el('div', 'save-btns', buttons)]);
+    const row = el('li', `save-slot${s ? '' : ' is-empty'}${live ? ' is-disabled' : ''}`, [info, el('div', 'save-btns', buttons)]);
     row.dataset.slot = String(slot);
     return row;
   }
@@ -143,10 +155,19 @@ export function createSavePanel(world: World, opts: SavePanelOptions): SavePanel
   function render(): void {
     const store = readSaves();
     const t = timeFromTick(world.tick);
-    setText(current, `Teraz: dzień ${t.day}, ${formatClock(t)} · 👥 ${world.agents.length} · ziarno ${world.seed}`);
+    const live = isRealtime(world);
+    const house = getMap(mapIdOf(world)).name;
+    setText(
+      current,
+      live
+        ? `Teraz: ${house} · na żywo · 👥 ${world.agents.length} · ziarno ${world.seed}`
+        : `Teraz: ${house} · dzień ${t.day}, ${formatClock(t)} · 👥 ${world.agents.length} · ziarno ${world.seed}`,
+    );
+    realtimeNote.hidden = !live;
+    linkBtn.disabled = live;
     list.replaceChildren(
-      ...Array.from({ length: SLOT_COUNT }, (_, i) => slotRow(`Slot ${i + 1}`, store.slots[i], i)),
-      slotRow('Autozapis', store.auto, 'auto'),
+      ...Array.from({ length: SLOT_COUNT }, (_, i) => slotRow(`Slot ${i + 1}`, store.slots[i], i, live)),
+      slotRow('Autozapis', store.auto, 'auto', live),
     );
     note.classList.toggle('is-ai', opts.isAi());
   }
@@ -183,7 +204,8 @@ export function createSavePanel(world: World, opts: SavePanelOptions): SavePanel
     },
     setOpen,
     autosave() {
-      if (world.tick <= 0) return;
+      // real-time worlds cannot be replayed: nothing to save
+      if (world.tick <= 0 || isRealtime(world)) return;
       writeSave('auto', saveFromWorld(world, opts.isAi()));
       if (open) render();
     },

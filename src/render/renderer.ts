@@ -10,6 +10,7 @@ import { Lighting, lightStateAt } from './lighting';
 import { AGENT_SCALE, drawAgent, drawSelection, headTop, type AgentPose, type PoseMode } from './sprites';
 import { buildStaticLayer, staticSignature, type StaticLayer } from './tiles';
 import { WeatherFx, drawIncidentBadges, drawIncidents, weatherDim } from './weather';
+import { drawTvNews, drawTvScreens } from './tv';
 
 export interface Renderer {
   /** draws one frame; alpha in [0, 1] = fraction of the way from the previous tick to the current one */
@@ -475,6 +476,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     if (layer) c.drawImage(layer.canvas, -0.5, -0.5, g.width, g.height);
     ambient.drawGround(c, now, light.daylight);
     drawIncidents(c, world, now);
+    drawTvScreens(c, world, now);
 
     for (const p of poses) {
       if (p.agent.id === selected) drawSelection(c, p, now);
@@ -492,11 +494,13 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     c.globalAlpha = 1;
     weather.drawScreen(c, cam.viewW, cam.viewH);
     drawIncidentBadges(c, world, (x, y) => cam.toScreen(x, y), z, now);
+    const tvPanels = drawTvNews(c, world, (x, y) => cam.toScreen(x, y), z, now, cam.viewW, cam.viewH);
     const ui = Math.max(0.85, Math.min(1.2, z / 34));
     const convOf = new Map<number, number>();
     for (const cv of world.conversations) for (const id of cv.participants) convOf.set(id, cv.id);
     const bubbles: BubbleItem[] = [];
-    const obstacles: Obstacle[] = [];
+    // speech bubbles steer clear of the TV news panel
+    const obstacles: Obstacle[] = tvPanels.map((r) => ({ agentId: -1, ...r }));
     interface Overlay {
       p: Pose;
       feet: { x: number; y: number };

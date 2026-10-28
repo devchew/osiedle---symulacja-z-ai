@@ -102,18 +102,24 @@ Przygotowanie [x]: stub `src/world/incidents.ts` (`tickIncidents`, `availability
 - Wynik (15 min w przeglądarce, seed 42): urwane rozmowy 16/24 → 0/14, wstawanie zaraz po usiądnięciu 47 → 0, zmiany zdania 23 → 0; przeglądarka = headless (deterministycznie)
 - [x] `tests/behaviour.test.ts` — regresja tych wzorców
 
-## Fala 7 — świat zewnętrzny i domy (3 agentów) — [~] w toku
+## Fala 7 — świat zewnętrzny i domy (3 agentów) — [x]
 Przygotowanie [x]: rejestr domów `src/world/maps/index.ts` (`MAPS`, `getMap`, `bedCount`, `mapIdOf`), `WorldOptions.mapId`, `?map=`; stub `src/world/news.ts` (`tickNews`, `currentHeadline`, `newsFor`) + `ConversationContext.news?`; stub `src/realtime/realtime.ts` (`startRealtime`) + `?mode=real`.
-### [ ] O „telewizja i wiadomości” — `server/newsProxy.ts`, `vite.config.ts`, `src/world/news.ts`, `src/render/**`, `src/social/dialogueProvider.ts`, `src/social/llmProvider.ts`, `server/llmProxy.ts`, `tests/news.test.ts`
+### [x] O „telewizja i wiadomości” — `server/newsProxy.ts`, `vite.config.ts`, `src/world/news.ts`, `src/render/**`, `src/social/dialogueProvider.ts`, `src/social/llmProvider.ts`, `server/llmProxy.ts`, `tests/news.test.ts`
 - Prawdziwe nagłówki RSS przez proxy (cache, fallback), wiadomości z osiedla gdy brak sieci; ekran TV pokazuje nagłówek; oglądający rozmawiają o newsach
-### [ ] P „tryb rzeczywisty” — `src/realtime/**`, `src/world/incidents.ts` (źródło pogody), `src/ui/hud.ts`, `tests/realtime.test.ts`
+- Wynik: `/api/news` (Polsat News, TVN24, RMF24, Rzeczpospolita — sprawdzone 2026-10-28), filtr drastycznych nagłówków, „Wiadomości z osiedla” deterministycznie z `world.events`, panel TV z paskiem, newsy w dialogach (proceduralnych i AI); `NEWS_FEEDS=off` w e2e
+### [x] P „tryb rzeczywisty” — `src/realtime/**`, `src/world/incidents.ts` (źródło pogody), `src/ui/hud.ts`, `tests/realtime.test.ts`
 - Zegar = czas lokalny (1 min gry = 1 min), pogoda z Open-Meteo (lokalizacja z przeglądarki lub domyślna), blokada prędkości/replay
-### [ ] Q „domy” — `src/world/maps/**`, `src/world/map.ts`, `src/world/world.ts`, `src/ui/newWorld.ts`, `src/ui/saves.ts`, `src/ui/savePanel.ts`, `tests/world.test.ts`, `tests/maps.test.ts`, `e2e/**`
+- Wynik: `?mode=real`, `loop.setDriver` (orkiestrator), `setWeatherOverride` w incidents, HUD „⏱ NA ŻYWO” + temperatura + miejsce (BigDataCloud), pauza dozwolona z doganianiem, zapis wyłączony
+### [x] Q „domy” — `src/world/maps/**`, `src/world/map.ts`, `src/world/world.ts`, `src/ui/newWorld.ts`, `src/ui/saves.ts`, `src/ui/savePanel.ts`, `tests/world.test.ts`, `tests/maps.test.ts`, `e2e/**`
 - 2–3 nowe domy (np. kamienica, domek nad jeziorem, akademik), wybór domu i trybu rzeczywistego w oknie „Nowy świat”, `map`/`mode` w zapisach i linkach
+- Wynik: Kamienica (8 łóżek), Domek nad jeziorem (4), Akademik (8) w `src/world/maps/`; okno z podglądami domów; `tests/maps.test.ts` (36 przebiegów OK)
+- Orkiestrator: naprawiona pętla bez końca w `drawFloor` (zamrażała stronę), szybsze rysowanie jezior (maska ≤24 px/kafel + LUT)
 
 ## Pomysły na kolejne fale (backlog)
 - [ ] Mniej bezcelowych spacerów (wander w `brain.ts`), testy `sim.test.ts` z koordynatami z mapy zamiast na sztywno
 - [ ] Goście z zewnątrz (wymaga rozróżnienia mieszkaniec/gość w kontraktach)
+- [ ] Pomost w Domku nad jeziorem rysowany jak ścieżka — deski dla `path` nad wodą
+- [ ] Tryb budowania: przestawianie/dodawanie mebli
 - [ ] Narracja kłótni o pilota → bezpośrednio `recordQuarrel` zamiast wykrywania po tekście
 - [ ] Wieczory filmowe rzadkie (wczesne zasypianie) — ewentualnie późniejsze pory snu w weekendy
 - [ ] Prompt AI: unikać form z rodzajem („Słyszałeś?”), ton zgodny z walencją plotki

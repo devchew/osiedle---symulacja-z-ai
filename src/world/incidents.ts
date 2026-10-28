@@ -84,7 +84,21 @@ interface IncidentState {
   /** weather kind at the last tick (for transition events) */
   last: WeatherKind | null;
   broken: Map<number, Breakdown>;
+  /** external weather source (real-time mode); null = the seeded plan */
+  override: WeatherSource | null;
 }
+
+/** one weather reading from an external source (e.g. real weather in real-time mode) */
+export interface WeatherSample {
+  kind: WeatherKind;
+  /** 0..1, same meaning as WeatherInfo.intensity */
+  intensity: number;
+  /** optional Polish label / icon (e.g. "Mżawka", "Śnieg ❄️"); defaults per kind */
+  label?: string;
+  icon?: string;
+}
+/** weather at a tick; null = no data for that tick (the seeded plan is used) */
+export type WeatherSource = (tick: number) => WeatherSample | null;
 
 // ---------------------------------------------------------------- tuning
 
@@ -188,7 +202,7 @@ function stateOf(world: World): IncidentState {
   if (!s) {
     const rng = createRng((world.seed ^ 0x5eedc10d) >>> 0);
     const eventRng = createRng((world.seed ^ 0x0b5e55ed) >>> 0);
-    s = { rng, eventRng, plan: makePlan(rng, dayOf(world.tick)), last: null, broken: new Map() };
+    s = { rng, eventRng, plan: makePlan(rng, dayOf(world.tick)), last: null, broken: new Map(), override: null };
     states.set(world, s);
   }
   return s;
@@ -213,22 +227,49 @@ function weatherAt(plan: DayPlan, minute: number): WeatherInfo {
       intensity = k;
     }
   }
+  return toInfo({ kind, intensity }, minute);
+}
+
+function toInfo(sample: WeatherSample, minute: number): WeatherInfo {
+  const { kind } = sample;
   const t = WEATHER_TEXT[kind];
   const night = minute < 5 * 60 || minute >= 21 * 60;
-  const label = kind === 'sunny' && night ? 'Pogodnie' : t.label;
-  const icon = kind === 'sunny' && night ? '🌙' : t.icon;
+  const label = kind === 'sunny' && night ? 'Pogodnie' : (sample.label ?? t.label);
+  const icon = kind === 'sunny' && night ? '🌙' : (sample.icon ?? t.icon);
+  const intensity = Math.max(0, Math.min(1, sample.intensity));
   return { kind, label, icon, intensity, raining: kind === 'rain' || kind === 'storm' };
+}
+
+/** weather at a tick: the external source when set and it has data, else the seeded plan of that tick's day */
+function weatherAtTick(s: IncidentState, tick: number): WeatherInfo {
+  const minute = minuteOfDay(tick);
+  const sample = s.override?.(tick);
+  return sample ? toInfo(sample, minute) : weatherAt(s.plan, minute);
+}
+
+/**
+ * replaces the seeded weather with an external source (real-time mode), or restores the plan with null.
+ * Downstream effects (rain availability, sheltering, transition events, rendering) are unchanged.
+ * The seeded plan keeps being generated (same RNG draws), so breakdowns stay as they were.
+ */
+export function setWeatherOverride(world: World, source: WeatherSource | null): void {
+  stateOf(world).override = source;
+}
+
+export function hasWeatherOverride(world: World): boolean {
+  return !!states.get(world)?.override;
 }
 
 /** current weather, for the HUD and the renderer */
 export function weatherOf(world: World): WeatherInfo {
-  return weatherAt(stateOf(world).plan, minuteOfDay(world.tick));
+  return weatherAtTick(stateOf(world), world.tick);
 }
 
 /** today's weather in hourly steps (24 entries), e.g. for a forecast strip */
 export function forecastOf(world: World): WeatherInfo[] {
-  const plan = stateOf(world).plan;
-  return Array.from({ length: 24 }, (_, h) => weatherAt(plan, h * 60 + 30));
+  const s = stateOf(world);
+  const dayStart = world.tick - minuteOfDay(world.tick);
+  return Array.from({ length: 24 }, (_, h) => weatherAtTick(s, dayStart + h * 60 + 30));
 }
 
 export function isOutdoorTile(grid: Grid, x: number, y: number): boolean {
@@ -453,7 +494,7 @@ export function tickIncidents(world: World): void {
   if (day !== s.plan.day) s.plan = makePlan(s.rng, day);
   const minute = minuteOfDay(world.tick);
 
-  const weather = weatherAt(s.plan, minute);
+  const weather = weatherAtTick(s, world.tick);
   weatherEvents(world, s, weather);
   if (weather.raining) applyRain(world, s);
 
@@ -471,6 +512,6 @@ export function availability(world: World, obj: ObjectInstance, def: ObjectDef):
     const hours = b ? (world.tick - b.since) / 60 : 0;
     return Math.min(8, 3 + 0.75 * hours);
   }
-  if (isOutdoorDef(def) && weatherAt(stateOf(world).plan, minuteOfDay(world.tick)).raining) return RAIN_OUTDOOR;
+  if (isOutdoorDef(def) && weatherAtTick(stateOf(world), world.tick).raining) return RAIN_OUTDOOR;
   return 1;
 }

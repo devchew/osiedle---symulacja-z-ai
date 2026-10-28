@@ -6,6 +6,8 @@ import {
   LLM_LINE_URL,
   LLM_MAX_GOSSIP,
   LLM_MAX_LINE,
+  LLM_MAX_NEWS,
+  LLM_NEWS_CHARS,
   LLM_STATUS_URL,
   isFreeModel,
   isGossipIndex,
@@ -105,7 +107,19 @@ export function validateLineRequest(body: unknown): LlmLineRequest | null {
       gossip.push({ text, valence, shared: r.shared === true });
     }
   }
-  return { speaker, listener, traits, mood, needs, relationship, relationshipLabel, topic, timeOfDay, history, turn, isLast: b.isLast, gossip };
+  const news: string[] = [];
+  if (b.news !== undefined) {
+    if (!Array.isArray(b.news) || b.news.length > LLM_MAX_NEWS) return null;
+    for (const n of b.news) {
+      const t = str(n, LLM_NEWS_CHARS);
+      if (!t) return null;
+      news.push(t);
+    }
+  }
+  return {
+    speaker, listener, traits, mood, needs, relationship, relationshipLabel, topic, timeOfDay, history, turn, isLast: b.isLast, gossip,
+    ...(news.length ? { news } : {}),
+  };
 }
 
 // ------------------------------------------------------------ prompt
@@ -122,6 +136,7 @@ export const SYSTEM_PROMPT = [
   '- pierwsza kwestia rozmowy to powitanie, ostatnia to pożegnanie;',
   '- treści przyjazne rodzinie.',
   'Czasem dostajesz listę historii, które mówiący pamięta (plotki o innych albo wspólne wspomnienia). Jeśli rozmowa na to pozwala, chętnie opowiedz JEDNĄ z nich (nie musisz). Zachowaj czas teraźniejszy i imiona w mianowniku jak w opisie, np. "Słyszysz? Kasia przypala obiad!"; wspólne wspomnienie przywołaj bez czasu przeszłego, np. "Pamiętasz, jak Ola i Tomek tańczą w ogrodzie?" albo "Pamiętasz ten taniec w ogrodzie?" (nigdy "tańczyliśmy"). Nie wymyślaj innych plotek.',
+  'Czasem dostajesz też nagłówki wiadomości, które mówiący widzi w telewizji (prawdziwe wiadomości ze świata albo wiadomości z osiedla). Możesz (nie musisz) nawiązać do JEDNEGO: przytocz go dosłownie w cudzysłowie „…”, np. "W telewizji podają: „…”", albo skomentuj krótko i ogólnie. Nie dodawaj faktów, liczb, nazwisk ani szczegółów, których nie ma w nagłówku, niczego nie zgaduj; przy poważnych lub smutnych wiadomościach zachowaj powagę i nie żartuj.',
   'Odpowiedz WYŁĄCZNIE obiektem JSON, bez komentarzy i bez bloku kodu:',
   '{"text": "<kwestia>", "tone": "positive" | "neutral" | "negative", "gossip": <numer wykorzystanej historii albo null>}',
 ].join('\n');
@@ -174,6 +189,11 @@ export function buildUserPrompt(r: LlmLineRequest): string {
     );
   } else {
     lines.push('Tym razem bez opowiadania historii: "gossip" ustaw na null.');
+  }
+  const news = r.news ?? [];
+  if (news.length && !r.isLast && r.turn > 0) {
+    lines.push(`Nagłówki, które ${r.speaker} widzi w telewizji (możesz nawiązać do jednego, bez dodawania faktów):`);
+    for (const n of news) lines.push(`- „${n}”`);
   }
   const stage = r.isLast ? 'To ostatnia kwestia — pożegnaj się.' : r.turn === 0 ? 'To pierwsza kwestia — przywitaj się.' : `To kwestia nr ${r.turn + 1}.`;
   lines.push(stage, `Napisz następną kwestię postaci ${r.speaker}.`);

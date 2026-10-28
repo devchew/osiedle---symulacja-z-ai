@@ -3,6 +3,8 @@ import { createRng } from '../src/core/rng';
 import { NEED_KEYS, type Grid, type Vec2 } from '../src/types';
 import { createGrid, inBounds, isWalkable, markSolid, randomWalkableTile, roomAt, setTile } from '../src/world/grid';
 import { createDefaultMap } from '../src/world/map';
+import { MAPS, bedCount } from '../src/world/maps';
+import type { MapData } from '../src/world/maps/build';
 import { OBJECT_DEFS, footprint, objectCenter, slotStandTile, slotUsePos } from '../src/world/objects';
 
 const key = (p: Vec2) => `${p.x},${p.y}`;
@@ -81,8 +83,9 @@ describe('objects', () => {
   });
 });
 
-describe('default map', () => {
-  const { grid, objects, spawnPoints } = createDefaultMap();
+/** layout invariants shared by every house (src/world/maps) */
+function checkLayout(create: () => MapData): void {
+  const { grid, objects, spawnPoints } = create();
   const blocked = new Set<string>();
   for (const o of objects) {
     const def = OBJECT_DEFS[o.type];
@@ -90,7 +93,7 @@ describe('default map', () => {
   }
 
   it('is deterministic', () => {
-    expect(createDefaultMap()).toEqual(createDefaultMap());
+    expect(create()).toEqual(create());
   });
 
   it('objects are known, unique uid, in bounds, on floor and non-overlapping', () => {
@@ -158,6 +161,58 @@ describe('default map', () => {
       expect(ok, r.name).toBe(true);
     }
   });
+
+  it('has a core household: food, sleep, hygiene, fun, social and something outdoors', () => {
+    expect(grid.width).toBeGreaterThanOrEqual(36);
+    expect(grid.width).toBeLessThanOrEqual(56);
+    expect(grid.height).toBeGreaterThanOrEqual(26);
+    expect(grid.height).toBeLessThanOrEqual(36);
+    const defs = objects.map((o) => OBJECT_DEFS[o.type]);
+    const has = (pred: (d: (typeof defs)[number]) => boolean) => defs.filter(pred).length;
+    const tagged = (t: string) => (d: (typeof defs)[number]) => !!d.tags?.includes(t);
+    expect(has((d) => d.id === 'bed')).toBeGreaterThanOrEqual(4);
+    expect(has((d) => d.id === 'fridge')).toBeGreaterThan(0);
+    expect(has((d) => d.id === 'stove')).toBeGreaterThan(0);
+    expect(has((d) => d.id === 'dining_table')).toBeGreaterThan(0);
+    expect(has((d) => d.id === 'shower')).toBeGreaterThan(0);
+    expect(has((d) => d.id === 'toilet')).toBeGreaterThan(0);
+    expect(has((d) => d.id === 'tv')).toBeGreaterThan(0);
+    expect(has((d) => d.id === 'grill')).toBeGreaterThan(0);
+    // indoor fun for rainy days and some garden activity
+    expect(new Set(defs.filter((d) => tagged('fun')(d) && !tagged('outdoor')(d)).map((d) => d.id)).size).toBeGreaterThanOrEqual(2);
+    expect(has((d) => tagged('outdoor')(d) && d.slots.length > 0)).toBeGreaterThanOrEqual(3);
+    expect(has((d) => !!d.social)).toBeGreaterThanOrEqual(3);
+    for (const r of grid.rooms) expect(r.name.length, r.id).toBeGreaterThan(2);
+  });
+
+  it('housemates (beds in map order, pairwise) share a room', () => {
+    const beds = objects.filter((o) => o.type === 'bed');
+    expect(beds.length % 2).toBe(0);
+    for (let i = 0; i < beds.length; i += 2) {
+      const a = roomAt(grid, beds[i].pos.x, beds[i].pos.y);
+      const b = roomAt(grid, beds[i + 1].pos.x, beds[i + 1].pos.y);
+      expect(a?.id, `bed #${beds[i].uid}`).toBeDefined();
+      expect(a?.id, `beds #${beds[i].uid} #${beds[i + 1].uid}`).toBe(b?.id);
+    }
+  });
+}
+
+for (const map of MAPS) describe(`map ${map.id}`, () => checkLayout(map.create));
+
+describe('house registry', () => {
+  it('has unique ids, Polish names and descriptions, >= 4 beds each', () => {
+    expect(new Set(MAPS.map((m) => m.id)).size).toBe(MAPS.length);
+    expect(MAPS.length).toBeGreaterThanOrEqual(4);
+    for (const m of MAPS) {
+      expect(m.name.length, m.id).toBeGreaterThan(2);
+      expect(m.description.length, m.id).toBeGreaterThan(10);
+      expect(bedCount(m), m.id).toBeGreaterThanOrEqual(4);
+    }
+  });
+});
+
+describe('default map', () => {
+  const { grid, objects } = createDefaultMap();
 
   it('has a full household: >= 6 beds, kitchen, bathrooms, garden', () => {
     const count = (t: string) => objects.filter((o) => o.type === t).length;

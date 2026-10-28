@@ -76,9 +76,11 @@ function drawFloor(ctx: Ctx, g: Grid, x: number, y: number): void {
     let sx = x - 0.5;
     const ex = x + 0.5;
     while (sx < ex - 1e-6) {
-      const idx = Math.floor((sx + off) / L);
+      // epsilon: when sx lands exactly on a seam, floor() may round down and stall the loop
+      const idx = Math.floor((sx + off) / L + 1e-9);
       const seam = (idx + 1) * L - off;
-      const segEnd = Math.min(ex, seam);
+      let segEnd = Math.min(ex, seam);
+      if (segEnd <= sx + 1e-9) segEnd = Math.min(ex, sx + L);
       ctx.fillStyle = shade(base, (hash2(idx, rowG, 5) - 0.5) * 0.16);
       ctx.fillRect(sx, yy, segEnd - sx + 0.002, rh + 0.002);
       if (segEnd < ex - 1e-6) {
@@ -215,19 +217,21 @@ function drawWater(ctx: Ctx, g: Grid, T: number): void {
   const oy = minY - pad;
   const tw = maxX - minX + 1 + 2 * pad;
   const th = maxY - minY + 1 + 2 * pad;
-  const cw = Math.ceil(tw * T);
-  const ch = Math.ceil(th * T);
+  // the mask is blurred anyway: a lower resolution keeps big lakes cheap
+  const S = Math.min(T, 24);
+  const cw = Math.ceil(tw * S);
+  const ch = Math.ceil(th * S);
   const mask = document.createElement('canvas');
   mask.width = cw;
   mask.height = ch;
   const m = mask.getContext('2d', { willReadFrequently: true });
   if (!m) return;
-  m.filter = `blur(${Math.round(T * 0.28)}px)`;
+  m.filter = `blur(${Math.max(1, Math.round(S * 0.28))}px)`;
   m.fillStyle = '#000';
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
       if (g.tiles[y * g.width + x] !== 'water') continue;
-      m.fillRect((x - ox) * T, (y - oy) * T, T + 1, T + 1);
+      m.fillRect((x - ox) * S, (y - oy) * S, S + 1, S + 1);
     }
   }
   m.filter = 'none';
@@ -237,15 +241,15 @@ function drawWater(ctx: Ctx, g: Grid, T: number): void {
   const foam = [210, 238, 246];
   const shallow = [128, 196, 226];
   const deep = [66, 140, 192];
-  for (let i = 0; i < d.length; i += 4) {
-    const a = d[i + 3];
-    if (a < 70) {
-      d[i + 3] = 0;
-      continue;
-    }
+  // colour per mask alpha, computed once
+  const lut = new Uint8ClampedArray(256 * 4);
+  for (let a = 0; a < 256; a++) {
     let c: number[];
     let alpha = 255;
-    if (a < 118) {
+    if (a < 70) {
+      c = shore;
+      alpha = 0;
+    } else if (a < 118) {
       c = shore;
       alpha = Math.min(255, (a - 70) * 9);
     } else if (a < 132) c = foam;
@@ -253,13 +257,17 @@ function drawWater(ctx: Ctx, g: Grid, T: number): void {
       const t = Math.min(1, (a - 132) / 110);
       c = [shallow[0] + (deep[0] - shallow[0]) * t, shallow[1] + (deep[1] - shallow[1]) * t, shallow[2] + (deep[2] - shallow[2]) * t];
     }
-    d[i] = c[0];
-    d[i + 1] = c[1];
-    d[i + 2] = c[2];
-    d[i + 3] = alpha;
+    lut.set([c[0], c[1], c[2], alpha], a * 4);
+  }
+  for (let i = 0; i < d.length; i += 4) {
+    const k = d[i + 3] * 4;
+    d[i] = lut[k];
+    d[i + 1] = lut[k + 1];
+    d[i + 2] = lut[k + 2];
+    d[i + 3] = lut[k + 3];
   }
   m.putImageData(img, 0, 0);
-  ctx.drawImage(mask, ox - 0.5, oy - 0.5, cw / T, ch / T);
+  ctx.drawImage(mask, ox - 0.5, oy - 0.5, cw / S, ch / S);
   // sparkles and lily pads
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {

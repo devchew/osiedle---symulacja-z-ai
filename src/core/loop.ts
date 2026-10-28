@@ -5,6 +5,11 @@ export interface Loop {
   setSpeed(speed: number): void;
   start(): void;
   stop(): void;
+  /**
+   * an external tick driver (real-time mode): called every frame instead of the
+   * accumulator; it steps the simulation itself and returns the render alpha
+   */
+  setDriver(driver: ((now: number) => number) | null): void;
 }
 
 export interface LoopOptions {
@@ -22,11 +27,17 @@ export function createLoop(opts: LoopOptions): Loop {
   let acc = 0;
   let last = 0;
   let raf = 0;
+  let driver: ((now: number) => number) | null = null;
   const MAX_TICKS_PER_FRAME = 64;
 
   const frame = (now: number) => {
     const dt = Math.min(0.25, (now - last) / 1000);
     last = now;
+    if (driver) {
+      opts.render(driver(now));
+      raf = requestAnimationFrame(frame);
+      return;
+    }
     if (!paused) {
       acc += dt * opts.ticksPerSecond * speed;
       let n = 0;
@@ -53,6 +64,9 @@ export function createLoop(opts: LoopOptions): Loop {
     },
     setSpeed(s) {
       speed = s;
+    },
+    setDriver(d) {
+      driver = d;
     },
     start() {
       last = performance.now();

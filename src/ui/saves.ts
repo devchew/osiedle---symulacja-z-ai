@@ -1,8 +1,10 @@
 import type { World } from '../types';
+import { DEFAULT_MAP_ID, getMap, mapIdOf } from '../world/maps';
+import { isRealtime } from '../realtime/state';
 import { storageGet, storageSet } from './dom';
 
 // Saves. The simulation is deterministic per seed (procedural dialogue), so a
-// save is just "which world, how far": { seed, agentCount, tick }. Loading
+// save is just "which world, how far": { seed, agentCount, map, tick }. Loading
 // rebuilds the world by replaying ticks. `check` fingerprints the saved state so
 // a load can tell whether the replay arrived at the same place (it may not with
 // AI dialogues on, or after the simulation code changed).
@@ -22,8 +24,17 @@ export interface SaveData {
   check?: string;
   /** AI dialogues were on while playing: a replay may differ */
   ai?: boolean;
+  /** house layout id (src/world/maps); saves from before wave 7 have none = 'dom' */
+  map?: string;
+  /** 'real' = played in real-time mode (no replay: saving is disabled there, kept for completeness) */
+  mode?: 'real';
   /** real time of saving, ms since epoch */
   savedAt: number;
+}
+
+/** house of a save (old saves without one were made in the default house) */
+export function mapOfSave(s: Pick<SaveData, 'map'>): string {
+  return getMap(s.map ?? DEFAULT_MAP_ID).id;
 }
 
 export interface SaveStore {
@@ -42,9 +53,10 @@ export function readSaves(): SaveStore {
   if (!raw) return empty;
   try {
     const parsed = JSON.parse(raw) as Partial<SaveStore>;
+    const norm = (v: unknown): SaveData | null => (isSave(v) ? { ...v, map: mapOfSave(v) } : null);
     return {
-      auto: isSave(parsed.auto) ? parsed.auto : null,
-      slots: empty.slots.map((_, i) => (isSave(parsed.slots?.[i]) ? parsed.slots![i] : null)),
+      auto: norm(parsed.auto),
+      slots: empty.slots.map((_, i) => norm(parsed.slots?.[i])),
     };
   } catch {
     return empty;
@@ -90,12 +102,18 @@ export function saveFromWorld(world: World, ai = false): SaveData {
     tick: world.tick,
     check: worldCheck(world),
     ai: ai || undefined,
+    map: mapIdOf(world),
+    mode: isRealtime(world) ? 'real' : undefined,
     savedAt: Date.now(),
   };
 }
 
 export interface StartParams {
   seed: number;
+  /** house layout id (?map=, unknown or missing = 'dom') */
+  mapId: string;
+  /** ?mode=real: clock and weather follow the real world */
+  realtime: boolean;
   agentCount: number;
   /** tick to replay to before the game starts (0 = fresh world) */
   tick: number;
@@ -104,7 +122,7 @@ export interface StartParams {
   paused: boolean;
 }
 
-/** reads ?seed, ?agents, ?tick (or ?hour = that hour of day 1), ?check, ?paused */
+/** reads ?seed, ?map, ?mode, ?agents, ?tick (or ?hour = that hour of day 1), ?check, ?paused */
 export function parseStartParams(params: URLSearchParams, maxAgents: number, randomSeed: () => number): StartParams {
   const seed = Math.floor(Number(params.get('seed'))) || randomSeed();
   const agentCount = Math.min(maxAgents, Math.max(1, Math.floor(Number(params.get('agents'))) || Math.min(6, maxAgents)));
@@ -114,22 +132,44 @@ export function parseStartParams(params: URLSearchParams, maxAgents: number, ran
   if (t !== null && Number.isFinite(Number(t))) tick = Math.floor(Number(t));
   else if (hour !== null && Number.isFinite(Number(hour))) tick = ((Math.floor(Number(hour)) - 7 + 24) % 24) * 60;
   tick = Math.max(0, Math.min(MAX_REPLAY_TICKS, tick));
-  return { seed, agentCount, tick, check: params.get('check'), paused: params.has('paused') };
+  const realtime = params.get('mode') === 'real';
+  return {
+    seed,
+    mapId: getMap(params.get('map')).id,
+    realtime,
+    agentCount,
+    tick,
+    check: params.get('check'),
+    paused: params.has('paused'),
+  };
 }
 
-/** URL (same page) that recreates this save: ?seed=…&agents=…&tick=… */
-export function linkFor(save: Pick<SaveData, 'seed' | 'agentCount' | 'tick' | 'check'>, opts: { paused?: boolean; base?: string } = {}): string {
-  const base = opts.base ?? `${location.origin}${location.pathname}`;
-  const q = new URLSearchParams({ seed: String(save.seed), agents: String(save.agentCount), tick: String(save.tick) });
-  if (save.check) q.set('check', save.check);
-  let url = `${base}?${q.toString()}`;
-  if (opts.paused) url += '&paused';
+const pageBase = (): string => `${location.origin}${location.pathname}`;
+
+/**
+ * URL (same page) that recreates this save: ?seed=…&agents=…&map=…&tick=…
+ * A real-time save links to the live world instead (?mode=real, no tick / check: nothing to replay).
+ */
+export function linkFor(
+  save: Pick<SaveData, 'seed' | 'agentCount' | 'tick' | 'check' | 'map' | 'mode'>,
+  opts: { paused?: boolean; base?: string } = {},
+): string {
+  const q = new URLSearchParams({ seed: String(save.seed), agents: String(save.agentCount), map: mapOfSave(save) });
+  if (save.mode === 'real') q.set('mode', 'real');
+  else {
+    q.set('tick', String(save.tick));
+    if (save.check) q.set('check', save.check);
+  }
+  let url = `${opts.base ?? pageBase()}?${q.toString()}`;
+  if (opts.paused && save.mode !== 'real') url += '&paused';
   return url;
 }
 
-/** URL of a brand new world */
-export function newWorldLink(seed: number, agentCount: number): string {
-  return `${location.origin}${location.pathname}?${new URLSearchParams({ seed: String(seed), agents: String(agentCount) })}`;
+/** URL of a brand new world (in the given house, optionally in real-time mode) */
+export function newWorldLink(seed: number, agentCount: number, opts: { map?: string; realtime?: boolean; base?: string } = {}): string {
+  const q = new URLSearchParams({ seed: String(seed), agents: String(agentCount), map: getMap(opts.map).id });
+  if (opts.realtime) q.set('mode', 'real');
+  return `${opts.base ?? pageBase()}?${q.toString()}`;
 }
 
 export function randomSeed(): number {

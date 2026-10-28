@@ -1,13 +1,13 @@
-import type { Grid, ObjectInstance, Vec2, World } from '../../types';
-import { createDefaultMap } from '../map';
+import type { World } from '../../types';
+import type { MapData } from './build';
+import { createDefaultMap } from './dom';
+import { createKamienicaMap } from './kamienica';
+import { createJezioroMap } from './jezioro';
+import { createAkademikMap } from './akademik';
 
-// House layouts to choose from. Wave 7: more houses are added here (see plan/TASKS.md).
+// House layouts to choose from. Each layout is its own module built with ./build helpers.
 
-export interface MapData {
-  grid: Grid;
-  objects: ObjectInstance[];
-  spawnPoints: Vec2[];
-}
+export type { MapData } from './build';
 
 export interface MapDef {
   id: string;
@@ -20,6 +20,24 @@ export interface MapDef {
 
 export const MAPS: readonly MapDef[] = [
   { id: 'dom', name: 'Dom z ogrodem', description: 'Parterowy dom z czterema sypialniami, stawem i sadem', create: createDefaultMap },
+  {
+    id: 'kamienica',
+    name: 'Kamienica',
+    description: 'Cztery małe mieszkania, klub i siłownia wokół zielonego podwórka z grillem',
+    create: createKamienicaMap,
+  },
+  {
+    id: 'jezioro',
+    name: 'Domek nad jeziorem',
+    description: 'Drewniana chatka w lesie: pomost, ognisko i wędkowanie nad dużym jeziorem',
+    create: createJezioroMap,
+  },
+  {
+    id: 'akademik',
+    name: 'Akademik',
+    description: 'Korytarz z pokojami dwuosobowymi, wspólna kuchnia, świetlica i siłownia',
+    create: createAkademikMap,
+  },
 ];
 
 export const DEFAULT_MAP_ID = 'dom';

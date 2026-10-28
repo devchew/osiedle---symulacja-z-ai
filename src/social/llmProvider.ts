@@ -14,6 +14,10 @@ export const LLM_MAX_LINE = 70;
 export const LLM_HISTORY_LINES = 6;
 /** at most this many remembered stories are offered to the model per line */
 export const LLM_MAX_GOSSIP = 3;
+/** at most this many TV headlines are offered to the model per line */
+export const LLM_MAX_NEWS = 2;
+/** a headline is cut to this many chars in the request */
+export const LLM_NEWS_CHARS = 160;
 const TONES: readonly Tone[] = ['positive', 'neutral', 'negative'];
 
 /** compact, JSON-serialisable context sent to the proxy (no agent objects, no ids) */
@@ -38,6 +42,8 @@ export interface LlmLineRequest {
   isLast: boolean;
   /** stories the speaker could retell (≤ 3); the model answers with the index of the one it used */
   gossip?: LlmGossip[];
+  /** TV headlines the speaker saw (≤ 2, newest first, verbatim); the model may comment on one */
+  news?: string[];
 }
 
 export interface LlmGossip {
@@ -125,7 +131,18 @@ export function gossipCandidates(ctx: ConversationContext): Gossip[] {
   return ctx.gossip.filter((g) => !told.has(g.text)).slice(0, LLM_MAX_GOSSIP);
 }
 
+/** headlines offered to the model: not on the first or last line, never one already quoted in this conversation, ≤ 2 */
+export function newsCandidates(ctx: ConversationContext): string[] {
+  if (!ctx.news?.length || ctx.turn === 0 || ctx.isLast) return [];
+  const said = ctx.history.map((l) => /„([^”]+)”/.exec(l.text)?.[1].replace(/…$/, '').trim()).filter((q): q is string => !!q && q.length >= 6);
+  return ctx.news
+    .filter((n) => !said.some((q) => n.startsWith(q)))
+    .slice(0, LLM_MAX_NEWS)
+    .map((n) => n.replace(/\s+/g, ' ').trim().slice(0, LLM_NEWS_CHARS));
+}
+
 export function buildLineRequest(ctx: ConversationContext, candidates: Gossip[] = gossipCandidates(ctx)): LlmLineRequest {
+  const news = newsCandidates(ctx);
   const names = new Map([
     [ctx.speaker.id, ctx.speaker.name],
     [ctx.listener.id, ctx.listener.name],
@@ -144,6 +161,7 @@ export function buildLineRequest(ctx: ConversationContext, candidates: Gossip[] 
     turn: ctx.turn,
     isLast: ctx.isLast,
     gossip: candidates.map((g) => ({ text: g.text, valence: Math.round(g.valence * 100) / 100, shared: !!g.shared })),
+    ...(news.length ? { news } : {}),
   };
 }
 

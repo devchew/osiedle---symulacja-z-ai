@@ -4,6 +4,7 @@ import { formatClock, timeFromTick } from './core/time';
 import { createWorld, tickWorld } from './world/world';
 import { bedCount, getMap } from './world/maps';
 import { startRealtime } from './realtime/realtime';
+import { hasRealNews, startNewsFeed } from './world/news';
 import { createRenderer } from './render/renderer';
 import { createHud } from './ui/hud';
 import { createInspector } from './ui/inspector';
@@ -55,6 +56,8 @@ async function main(): Promise<void> {
   // rebuild a saved / linked moment by replaying the deterministic simulation
   await replayTo(world, start.tick, { step, parent: document.body });
   const mismatch = start.check !== null && start.tick === world.tick && start.check !== worldCheck(world);
+  // real TV headlines (dev/preview proxy) start after the replay: from here on runs are not reproducible
+  if (params.get('news') !== 'off') startNewsFeed(world);
 
   const canvas = document.getElementById('world') as HTMLCanvasElement;
   const renderer = createRenderer(canvas, world);
@@ -77,14 +80,15 @@ async function main(): Promise<void> {
     time: () => timeFromTick(world.tick),
   };
 
-  if (start.paused) loop.setPaused(true);
+  if (start.paused && !realtimeMode) loop.setPaused(true);
   if (realtimeMode) await startRealtime({ world, loop, controls, step, parent: document.body });
   let llm: LlmToggle | undefined;
 
   const newWorld = createNewWorldDialog({ seed: world.seed, agentCount: world.agents.length, maxAgents: beds });
   const savePanel = createSavePanel(world, {
-    isAi: () => !!llm?.enabled,
-    isPaused: () => loop.paused,
+    // saves marked like AI ones: real headlines also make a replay differ
+    isAi: () => !!llm?.enabled || hasRealNews(world),
+    isPaused: () => controls.paused,
     onNewWorld: () => newWorld.setOpen(true),
     onToggle: (open) => {
       hud.setActive('save', open);
