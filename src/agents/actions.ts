@@ -11,6 +11,7 @@ import { pushEvent } from '../world/events';
 import { conversationDelta, describeConversation, startConversation, willAcceptChat } from '../social/conversation';
 import { relationshipLabel } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
+import { onConversationEnd, recallFor } from '../social/memory';
 
 const TALK_EFFECTS = { social: 0.7, fun: 0.12 };
 const APPROACH_TIMEOUT = 60;
@@ -374,6 +375,7 @@ function endConversation(world: World, conv: Conversation): void {
     }
   }
   if (conv.lines.length < 2) return;
+  onConversationEnd(world, conv);
   a.stats.conversations++;
   b.stats.conversations++;
   const before = world.relationships.get(a.id, b.id);
@@ -415,6 +417,7 @@ export function tickConversations(world: World, time: GameTime): void {
       turn,
       isLast: turn === conv.maxLines - 1,
       time,
+      gossip: recallFor(world, speaker, listener),
     };
     conv.nextLineIn = world.rng.int(LINE_TICKS[0], LINE_TICKS[1]);
     const result = world.dialogue.nextLine(ctx, world.rng);

@@ -58,10 +58,26 @@ Notatki z integracji: pierwsza wersja wpadała w spiralę (przerywanie aktywnoś
 - [x] G „LLM”: `server/llmProxy.ts` (plugin Vite, dev + preview), `src/social/llmProvider.ts`, przełącznik `src/ui/llmToggle.ts`, `.env.example`, `tests/llm.test.ts`
 - [x] Orkiestrator: drzwi pokój hobby → ogród, limit postaci w URL = liczba łóżek
 
+## Fala 4 — świat i pamięć (3 agentów) — [~] w toku
+Przygotowanie (orkiestrator) [x]: kontrakt `Gossip` w `types.ts` (`SimEvent.gossip?`, `ConversationContext.gossip?`), `pushEvent(…, gossip?)`, stub `src/social/memory.ts` (`updateMemories`, `recallFor`, `onConversationEnd`) podpięty w `world.ts` i `actions.ts`.
+
+### [ ] H „mapa” — `src/world/map.ts`, `src/world/grid.ts`, `tests/world.test.ts`
+- Zwarty dom z krótszymi drogami (cel: chodzenie ≤ ~3,5 h/dobę gry vs 5,7 h), 4. sypialnia → 8 łóżek, ogród bliżej, zachowane wszystkie typy aktywności
+- Done: testy world + soak zielone, zrzut obejrzany
+
+### [ ] I „pamięć i plotki” — `src/social/**`, `src/agents/narration.ts`, `tests/social.test.ts`, `tests/memory.test.ts`
+- Wspomnienia per postać (z `world.events` z `gossip`), zanikanie, plotki rozchodzą się w rozmowach, wpływają na opinie o osobach trzecich
+- Dialog proceduralny wplata plotki („Słyszałeś? Ola przypala obiad!”), narracja wypełnia `gossip`
+- Done: testy pamięci; w soak ≥ X rozmów z plotką/tydzień
+
+### [ ] J „cele dnia” — `src/agents/brain.ts`, `actions.ts`, `goals.ts` (nowy), `home.ts`, `needs.ts`, `src/ui/inspector.ts`, `tests/soak.test.ts`, `tests/sim.test.ts`, `tests/agents.test.ts`
+- Rano każdy losuje cel/nastrój dnia (zależny od osobowości), który przesuwa wybory; cel widoczny w inspektorze; zdarzenie w logu przy realizacji
+- Done: metryka w soak (cele realizowane w ≥ 60% dni)
+
 ## Pomysły na kolejne fale (backlog)
 - [ ] Mapa: krótsze dystanse / więcej drzwi lub drugi dom (postacie chodzą ~5,7 h na dobę gry)
 - [ ] Więcej łóżek / 4. sypialnia → >6 mieszkańców
 - [ ] Wspomnienia i plotki (rozmowy odnoszą się do wydarzeń z logu)
 - [ ] Zapis/odczyt stanu (localStorage), wybór seeda w UI
-- [ ] Prawdziwy test dialogów AI z kluczem (nie było klucza w sesji budowy)
+- [ ] Fala 6: dialogi AI przez **OpenRouter** (zamiast bezpośredniego Anthropic SDK) + test z prawdziwym kluczem
 - [ ] Ostrzeżenie Vite o imporcie `server/llmProxy` bez rozszerzenia (nieszkodliwe)

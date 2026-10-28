@@ -20,3 +20,6 @@
 | 2026-10-28 | LLM przez proxy jako plugin Vite (klucz z `.env`, nigdy w bundlu), `claude-haiku-5-5`, structured output `{text, tone}`, 20 req/min, timeouty 6/8 s, fallback proceduralny, 403 dla cross-origin | koszt i bezpieczeństwo klucza; gra działa bez klucza |
 | 2026-10-28 | Z włączonym LLM seed nie gwarantuje powtarzalności | odpowiedzi przychodzą asynchronicznie |
 | 2026-10-28 | Limit postaci z URL = liczba łóżek (6) | test E pokazał, że nadmiarowe postacie nie mają gdzie spać |
+| 2026-10-28 | Kolejność: fala 4 świat+pamięć, 5 dynamika społeczna, 6 AI | decyzja użytkownika po przeglądzie |
+| 2026-10-28 | AI w fali 6 przez OpenRouter (proxy przepięte z `@anthropic-ai/sdk` na API OpenRouter) | decyzja użytkownika |
+| 2026-10-28 | Plotki: kontrakt `Gossip` (tekst 3. osoba, czas teraźniejszy, imiona nieodmieniane) w zdarzeniach i kontekście rozmowy; pamięć w `social/memory.ts` | pamięć i dialogi bez zmian w `Agent` |

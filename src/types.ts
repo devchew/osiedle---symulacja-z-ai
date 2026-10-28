@@ -215,6 +215,8 @@ export interface ConversationContext {
   turn: number;
   isLast: boolean;
   time: GameTime;
+  /** stories the speaker remembers and could bring up (about third persons or shared moments) */
+  gossip?: Gossip[];
 }
 
 export interface DialogueProvider {
@@ -236,12 +238,23 @@ export interface Relationships {
 
 export type SimEventKind = 'conversation' | 'use' | 'relationship' | 'mood' | 'info';
 
+/** something worth retelling: residents remember it and may gossip about it */
+export interface Gossip {
+  /** retellable Polish phrase in the third person, present tense, names not declined, e.g. "Ola przypala obiad" */
+  text: string;
+  /** who the story is about */
+  aboutIds: number[];
+  /** -1 embarrassing / bad .. 1 nice / admirable */
+  valence: number;
+}
+
 export interface SimEvent {
   tick: number;
   kind: SimEventKind;
   /** Polish, human readable */
   text: string;
   agentIds: number[];
+  gossip?: Gossip;
 }
 
 export interface World {
