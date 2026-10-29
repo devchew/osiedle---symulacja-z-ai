@@ -11,3 +11,5 @@ playwright-report
 .git
 .DS_Store
 *.log
+# live world snapshots (DATA_DIR)
+data

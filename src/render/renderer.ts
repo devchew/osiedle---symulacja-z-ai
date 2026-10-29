@@ -34,6 +34,14 @@ export interface Renderer {
   toScreen(wx: number, wy: number): { x: number; y: number };
   /** where the agent is drawn (tile units) and whether it is visually walking — for tests / debugging */
   visualOf(id: number): { x: number; y: number; moving: boolean } | null;
+  /**
+   * shows another World object (live view: a new frame restored as a new world, or another place).
+   * `sameScene` keeps the camera and the residents' walking cursors (next frame of the same place);
+   * otherwise the camera is re-fitted and walking starts over.
+   */
+  setWorld(world: World, sameScene: boolean): void;
+  /** CSS px kept free for the overlay UI when fitting the map (wide / narrow screens) */
+  setFitInsets(wide: Insets, narrow: Insets): void;
 }
 
 const BG = '#6f9b5c';
@@ -67,7 +75,10 @@ interface Pose extends AgentPose {
   agent: Agent;
 }
 
-export function createRenderer(canvas: HTMLCanvasElement, world: World): Renderer {
+export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): Renderer {
+  let world = initialWorld;
+  let fitInsets = FIT_INSETS;
+  let fitInsetsNarrow = FIT_INSETS_NARROW;
   const ctx = canvas.getContext('2d', { alpha: false }) ?? canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D context not available');
 
@@ -98,7 +109,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   let poses: Pose[] = [];
   const walk = new Map<number, { phase: number }>();
   // residents walk along the path they actually took (see motion.ts)
-  const motion = new MotionTracker(trailOf);
+  let motion = new MotionTracker(trailOf);
 
   function resize(): void {
     const rect = canvas.getBoundingClientRect();
@@ -137,7 +148,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   function fitView(): void {
     cam.setMap(world.grid.width, world.grid.height);
     const narrow = cam.viewW < 720;
-    const insets = narrow ? FIT_INSETS_NARROW : FIT_INSETS;
+    const insets = narrow ? fitInsetsNarrow : fitInsets;
     cam.fit(insets);
     // on small screens the whole plot is tiny: show the house instead
     if (cam.zoom < 16) {
@@ -633,6 +644,23 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     visualOf: (id) => {
       const m = motion.of(id);
       return m ? { x: m.x, y: m.y, moving: m.moving } : null;
+    },
+    setWorld: (w, sameScene) => {
+      if (w === world) return;
+      world = w;
+      if (!sameScene) {
+        motion = new MotionTracker(trailOf);
+        walk.clear();
+        poses = [];
+        layer = null;
+        followId = null;
+        ensureStatic();
+        fitView();
+      }
+    },
+    setFitInsets: (wide, narrow) => {
+      fitInsets = wide;
+      fitInsetsNarrow = narrow;
     },
   };
 }

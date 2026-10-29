@@ -149,14 +149,14 @@ async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
 }
 
 /**
- * yesterday … tomorrow, hourly, in the browser's time zone (= the game clock),
- * so hourly keys line up with tickToLocal
+ * yesterday … tomorrow, hourly, in the browser's time zone (= the game clock) or `tz`
+ * (the server's live worlds pass Europe/Warsaw), so hourly keys line up with tickToLocal
  */
-export async function fetchRealWeather(lat: number, lon: number, timeoutMs = 6000): Promise<RealWeather> {
+export async function fetchRealWeather(lat: number, lon: number, timeoutMs = 6000, tz: string = timeZone()): Promise<RealWeather> {
   const vars = 'weather_code,precipitation,cloud_cover,temperature_2m';
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}` +
-    `&current=${vars}&hourly=${vars}&past_days=1&forecast_days=2&timezone=${encodeURIComponent(timeZone())}`;
+    `&current=${vars}&hourly=${vars}&past_days=1&forecast_days=2&timezone=${encodeURIComponent(tz)}`;
   return parseForecast(await fetchJson(url, timeoutMs));
 }
 

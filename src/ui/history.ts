@@ -19,6 +19,8 @@ export interface MoodHistory {
   record(world: World): void;
   /** oldest first */
   samples(): readonly MoodSample[];
+  /** forgets everything (another world) */
+  clear(): void;
 }
 
 export function createMoodHistory(capacity = HISTORY_HOURS + 1): MoodHistory {
@@ -26,11 +28,19 @@ export function createMoodHistory(capacity = HISTORY_HOURS + 1): MoodHistory {
   let lastTick = -1;
   return {
     record(world) {
-      if (world.tick === lastTick || world.tick % SAMPLE_EVERY !== 0) return;
+      // one sample per game hour: on the full hour, or the first tick seen in a new hour (live
+      // frames may skip ticks); going back in time = another world: start over
+      if (world.tick < lastTick) buf.length = 0;
+      else if (world.tick === lastTick) return;
+      else if (lastTick >= 0 && Math.floor(world.tick / SAMPLE_EVERY) === Math.floor(lastTick / SAMPLE_EVERY)) return;
       lastTick = world.tick;
       buf.push({ tick: world.tick, moods: new Map(world.agents.map((a) => [a.id, a.mood])) });
       if (buf.length > capacity) buf.splice(0, buf.length - capacity);
     },
     samples: () => buf,
+    clear() {
+      buf.length = 0;
+      lastTick = -1;
+    },
   };
 }

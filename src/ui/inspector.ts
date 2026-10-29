@@ -28,6 +28,8 @@ export interface Inspector {
   update(): void;
   /** currently shown agent id */
   readonly current: number | null;
+  /** shows another world (live view); keeps the shown resident when they are there */
+  setWorld(world: World): void;
 }
 
 const MAX_RELATIONS = 5;
@@ -96,7 +98,8 @@ function barRow(label: string, icon: string): BarRow {
 }
 
 /** right-side panel (bottom sheet on narrow screens) with details of one agent */
-export function createInspector(root: HTMLElement, world: World, opts: InspectorOptions): Inspector {
+export function createInspector(root: HTMLElement, initialWorld: World, opts: InspectorOptions): Inspector {
+  let world = initialWorld;
   root.classList.add('ui-panel', 'ui-inspector');
   root.hidden = true;
   root.setAttribute('aria-label', 'Szczegóły postaci');
@@ -408,6 +411,12 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
     update,
     get current() {
       return current;
+    },
+    setWorld(w) {
+      if (w === world) return;
+      world = w;
+      traitsKey = relKey = memKey = '';
+      update();
     },
   };
 }

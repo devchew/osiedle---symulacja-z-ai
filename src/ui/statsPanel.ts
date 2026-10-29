@@ -21,6 +21,8 @@ export interface StatsPanel {
   setOpen(open: boolean): void;
   /** redraws when open; call a few times per second */
   update(): void;
+  /** shows another world (live view) */
+  setWorld(world: World): void;
 }
 
 const GOOD = [79, 209, 139];
@@ -43,7 +45,8 @@ function distToSegment(px: number, py: number, ax: number, ay: number, bx: numbe
 }
 
 /** statistics overlay: relationship network, mood history, per-resident table */
-export function createStatsPanel(world: World, opts: StatsPanelOptions): StatsPanel {
+export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): StatsPanel {
+  let world = initialWorld;
   const root = el('section', 'ui-panel ui-stats');
   root.id = 'stats-panel';
   root.hidden = true;
@@ -639,5 +642,19 @@ export function createStatsPanel(world: World, opts: StatsPanelOptions): StatsPa
     },
     setOpen,
     update,
+    setWorld(w) {
+      if (w === world) return;
+      const ids = (x: World) => x.agents.map((a) => `${a.id}:${a.name}`).join('|');
+      const sameCast = ids(w) === ids(world);
+      world = w;
+      if (!sameCast) {
+        hover = pinned = null;
+        rowsKey = '';
+        pairsKey = '';
+        nodePos = new Map();
+        setFocus(null);
+      }
+      update();
+    },
   };
 }

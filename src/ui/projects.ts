@@ -18,6 +18,8 @@ export interface ProjectsPanel {
   setOpen(open: boolean): void;
   /** re-renders when something changed; call a few times per second */
   update(): void;
+  /** shows another world (live view) */
+  setWorld(world: World): void;
 }
 
 /** "45 min", "3 h", "3 h 20 min" */
@@ -50,7 +52,8 @@ function button(className: string, children: (Node | string)[], title?: string):
   return b;
 }
 
-export function createProjectsPanel(world: World, opts: ProjectsPanelOptions = {}): ProjectsPanel {
+export function createProjectsPanel(initialWorld: World, opts: ProjectsPanelOptions = {}): ProjectsPanel {
+  let world = initialWorld;
   const root = el('section', 'ui-panel ui-projects');
   root.id = 'projects-panel';
   root.hidden = true;
@@ -258,5 +261,10 @@ export function createProjectsPanel(world: World, opts: ProjectsPanelOptions = {
     },
     setOpen,
     update,
+    setWorld(w) {
+      world = w;
+      lastKey = '';
+      update();
+    },
   };
 }

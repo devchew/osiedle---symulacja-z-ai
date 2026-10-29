@@ -13,7 +13,7 @@ function trackErrors(page: Page): string[] {
 }
 
 async function open(page: Page, query: string): Promise<void> {
-  await page.goto(`/${query}`);
+  await page.goto(`/lab${query}`);
   await page.waitForFunction(() => !!window.__sim, undefined, { timeout: 20_000 });
 }
 
@@ -98,7 +98,7 @@ test('?tick= link replays to that moment (also via "Kopiuj link"), ~10k ticks qu
 
   // a long replay shows progress and stays fast
   const t0 = Date.now();
-  await page.goto('/?seed=5&agents=6&tick=10000&paused', { waitUntil: 'commit' });
+  await page.goto('/lab?seed=5&agents=6&tick=10000&paused', { waitUntil: 'commit' });
   await expect(page.locator('.replay-overlay')).toBeVisible();
   await page.waitForFunction(() => !!window.__sim && window.__sim.world.tick === 10000, undefined, { timeout: 20_000 });
   const ms = Date.now() - t0;
@@ -107,7 +107,7 @@ test('?tick= link replays to that moment (also via "Kopiuj link"), ~10k ticks qu
   await expect(page.locator('.replay-overlay')).toHaveCount(0);
 
   // progress overlay of a long replay (screenshot mid-way)
-  await page.goto('/?seed=5&agents=6&tick=60000&paused', { waitUntil: 'commit' });
+  await page.goto('/lab?seed=5&agents=6&tick=60000&paused', { waitUntil: 'commit' });
   await page.waitForFunction(() => parseInt(document.querySelector('.replay-overlay')?.getAttribute('aria-valuenow') ?? '0') >= 20);
   await page.screenshot({ path: `${SHOTS}/ui-replay.png` });
   await page.waitForFunction(() => window.__sim?.world.tick === 60000, undefined, { timeout: 30_000 });

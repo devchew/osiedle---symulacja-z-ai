@@ -10,6 +10,11 @@ export interface EventLogOptions {
 
 export interface EventLog {
   update(): void;
+  /**
+   * shows another world. `sameScene` (the next live frame of the same place, restored as a new
+   * object): rows already shown are kept, matched by tick + text; otherwise the list starts over.
+   */
+  setWorld(world: World, sameScene: boolean): void;
 }
 
 const MAX_ROWS = 40;
@@ -34,7 +39,8 @@ export function formatEventTime(tick: number): string {
  * shows only the last COMPACT_ROWS events so the map stays visible; expanded it
  * becomes a scrollable list.
  */
-export function createEventLog(root: HTMLElement, world: World, opts: EventLogOptions = {}): EventLog {
+export function createEventLog(root: HTMLElement, initialWorld: World, opts: EventLogOptions = {}): EventLog {
+  let world = initialWorld;
   root.classList.add('ui-panel', 'ui-log');
   root.setAttribute('aria-label', 'Dziennik zdarzeń');
   root.replaceChildren();
@@ -115,5 +121,34 @@ export function createEventLog(root: HTMLElement, world: World, opts: EventLogOp
   }
 
   update();
-  return { update };
+  return {
+    update,
+    setWorld(w, sameScene) {
+      if (w === world) return;
+      const prev = lastSeen;
+      world = w;
+      lastSeen = null;
+      if (sameScene && prev) {
+        // the same event as a new object: continue after it
+        for (let i = w.events.length - 1; i >= 0; i--) {
+          const e = w.events[i];
+          if (e.tick === prev.tick && e.text === prev.text) {
+            lastSeen = e;
+            break;
+          }
+          if (e.tick < prev.tick) break;
+        }
+      }
+      if (!lastSeen) {
+        list.replaceChildren();
+        unseen = 0;
+        if (sameScene && prev) {
+          // not found (trimmed): show only what is newer than the last row shown
+          const idx = w.events.findIndex((e) => e.tick > prev.tick);
+          lastSeen = idx > 0 ? w.events[idx - 1] : null;
+        }
+      }
+      update();
+    },
+  };
 }

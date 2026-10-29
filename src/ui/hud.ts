@@ -23,6 +23,24 @@ export interface HudOptions {
   buttons?: HudButton[];
   /** current weather, when the simulation provides it */
   weatherOf?: WeatherOfFn;
+  /** live view of a server world: no pause/speed, place + real weather + "NA ŻYWO" instead */
+  live?: HudLive;
+  /** resident count next to the mood (default true; the public views hide it) */
+  showPopulation?: boolean;
+  /** help popover rows and note (default: the standalone simulation's keys) */
+  help?: { keys: [string, string][]; note?: string };
+}
+
+export interface HudLive {
+  /** place name, e.g. "Kamienica" */
+  place(): string;
+  /** city whose real weather the place follows */
+  city(): string;
+  temperature(): number | null;
+  /** AI dialogue / diaries active on the server */
+  ai(): boolean;
+  /** tooltip of the live badge */
+  tooltip(): string;
 }
 
 export interface Hud {
@@ -32,6 +50,8 @@ export interface Hud {
   /** small dot on an extra button (e.g. unread diary entries) */
   setBadge(id: string, on: boolean, title?: string): void;
   destroy(): void;
+  /** shows another world (live view) */
+  setWorld(world: World): void;
 }
 
 export const HELP_KEYS: [string, string][] = [
@@ -52,7 +72,8 @@ export const HELP_KEYS: [string, string][] = [
 ];
 
 /** top-centre bar: clock, day, phase, pause and speed controls, help popover; Space = pause, 1–4 = speed, H / ? = help */
-export function createHud(root: HTMLElement, controls: SimControls, world: World, opts: HudOptions = {}): Hud {
+export function createHud(root: HTMLElement, controls: SimControls, initialWorld: World, opts: HudOptions = {}): Hud {
+  let world = initialWorld;
   root.classList.add('ui-panel', 'ui-hud');
   root.replaceChildren();
 
@@ -82,9 +103,11 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
     return b;
   });
   const controlsBox = el('div', 'hud-controls', [pauseBtn, ...speedBtns]);
+  const liveView = opts.live;
+  controlsBox.hidden = !!liveView;
 
-  // real-time mode: live badge with real temperature and place; speed is locked at 1×
-  const realtime = isRealtime(world);
+  // real-time mode (/lab?mode=real): live badge with real temperature and place; speed is locked at 1×
+  const realtime = !liveView && isRealtime(world);
   const liveTemp = el('span', 'hud-live-temp');
   const livePlace = el('span', 'hud-live-place');
   const live = el('div', 'hud-live', [el('span', 'hud-live-pill', ['⏱ NA ŻYWO']), el('div', 'hud-live-info', [liveTemp, livePlace])]);
@@ -94,7 +117,18 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
     timeBox.after(live);
   }
 
+  // live view of a server world: place, real temperature + city, AI indicator
+  const lvPlace = el('span', 'hud-lv-place');
+  const lvTemp = el('span', 'hud-live-temp');
+  const lvCity = el('span', 'hud-live-place');
+  const lvAi = el('span', 'hud-lv-ai', ['✨ AI']);
+  lvAi.title = 'Rozmowy i pamiętniki pisze AI (na serwerze)';
+  lvAi.hidden = true;
+  const lvBadge = el('div', 'hud-live', [el('span', 'hud-live-pill', ['⏱ NA ŻYWO']), el('div', 'hud-live-info', [lvTemp, lvCity])]);
+  const lvBox = el('div', 'hud-lv', [el('div', 'hud-lv-head', [lvPlace, lvAi]), lvBadge]);
+
   const pop = el('span', 'hud-stat');
+  pop.hidden = opts.showPopulation === false;
   const mood = el('span', 'hud-stat');
   const statsBox = el('div', 'hud-stats', [pop, mood]);
 
@@ -110,7 +144,7 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
   help.setAttribute('aria-label', 'Sterowanie');
   helpBtn.setAttribute('aria-controls', help.id);
   help.hidden = true;
-  const HELP = HELP_KEYS;
+  const HELP = opts.help?.keys ?? HELP_KEYS;
   help.append(
     el('h3', 'hud-help-title', ['Sterowanie']),
     el(
@@ -118,7 +152,7 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
       'hud-help-list',
       HELP.flatMap(([k, v]) => [el('dt', '', k.split(' / ').flatMap((part, i) => (i ? [' / ', el('kbd', '', [part])] : [el('kbd', '', [part])]))), el('dd', '', [v])]),
     ),
-    el('p', 'hud-help-note', ['Postacie żyją same — Ty tylko obserwujesz.']),
+    el('p', 'hud-help-note', [opts.help?.note ?? 'Postacie żyją same — Ty tylko obserwujesz.']),
   );
   let helpOpen = false;
   const setHelp = (open: boolean): void => {
@@ -153,7 +187,8 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
   });
   const toolsBox = el('div', 'hud-tools', [...extras, helpBtn]);
 
-  root.append(timeBox, ...(realtime ? [live] : []), controlsBox, statsBox, toolsBox, help);
+  root.append(timeBox, ...(realtime ? [live] : []), ...(liveView ? [lvBox] : []), controlsBox, statsBox, toolsBox, help);
+  root.classList.toggle('is-live-view', !!liveView);
   if (realtime) {
     // keys 1–4 do nothing here
     const speedRow = help.querySelectorAll('dd')[HELP.findIndex(([k]) => k === '1–4')];
@@ -185,6 +220,16 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
         'Tryb na żywo: zegar gry to Twój czas lokalny (1 minuta gry = 1 minuta).\n' +
         (upd ? `Pogoda prawdziwa: ${where} · Open-Meteo, aktualizacja ${upd}.\n` : `Brak danych pogodowych (${where}) — pogoda symulowana.\n`) +
         'Przyspieszanie jest wyłączone; po pauzie symulacja dogania aktualny czas. Zapis i linki są niedostępne.';
+    }
+
+    if (liveView) {
+      setText(lvPlace, liveView.place());
+      const temp = liveView.temperature();
+      setText(lvTemp, temp != null ? `${Math.round(temp)}°C` : '');
+      lvTemp.hidden = temp == null;
+      setText(lvCity, liveView.city());
+      lvAi.hidden = !liveView.ai();
+      lvBadge.title = liveView.tooltip();
     }
 
     const key = `${controls.paused}|${controls.speed}`;
@@ -228,6 +273,7 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
       setHelp(!helpOpen);
       return;
     }
+    if (liveView) return;
     if (e.code === 'Space') {
       e.preventDefault();
       controls.setPaused(!controls.paused);
@@ -257,6 +303,10 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
       if (!b || !btn) return;
       b.classList.toggle('has-badge', on);
       b.title = on && title ? `${btn.title} — ${title}` : btn.title;
+    },
+    setWorld(w) {
+      world = w;
+      update();
     },
     destroy() {
       window.removeEventListener('keydown', onKey);

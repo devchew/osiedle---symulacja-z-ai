@@ -1,3 +1,6 @@
+// simulation modules have import cycles whose top-level state depends on evaluation order:
+// load the world entry first, exactly like the tests and the browser do
+import '../src/world/world';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -5,12 +8,16 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { isFreeModel } from '../src/social/llmProvider';
 import { createDailyBudget, createLlmHandler, fetchKeyInfo, parseDailyLimit, parseModelList } from './llm';
 import { createNewsHandler, createNewsService, parseFeedList } from './news';
+import { liveConfigFromEnv } from './worlds';
+import { startLiveWorlds } from './worldsSetup';
 
 // Production server (used by the Docker image): serves the static build from dist/ and
 // mounts the same /api/llm and /api/news handlers the Vite dev server uses — without Vite.
 // Configuration comes from environment variables only (never baked into the image):
 //   PORT (8080), STATIC_DIR (./dist), OPENROUTER_API_KEY, OPENROUTER_MODELS,
-//   OPENROUTER_DAILY_LIMIT, NEWS_FEEDS ("off" disables real headlines).
+//   OPENROUTER_DAILY_LIMIT, NEWS_FEEDS ("off" disables real headlines),
+//   live worlds (server/worlds.ts): LIVE_WORLDS=off, DATA_DIR (./data), LIVE_AI=off, LIVE_WEATHER=off,
+//   LIVE_SPEED, LIVE_FIXED_TIME, LIVE_MAX_STREAMS (200), LIVE_MAX_STREAMS_PER_IP (8).
 
 const env = (k: string): string | undefined => (process.env[k] ?? '').trim() || undefined;
 const PORT = Number(env('PORT') ?? 8080);
@@ -51,7 +58,17 @@ const llm = createLlmHandler({ apiKey, models, daily, log: (m) => log(`[llm] ${m
 
 const feeds = parseFeedList(env('NEWS_FEEDS'));
 log(`[news] ${feeds.length ? `${feeds.length} feeds` : 'disabled — local bulletins only'}`);
-const news = createNewsHandler(createNewsService({ feeds, log: (m) => log(`[news] ${m}`) }), (m) => log(`[news] ${m}`)) as Handler;
+const newsService = createNewsService({ feeds, log: (m) => log(`[news] ${m}`) });
+const news = createNewsHandler(newsService, (m) => log(`[news] ${m}`)) as Handler;
+
+// the four shared live worlds; same /api/llm handler (key, limits, daily budget) and news cache
+const live = startLiveWorlds(liveConfigFromEnv(process.env), {
+  llm: { handler: llm, daily, apiKey },
+  news: feeds.length ? newsService : null,
+  log: (m) => log(`[live] ${m}`),
+  maxStreams: Number(env('LIVE_MAX_STREAMS') ?? 200),
+  maxStreamsPerIp: Number(env('LIVE_MAX_STREAMS_PER_IP') ?? 8),
+});
 
 // ---------------------------------------------------------------- static files
 
@@ -119,6 +136,11 @@ const server = createServer((req, res) => {
   };
   if (path.startsWith('/api/llm')) return llm(req, res, () => res.writeHead(404).end());
   if (path.startsWith('/api/news')) return news(req, res, () => res.writeHead(404).end());
+  if (path.startsWith('/api/live/')) {
+    if (live) return live.handler(req, res, () => res.writeHead(404).end());
+    res.writeHead(404, { 'Content-Type': 'application/json' }).end('{"error":"live worlds disabled"}');
+    return;
+  }
   fallthrough();
 });
 
@@ -128,6 +150,8 @@ server.listen(PORT, () => log(`Osiedle listening on :${PORT}, static files from 
 for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   process.on(sig, () => {
     log(`${sig} — shutting down`);
+    // save the live worlds first (synchronous), then close the streams so server.close can finish
+    live?.shutdown();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 5000).unref();
   });

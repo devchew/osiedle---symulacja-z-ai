@@ -39,6 +39,11 @@ export interface DiaryPanel {
   hasUnread(agentId: number): boolean;
   /** re-renders when something changed; call a few times per second */
   update(): void;
+  /**
+   * shows another world. `sameScene` (next live frame of the same place): read marks and known
+   * entries are kept, new entries get the usual toast; otherwise everything starts over.
+   */
+  setWorld(world: World, sameScene: boolean): void;
 }
 
 const TOAST_GAP_MS = 20_000;
@@ -118,7 +123,8 @@ function button(className: string, children: (Node | string)[], title?: string):
 }
 
 /** "📔 Pamiętniki" panel: everyone's latest entries, or one resident's notebook */
-export function createDiaryPanel(world: World, opts: DiaryPanelOptions = {}): DiaryPanel {
+export function createDiaryPanel(initialWorld: World, opts: DiaryPanelOptions = {}): DiaryPanel {
+  let world = initialWorld;
   const src = opts.source ?? SIM_SOURCE;
   const root = el('section', 'ui-panel ui-diary');
   root.id = 'diary-panel';
@@ -205,7 +211,7 @@ export function createDiaryPanel(world: World, opts: DiaryPanelOptions = {}): Di
     pending = [];
     lastToast = performance.now();
   };
-  src.onChange(world, (e) => {
+  const onEntry = (e: DiaryEntry): void => {
     dirty = true;
     const k = `${e.agentId}:${e.day}`;
     if (known.has(k)) return; // an AI rewrite of an existing entry
@@ -214,7 +220,27 @@ export function createDiaryPanel(world: World, opts: DiaryPanelOptions = {}): Di
     if (opts.notify === false || !who || (open && agentId === e.agentId)) return;
     if (!pending.includes(who.name)) pending.push(who.name);
     if (!flushTimer) flushTimer = setTimeout(flush, TOAST_GATHER_MS);
-  });
+  };
+  let unsubscribe = src.onChange(world, onEntry);
+
+  // entries that arrive with a whole new state (live frames) fire no change event: compare a
+  // cheap fingerprint of everyone's latest entry instead
+  const fingerprint = (): string =>
+    world.agents
+      .map((a) => {
+        const l = entries(a.id);
+        const last = l[l.length - 1];
+        return last ? `${a.id}:${l.length}:${last.tick}:${last.source}:${last.text.length}` : `${a.id}:0`;
+      })
+      .join('|');
+  let lastPrint = fingerprint();
+  function checkExternal(): void {
+    const p = fingerprint();
+    if (p === lastPrint) return;
+    lastPrint = p;
+    dirty = true;
+    for (const a of world.agents) for (const e of entries(a.id)) if (!known.has(`${e.agentId}:${e.day}`)) onEntry(e);
+  }
 
   // --- rendering
   function renderOverview(): void {
@@ -422,7 +448,27 @@ export function createDiaryPanel(world: World, opts: DiaryPanelOptions = {}): Di
     openFor,
     entryCount: (id) => entries(id).length,
     hasUnread: unread,
+    setWorld(w, sameScene) {
+      if (w === world) return;
+      unsubscribe();
+      world = w;
+      unsubscribe = src.onChange(world, onEntry);
+      dirty = true;
+      if (!sameScene) {
+        // another place: its past entries are not news
+        known.clear();
+        readKey.clear();
+        pending = [];
+        agentId = null;
+        index = -1;
+        for (const a of world.agents) for (const e of entries(a.id)) known.add(`${e.agentId}:${e.day}`);
+        lastPrint = fingerprint();
+      } else checkExternal();
+      if (open) render();
+      reportUnread();
+    },
     update() {
+      checkExternal();
       if (dirty && open) render();
       if (dirty && !open) dirty = false;
       reportUnread();

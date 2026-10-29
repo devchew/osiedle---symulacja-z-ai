@@ -15,7 +15,7 @@ async function agentPositions(page: Page): Promise<{ x: number; y: number }[]> {
 
 test('the simulation renders and runs on its own', async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto('/?seed=7');
+  await page.goto('/lab?seed=7');
   await page.waitForFunction(() => !!window.__sim);
   await page.waitForTimeout(1500);
 
@@ -49,7 +49,7 @@ test('the simulation renders and runs on its own', async ({ page }) => {
 });
 
 test('pause and speed controls work', async ({ page }) => {
-  await page.goto('/?seed=7');
+  await page.goto('/lab?seed=7');
   await page.waitForFunction(() => !!window.__sim);
   await page.keyboard.press('Space');
   await expect.poll(() => page.evaluate(() => window.__sim.controls.paused)).toBe(true);
@@ -63,7 +63,7 @@ test('pause and speed controls work', async ({ page }) => {
 
 test('clicking an agent opens the inspector', async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto('/?seed=7&paused');
+  await page.goto('/lab?seed=7&paused');
   await page.waitForFunction(() => !!window.__sim);
   await page.waitForTimeout(500);
   // find the screen position of an agent by scanning for a pick hit
@@ -87,7 +87,7 @@ test('clicking an agent opens the inspector', async ({ page }) => {
 
 test('night view after a busy day', async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto('/?seed=7&hour=23');
+  await page.goto('/lab?seed=7&hour=23');
   await page.waitForFunction(() => !!window.__sim);
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${SHOTS}/night.png` });
@@ -95,7 +95,7 @@ test('night view after a busy day', async ({ page }) => {
 });
 
 test('evening with conversations', async ({ page }) => {
-  await page.goto('/?seed=7&hour=18');
+  await page.goto('/lab?seed=7&hour=18');
   await page.waitForFunction(() => !!window.__sim);
   await page.waitForTimeout(1000);
   const convEvents = await page.evaluate(() => window.__sim.world.events.filter((e) => e.kind === 'conversation').length);

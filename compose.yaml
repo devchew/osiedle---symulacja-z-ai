@@ -3,11 +3,20 @@ services:
   osiedle:
     build: .
     image: osiedle:latest
-    # optional: OPENROUTER_API_KEY (AI dialogues), OPENROUTER_MODELS, OPENROUTER_DAILY_LIMIT, NEWS_FEEDS
+    # optional: OPENROUTER_API_KEY (AI dialogues), OPENROUTER_MODELS, OPENROUTER_DAILY_LIMIT, NEWS_FEEDS,
+    # LIVE_AI=off, LIVE_WEATHER=off, LIVE_WORLDS=off, LIVE_MAX_STREAMS, LIVE_MAX_STREAMS_PER_IP
     env_file:
       - path: .env
         required: false
     restart: unless-stopped
+    # live worlds' state (/app/data, DATA_DIR) survives restarts and redeploys
+    volumes:
+      - osiedle-data:/app/data
+    # time to save the worlds on stop
+    stop_grace_period: 20s
     read_only: true
     security_opt:
       - no-new-privileges:true
+
+volumes:
+  osiedle-data:

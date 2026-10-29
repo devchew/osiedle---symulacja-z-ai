@@ -6,3 +6,5 @@ playwright-report
 .DS_Store
 dist-new
 dist-server
+# live world snapshots (DATA_DIR)
+data

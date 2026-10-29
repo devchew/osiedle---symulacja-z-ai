@@ -13,7 +13,7 @@ function trackErrors(page: Page): string[] {
 }
 
 async function open(page: Page, query: string): Promise<void> {
-  await page.goto(`/${query}`);
+  await page.goto(`/lab${query}`);
   await page.waitForFunction(() => !!window.__sim);
   await page.waitForTimeout(1200);
 }

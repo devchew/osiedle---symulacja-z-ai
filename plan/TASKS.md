@@ -131,18 +131,20 @@ Przygotowanie [x]: stub `src/world/projects/index.ts` (`PROJECT_DEFS` w `WORLD_O
 - Wynik: altana 12–17 dni na wszystkich domach i seedach, potem warzywnik (3–6 dni); etapy jako typy obiektów; panel pod B; wpisy w pamiętnikach
 - Orkiestrator: `projectAppeal(…, agent)` w brain, siedzenie w altanie, nowe tematy/pamiętnik dla konsoli i planszówek; **wieczory**: energia na 22 h, łóżko 20–22 tłumione przy energii > 40, premia „wieczorny wypoczynek” 18–22 → mediana snu 21:40–23:00, wieczorne granie i filmy wróciły; testy plotek/wieczorów na średnich zamiast pojedynczych seedów
 
-## Fala 10 — światy na żywo na serwerze (decyzje użytkownika 2026-10-29) — [ ] do zrobienia
+## Fala 10 — światy na żywo na serwerze (decyzje użytkownika 2026-10-29) — [x]
 Koncepcja: strona pokazuje 4 stałe miejsca (dom, kamienica, jezioro, akademik), każde to jeden wspólny świat działający 24/7 na serwerze w czasie rzeczywistym; bez tworzenia/modyfikacji światów; przełączanie miejsc. Drugi, niezależny tryb: kopia bieżącego świata do sesji przeglądarki z kontrolą czasu („Co będzie dalej?”), nigdy nie wraca do świata na żywo.
 - [x] Rdzeń: pełna serializacja stanu świata — `core/state.ts` (`registerWorldState`, `snapshotWorld`, `restoreWorld`, `NETWORK_SNAPSHOT`/`DISK_SNAPSHOT`, wersjonowanie), 16 modułów, determinizm po odtworzeniu; 30 dni ≈ 410 KB (gzip 63 KB)
 - [x] Rdzeń: ruch oddzielony od ticków decyzji — 1 kafel = 0,8 m, 1,1 m/s, ślad przejścia w ticku, renderer odtwarza ścieżkę (`render/motion.ts`); czas w drodze 32% → 0%, w czynnościach 61% → 87%
 Kontrakt [x]: `src/live/protocol.ts` (`PLACES` z miastami/seedami, endpointy `/api/live/places`, `/api/live/:place/snapshot`, `/api/live/:place/stream` (SSE, `LiveFrame` = meta + NETWORK_SNAPSHOT po każdym ticku)).
 - X „serwer”: `server/worlds*.ts`, `server/prod.ts`, `vite.config.ts`, `src/core/state.ts` (applySnapshot), `src/realtime/clock.ts` (strefa), Docker/compose (wolumen), `tests/worlds.test.ts`
 - Y „klient”: `src/main.ts`, `src/live/client*.ts`, `src/ui/**`, `index.html`, `e2e/**`
-- [ ] Serwer: 4 światy w `server/prod.ts`, zegar Europe/Warsaw, pogoda z miasta przypisanego do miejsca, newsy i AI po stronie serwera (raz na świat), zapis stanu na wolumen co kilka minut + odtworzenie po restarcie
-- [ ] Serwer → klient: strumień stanu (SSE/WebSocket), widzowie tylko odczyt
-- [ ] Klient: widok na żywo, zakładki miejsc, linki `/kamienica#ola`; usunięcie kreatora świata, seeda, zapisów
-- [ ] Sandbox: „Co będzie dalej?” — fork snapshotu do przeglądarki z kontrolą czasu
-- Później: „ostatnie 24 h” w przyspieszeniu, kronika miejsca, wskaźnik aktywności na zakładkach
+- [x] Serwer: 4 światy w `server/prod.ts`, zegar Europe/Warsaw, pogoda z miasta przypisanego do miejsca, newsy i AI po stronie serwera (raz na świat), zapis stanu na wolumen co kilka minut + odtworzenie po restarcie
+- [x] Serwer → klient: strumień stanu (SSE/WebSocket), widzowie tylko odczyt
+- [x] Klient: widok na żywo, zakładki miejsc, linki `/kamienica#ola`; usunięcie kreatora świata, seeda, zapisów
+- [x] Sandbox: „Co będzie dalej?” — fork snapshotu do przeglądarki z kontrolą czasu
+- Wynik: `server/worlds*.ts` (4 światy, Europe/Warsaw, Open-Meteo per miasto, newsy, AI w procesie z podziałem budżetu, zapis `/app/data` co 5 min + SIGTERM, re-anchor po >3 dniach przestoju), SSE z ramką raz na tick wspólną dla widzów (gzip ~13–22 kB), limity strumieni; klient: `/dom|kamienica|jezioro|akademik`, `#imię`, przełącznik z podsumowaniem, sandbox `/sandbox?from=` (sessionStorage), ukryte `/lab` (dawny tryb, testy e2e); 363 testy + 41 e2e
+- Orkiestrator: bezpieczna kolejność importów w `server/prod.ts`/`worldsEntry.ts` (cykle importów!), porównanie świata z serwera z headless — identyczne
+- Dalej → issues na GitHubie (applySnapshot, `meta.weather.sample`, usunięcie cykli importów, „ostatnie 24 h”, kronika)
 
 ## Pomysły na kolejne fale (backlog)
 
