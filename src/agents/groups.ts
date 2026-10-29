@@ -1,5 +1,6 @@
 import type { Agent, GameTime, ObjectDef, ObjectInstance, Vec2, World } from '../types';
 import { timeFromTick } from '../core/time';
+import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
 import { pushEvent } from '../world/events';
 import { REL_TUNING, clash, recordFriction, statusOf, type RelationStatus } from '../social/relationships';
 import { isMealTime } from './brain';
@@ -397,6 +398,19 @@ export function gatheringOf(world: World, agentId: number): GatheringRecord | un
 /** someone else occupying the thing you set your heart on today is a small friction (per pair, at most this often) */
 const COMPETE_COOLDOWN = 240;
 const lastCompete = new WeakMap<World, Map<string, number>>();
+
+registerWorldState('groups', {
+  save: (world) => {
+    const s = stores.get(world);
+    const c = lastCompete.get(world);
+    return s || c ? { store: s ? toJson(s) : null, compete: c ? toJson(c) : null } : null;
+  },
+  load: (world, data) => {
+    const d = data as { store: Json; compete: Json };
+    if (d.store) stores.set(world, fromJson<GroupStore>(d.store));
+    if (d.compete) lastCompete.set(world, fromJson<Map<string, number>>(d.compete));
+  },
+});
 
 /**
  * called when `agent` picks its next activity: objects its daily goal wants but that

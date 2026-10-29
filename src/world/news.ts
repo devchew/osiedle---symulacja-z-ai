@@ -1,5 +1,6 @@
 import type { Agent, Conversation, SimEvent, World } from '../types';
 import { MINUTES_PER_DAY, START_MINUTE } from '../core/time';
+import { fromJson, loadEventSet, registerWorldState, saveEventSet, toJson, type Json } from '../core/state';
 import { pushEvent } from './events';
 import { forecastOf, isBroken, weatherOf, type WeatherKind } from './incidents';
 
@@ -81,6 +82,34 @@ interface NewsState {
 }
 
 const states = new WeakMap<World, NewsState>();
+
+// snapshots (core/state.ts): processed events by index, scanned lines by conversation id; the
+// real headline feed is kept (it is what the TV shows) but its fetch loop is re-attached by the owner
+registerWorldState('news', {
+  save: (world) => {
+    const s = states.get(world);
+    if (!s) return null;
+    const { processed, scannedLines, ...rest } = s;
+    const scanned: [number, number][] = [];
+    for (const c of world.conversations) {
+      const n = scannedLines.get(c);
+      if (n !== undefined) scanned.push([c.id, n]);
+    }
+    return { ...(toJson(rest) as { [k: string]: Json }), processed: saveEventSet(world, processed), scanned };
+  },
+  load: (world, data) => {
+    const { processed, scanned, ...rest } = data as { processed: Json; scanned: [number, number][] } & { [k: string]: Json };
+    const s = fromJson<Omit<NewsState, 'processed' | 'scannedLines'>>(rest) as NewsState;
+    s.processed = new WeakSet();
+    s.scannedLines = new WeakMap();
+    loadEventSet(world, s.processed, processed);
+    for (const [id, n] of scanned) {
+      const c = world.conversations.find((x) => x.id === id);
+      if (c) s.scannedLines.set(c, n);
+    }
+    states.set(world, s);
+  },
+});
 
 function stateOf(world: World): NewsState {
   let s = states.get(world);

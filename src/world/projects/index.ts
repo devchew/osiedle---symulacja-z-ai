@@ -1,6 +1,7 @@
 import type { Agent, NeedKey, ObjectDef, ObjectInstance, Rng, Vec2, World } from '../../types';
 import { NEED_KEYS } from '../../types';
 import { createRng } from '../../core/rng';
+import { fromJson, registerWorldState, toJson, type Json } from '../../core/state';
 import { MINUTES_PER_DAY, START_MINUTE } from '../../core/time';
 import { pushEvent } from '../events';
 import { markSolid } from '../grid';
@@ -128,6 +129,31 @@ interface ProjectState {
 }
 
 const states = new WeakMap<World, ProjectState>();
+
+// snapshots (core/state.ts): the RNG by state, project kinds by id (the site objects, their
+// stage types and the solid tiles are part of world.objects / world.grid)
+registerWorldState('projects', {
+  save: (world) => {
+    const s = states.get(world);
+    if (!s) return null;
+    return {
+      rng: s.rng.state(),
+      projects: toJson(s.projects.map((p) => ({ ...p, kind: p.kind.id }))),
+      next: toJson(s.next),
+      days: toJson(s.days),
+    };
+  },
+  load: (world, data) => {
+    const d = data as { rng: number; projects: Json; next: Json; days: Json };
+    const projects = fromJson<(Omit<Project, 'kind'> & { kind: ProjectKindId })[]>(d.projects).map((p) => ({ ...p, kind: PROJECT_KINDS[p.kind] }));
+    states.set(world, {
+      rng: createRng((world.seed ^ 0x6a17a2a5) >>> 0, d.rng),
+      projects,
+      next: fromJson<ProjectState['next']>(d.next),
+      days: fromJson<Map<string, DayWork[]>>(d.days),
+    });
+  },
+});
 
 function dayOf(tick: number): number {
   return Math.floor((tick + START_MINUTE) / MINUTES_PER_DAY) + 1;

@@ -25,6 +25,8 @@ export interface Rng {
   weightedIndex(weights: readonly number[]): number;
   /** current internal state, for snapshots / determinism checks */
   state(): number;
+  /** restores a value returned by state() (world snapshots, see core/state.ts) */
+  setState?(state: number): void;
 }
 
 export type DayPhase = 'night' | 'morning' | 'day' | 'evening';

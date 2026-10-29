@@ -3,6 +3,7 @@ import { createWorld, tickWorld } from '../../src/world/world';
 import { NEED_KEYS } from '../../src/types';
 import type { Agent, NeedKey, Traits, World } from '../../src/types';
 import { timeFromTick } from '../../src/core/time';
+import { isAgentSleeping } from '../../src/agents/actions';
 import { goalHistory, type GoalRecord } from '../../src/agents/goals';
 import { gatheringTotals, type GatheringKind } from '../../src/agents/groups';
 import { jointLog, type JointRecord } from '../../src/agents/joint';
@@ -31,6 +32,16 @@ export interface AgentMetrics {
   waitTicks: number;
   /** walking ticks spent strolling (wander) */
   wanderTicks: number;
+  /** ticks still walking to an object or a partner at the end of the tick (trips longer than a game minute) */
+  tripTicks: number;
+  /** tiles walked (any reason) */
+  tilesWalked: number;
+  /** idle ticks ("Rozgląda się", waiting for rain to stop…) */
+  idleTicks: number;
+  /** minute of day (0..1439, may exceed 1440 past midnight) of each night-time going to bed (19:00–04:00) */
+  bedtimes: number[];
+  /** minute of day of each morning getting up (04:00–11:00) */
+  wakeTimes: number[];
   /** ticks spent walking to a bed */
   bedWalkTicks: number;
   /** distinct beds slept in */
@@ -125,6 +136,11 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
     walkTicks: 0,
     waitTicks: 0,
     wanderTicks: 0,
+    tripTicks: 0,
+    tilesWalked: 0,
+    idleTicks: 0,
+    bedtimes: [],
+    wakeTimes: [],
     bedWalkTicks: 0,
     bedsUsed: 0,
     gardenNightTicks: 0,
@@ -134,6 +150,7 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
   const lowStreak = new Array(world.agents.length).fill(0);
   const stuck = new Array(world.agents.length).fill(0);
   const prevPhase: string[] = world.agents.map(() => 'none');
+  const wasSleeping: boolean[] = world.agents.map(() => false);
   const beds = world.agents.map(() => new Set<number>());
   let doubleBookings = 0;
   const eventsPerHour = new Map<number, number>();
@@ -164,11 +181,19 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
       }
       prevPhase[idx] = `${key}:${phase}`;
       const moved = agent.pos.x !== agent.prevPos.x || agent.pos.y !== agent.prevPos.y;
+      m.tilesWalked += Math.hypot(agent.pos.x - agent.prevPos.x, agent.pos.y - agent.prevPos.y);
       if (phase === 'walking' || phase === 'approaching') {
         m.walkTicks++;
         if (!moved) m.waitTicks++;
         if (key === 'wander') m.wanderTicks++;
+        else m.tripTicks++;
       }
+      if (agent.action?.kind === 'idle') m.idleTicks++;
+      const asleep = isAgentSleeping(world, agent);
+      const mod = time.hour * 60 + time.minute;
+      if (asleep && !wasSleeping[idx] && (time.hour >= 19 || time.hour < 4)) m.bedtimes.push(time.hour < 12 ? mod + 1440 : mod);
+      if (!asleep && wasSleeping[idx] && time.hour >= 4 && time.hour < 11) m.wakeTimes.push(mod);
+      wasSleeping[idx] = asleep;
       const a = agent.action;
       if (a?.kind === 'use') {
         const obj = world.objects.find((o) => o.uid === a.objectUid)!;
@@ -269,11 +294,41 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
 }
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
+const hhmm = (m: number) => `${Math.floor(m / 60) % 24}:${String(m % 60).padStart(2, '0')}`;
+
+/** run-wide averages: share of awake time per kind of doing, mean bedtime / wake-up */
+export function summary(m: RunMetrics): string {
+  let act = 0, walk = 0, wander = 0, idle = 0, sleep = 0, tiles = 0;
+  const beds: number[] = [];
+  const ups: number[] = [];
+  for (const a of m.agents) {
+    sleep += a.sleepTicks;
+    act += Object.entries(a.activityTicks).filter(([k]) => k !== 'bed').reduce((s, [, v]) => s + v, 0);
+    walk += a.tripTicks;
+    wander += a.wanderTicks;
+    idle += a.idleTicks;
+    tiles += a.tilesWalked;
+    beds.push(...a.bedtimes);
+    ups.push(...a.wakeTimes);
+  }
+  const total = m.agents.length * m.days * 1440;
+  const awake = total - sleep;
+  const pct = (v: number) => `${Math.round((100 * v) / awake)}%`;
+  const mean = (xs: number[]) => (xs.length ? Math.round(xs.reduce((s, v) => s + v, 0) / xs.length) : 0);
+  const sorted = (xs: number[]) => [...xs].sort((x, y) => x - y);
+  const b = sorted(beds);
+  return (
+    `awake: activities ${pct(act)}, trips ${pct(walk)}, strolls ${pct(wander)}, idle ${pct(idle)}; sleep ${Math.round(sleep / (m.agents.length * m.days) / 6) / 10} h/day; ` +
+    `tiles/day ${Math.round(tiles / m.agents.length / m.days)}; bed mean ${hhmm(mean(beds))} (${b.length ? `${hhmm(b[0])}–${hhmm(b[b.length - 1])}` : '-'}), up mean ${hhmm(mean(ups))}; ` +
+    `joint ${m.joint.length} (avg ${Math.round(m.joint.reduce((s, r) => s + r.minutes, 0) / Math.max(1, m.joint.length))} min)`
+  );
+}
 
 /** compact human-readable summary */
 export function formatMetrics(m: RunMetrics): string {
   const out: string[] = [
     `seed ${m.seed}, ${m.days} days, doubleBookings=${m.doubleBookings}, maxEventsPerHour=${m.maxEventsPerHour} goals/h=${m.maxGoalEventsPerHour} stories/h=${m.maxStoriesPerHour}`,
+    summary(m),
   ];
   for (const a of m.agents) {
     const t = a.traits;
@@ -284,7 +339,8 @@ export function formatMetrics(m: RunMetrics): string {
     out.push(
       `${a.name.padEnd(7)} soc=${r1(t.sociability)} act=${r1(t.activity)} neat=${r1(t.neatness)} conv=${a.conversations} distinct=${a.distinctActivities} ` +
         `lowStreak=${a.maxLowStreak}${a.lowStreakNeed ? `(${a.lowStreakNeed})` : ''} stuck=${a.maxStuck} sleepNight=${a.sleepTicks ? Math.round((100 * a.sleepNightTicks) / a.sleepTicks) : 0}% ` +
-        `walk=${a.walkTicks} wait=${a.waitTicks} wander=${a.wanderTicks} bedWalk=${a.bedWalkTicks} beds=${a.bedsUsed} gardenNight=${a.gardenNightTicks}`,
+        `walk=${a.walkTicks} wait=${a.waitTicks} wander=${a.wanderTicks} trip=${a.tripTicks} tiles=${Math.round(a.tilesWalked)} idle=${a.idleTicks} bedWalk=${a.bedWalkTicks} beds=${a.bedsUsed} gardenNight=${a.gardenNightTicks}`,
+        `        bed ${a.bedtimes.map(hhmm).join(' ')} | up ${a.wakeTimes.map(hhmm).join(' ')}`,
     );
     out.push(`        ${top}`);
     out.push(`        goals: ${a.goals.map((g) => `${g.kind}${g.done ? '✓' : g.open ? '…' : '✗'}`).join(' ')}`);

@@ -1,6 +1,7 @@
 import type { Agent, World } from '../types';
 import { NEED_KEYS } from '../types';
 import { timeFromTick, formatClock } from '../core/time';
+import { registerWorldState } from '../core/state';
 
 // Activity trace: a detailed, timestamped record of every decision and action
 // transition, for debugging behaviour ("why did she go to bed mid-chat?").
@@ -29,6 +30,21 @@ export interface TraceEntry {
 
 const MAX_ENTRIES = 30000;
 const traces = new WeakMap<World, TraceEntry[]>();
+
+// snapshots (core/state.ts): optional (SnapshotOptions.includeTrace); entries as compact tuples
+registerWorldState('trace', {
+  save: (world, opts) => {
+    const list = traces.get(world);
+    const inc = opts.includeTrace;
+    if (!list || !inc) return null;
+    const keep = inc === true ? list : list.slice(-Math.max(0, Math.floor(inc)));
+    return keep.map((e) => [e.tick, e.agentId, e.kind, e.text, e.needs]);
+  },
+  load: (world, data) => {
+    const rows = data as [number, number, TraceKind, string, string][];
+    traces.set(world, rows.map(([tick, agentId, kind, text, needs]) => ({ tick, agentId, kind, text, needs })));
+  },
+});
 
 export function needsSnapshot(agent: Agent): string {
   return NEED_KEYS.map((k) => Math.round(agent.needs[k]).toString().padStart(3)).join(' ');

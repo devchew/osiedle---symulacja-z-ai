@@ -133,8 +133,8 @@ Przygotowanie [x]: stub `src/world/projects/index.ts` (`PROJECT_DEFS` w `WORLD_O
 
 ## Fala 10 — światy na żywo na serwerze (decyzje użytkownika 2026-10-29) — [ ] do zrobienia
 Koncepcja: strona pokazuje 4 stałe miejsca (dom, kamienica, jezioro, akademik), każde to jeden wspólny świat działający 24/7 na serwerze w czasie rzeczywistym; bez tworzenia/modyfikacji światów; przełączanie miejsc. Drugi, niezależny tryb: kopia bieżącego świata do sesji przeglądarki z kontrolą czasu („Co będzie dalej?”), nigdy nie wraca do świata na żywo.
-- [ ] Rdzeń: pełna serializacja stanu świata (World + stany modułów w WeakMapach: pamięć, cele, relacje, grupy, joint, projekty, pamiętniki, incydenty, newsy, trace) — snapshot/restore
-- [ ] Rdzeń: ruch oddzielony od ticków decyzji (realne tempo chodzenia na żywo; czynności w realnym czasie)
+- [x] Rdzeń: pełna serializacja stanu świata — `core/state.ts` (`registerWorldState`, `snapshotWorld`, `restoreWorld`, `NETWORK_SNAPSHOT`/`DISK_SNAPSHOT`, wersjonowanie), 16 modułów, determinizm po odtworzeniu; 30 dni ≈ 410 KB (gzip 63 KB)
+- [x] Rdzeń: ruch oddzielony od ticków decyzji — 1 kafel = 0,8 m, 1,1 m/s, ślad przejścia w ticku, renderer odtwarza ścieżkę (`render/motion.ts`); czas w drodze 32% → 0%, w czynnościach 61% → 87%
 - [ ] Serwer: 4 światy w `server/prod.ts`, zegar Europe/Warsaw, pogoda z miasta przypisanego do miejsca, newsy i AI po stronie serwera (raz na świat), zapis stanu na wolumen co kilka minut + odtworzenie po restarcie
 - [ ] Serwer → klient: strumień stanu (SSE/WebSocket), widzowie tylko odczyt
 - [ ] Klient: widok na żywo, zakładki miejsc, linki `/kamienica#ola`; usunięcie kreatora świata, seeda, zapisów

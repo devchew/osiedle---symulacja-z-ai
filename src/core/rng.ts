@@ -1,8 +1,11 @@
 import type { Rng } from '../types';
 
-/** mulberry32 — small, fast, deterministic PRNG */
-export function createRng(seed: number): Rng {
-  let s = seed >>> 0;
+/**
+ * mulberry32 — small, fast, deterministic PRNG. The whole state is one uint32, so a
+ * snapshot stores `rng.state()` and restores it with `createRng(seed, state)` or `setState`.
+ */
+export function createRng(seed: number, state?: number): Rng {
+  let s = (state ?? seed) >>> 0;
   const next = (): number => {
     s = (s + 0x6d2b79f5) >>> 0;
     let t = s;
@@ -27,5 +30,8 @@ export function createRng(seed: number): Rng {
       return weights.length - 1;
     },
     state: () => s,
+    setState: (state: number) => {
+      s = state >>> 0;
+    },
   };
 }

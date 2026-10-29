@@ -1,5 +1,6 @@
 import type { Agent, Relationships, World } from '../types';
 import { pushEvent } from '../world/events';
+import { fromJson, loadEventSet, registerWorldState, saveEventSet, toJson, type Json } from '../core/state';
 
 export const REL_MIN = -100;
 export const REL_MAX = 100;
@@ -133,12 +134,12 @@ export const REL_TUNING = {
   /** romance gained per nice chat = ROMANCE_GAIN * chemistry (×1.5 for a great one) */
   ROMANCE_GAIN: 12,
   /** romance gained per tick spent sitting together (same or neighbouring social seats) = ROMANCE_TOGETHER * chemistry */
-  ROMANCE_TOGETHER: 0.06,
+  ROMANCE_TOGETHER: 0.04,
   /** romance lost per quarrel */
   ROMANCE_QUARREL: 15,
   /** rivalry ≥ this → rivals (stays down to RIVAL_STAY) */
   RIVAL_AT: 35,
-  RIVAL_STAY: 20,
+  RIVAL_STAY: 10,
   /** rivals with sympathy ≤ this are enemies */
   ENEMY_SYMPATHY: -40,
   /** rivalry gained per quarrel (×1.5 when they already dislike each other) */
@@ -159,7 +160,7 @@ export const REL_TUNING = {
   CLASH_FELT: 80,
   CLASH_FROM: 0.35,
   /** clashing pairs sitting together get on each other's nerves: rivalry per tick = ANNOY_TOGETHER * (clash - ANNOY_FROM) / (1 - ANNOY_FROM) */
-  ANNOY_TOGETHER: 0.25,
+  ANNOY_TOGETHER: 0.17,
   ANNOY_FROM: 0.55,
   /** per game day */
   RIVALRY_DECAY: 4,
@@ -187,6 +188,21 @@ interface BondStore {
 }
 
 const stores = new WeakMap<World, BondStore>();
+
+// sympathy values live in world.relationships (saved by core/state itself); bonds here
+registerWorldState('relationships', {
+  save: (world) => {
+    const s = stores.get(world);
+    if (!s) return null;
+    return { bonds: toJson(s.bonds), lastUpdate: s.lastUpdate, seen: saveEventSet(world, s.seen) };
+  },
+  load: (world, data) => {
+    const d = data as { bonds: Json; lastUpdate: number; seen: Json };
+    const seen = new WeakSet<object>();
+    loadEventSet(world, seen, d.seen);
+    stores.set(world, { bonds: fromJson<Map<string, Bond>>(d.bonds), lastUpdate: d.lastUpdate, seen });
+  },
+});
 
 function bondStore(world: World): BondStore {
   let s = stores.get(world);

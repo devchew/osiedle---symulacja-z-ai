@@ -1,4 +1,5 @@
 import type { World } from '../../types';
+import { registerWorldState } from '../../core/state';
 import type { MapData } from './build';
 import { createDefaultMap } from './dom';
 import { createKamienicaMap } from './kamienica';
@@ -51,6 +52,11 @@ export function bedCount(map: MapDef): number {
 }
 
 const mapOfWorld = new WeakMap<World, string>();
+
+registerWorldState('map', {
+  save: (world) => mapOfWorld.get(world) ?? null,
+  load: (world, data) => void mapOfWorld.set(world, data as string),
+});
 
 export function setMapId(world: World, id: string): void {
   mapOfWorld.set(world, id);

@@ -6,7 +6,7 @@ const PER_HOUR = (hours: number): number => 100 / (hours * 60);
 /** base decay per tick (game minute) for an awake, trait-neutral agent; 100 -> 0 in the given hours */
 export const NEED_DECAY: Record<NeedKey, number> = {
   hunger: PER_HOUR(20),
-  energy: PER_HOUR(22),
+  energy: PER_HOUR(26),
   fun: PER_HOUR(14),
   social: PER_HOUR(16),
   hygiene: PER_HOUR(26),

@@ -12,6 +12,9 @@ import { buildStaticLayer, staticSignature, type StaticLayer } from './tiles';
 import { WeatherFx, drawIncidentBadges, drawIncidents, weatherDim } from './weather';
 import { drawProjectBadges } from './projects';
 import { drawTvNews, drawTvScreens } from './tv';
+import { MotionTracker } from './motion';
+import { trailOf } from '../agents/movement';
+import { isRealtime } from '../realtime/state';
 
 export interface Renderer {
   /** draws one frame; alpha in [0, 1] = fraction of the way from the previous tick to the current one */
@@ -29,6 +32,8 @@ export interface Renderer {
   fitView(): void;
   /** world (tile) coordinates to client (CSS px) coordinates */
   toScreen(wx: number, wy: number): { x: number; y: number };
+  /** where the agent is drawn (tile units) and whether it is visually walking — for tests / debugging */
+  visualOf(id: number): { x: number; y: number; moving: boolean } | null;
 }
 
 const BG = '#6f9b5c';
@@ -91,7 +96,9 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   let followId: number | null = null;
   let lastNow = performance.now();
   let poses: Pose[] = [];
-  const walk = new Map<number, { phase: number; x: number; y: number }>();
+  const walk = new Map<number, { phase: number }>();
+  // residents walk along the path they actually took (see motion.ts)
+  const motion = new MotionTracker(trailOf);
 
   function resize(): void {
     const rect = canvas.getBoundingClientRect();
@@ -308,24 +315,28 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       : { horiz, blanket: def.color, x: clamp(x, bx + 0.5, bx + def.size.w - 0.5), y: by + 0.8 };
   }
 
-  function computePoses(alpha: number): Pose[] {
+  /**
+   * positions come from the motion cursors (the walked path replayed at a visual pace),
+   * not from prevPos→pos interpolation: walks finish within a tick and must not cut corners.
+   * (`_alpha` stays in the signature: lighting still uses it.)
+   */
+  function computePoses(_alpha: number, now: number, dt: number): Pose[] {
     const out: Pose[] = [];
+    motion.update(world.agents, world.tick, now, dt, isRealtime(world));
     for (const a of world.agents) {
-      const jump = Math.hypot(a.pos.x - a.prevPos.x, a.pos.y - a.prevPos.y) > 2.5;
-      const t = jump ? 1 : Math.max(0, Math.min(1, alpha));
-      const x = a.prevPos.x + (a.pos.x - a.prevPos.x) * t;
-      const y = a.prevPos.y + (a.pos.y - a.prevPos.y) * t;
+      const m = motion.of(a.id)!;
+      const x = m.x;
+      const y = m.y;
       let w = walk.get(a.id);
       if (!w) {
-        w = { phase: a.id * 1.7, x, y };
+        w = { phase: a.id * 1.7 };
         walk.set(a.id, w);
       }
-      const d = Math.hypot(x - w.x, y - w.y);
-      if (d < 1.5) w.phase += d * Math.PI * 2.4;
-      w.x = x;
-      w.y = y;
-      const moving = !jump && (a.pos.x !== a.prevPos.x || a.pos.y !== a.prevPos.y);
-      const s = sleepingInfo(a, x, y);
+      const moving = m.moving;
+      // legs: about 2.4 steps per tile, but never a frantic shuffle in the fast sandbox
+      if (moving) w.phase += Math.min(m.moved * Math.PI * 2.4, dt * Math.PI * 2 * 3.2);
+      const facing = moving && m.facing !== 0 ? m.facing : undefined;
+      const s = moving ? null : sleepingInfo(a, x, y);
       if (s) {
         out.push({ agent: a, x: s.x, y: s.y, moving: false, phase: w.phase, sleeping: true, bedHorizontal: s.horiz, blanket: s.blanket, mode: 'sleep' });
         continue;
@@ -333,13 +344,14 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       let mode: PoseMode = moving ? 'walk' : 'stand';
       let walking = moving;
       const act = a.action;
-      if (act && act.kind === 'use' && act.phase === 'using') {
+      // still walking there on screen: the activity's pose starts on arrival
+      if (!moving && act && act.kind === 'use' && act.phase === 'using') {
         // the pose follows the action (the short glide from the stand tile onto the seat is not a walk)
         const obj = world.objects.find((o) => o.uid === act.objectUid);
         if (obj) mode = poseModeFor(obj.type);
         if (mode !== 'walk' && mode !== 'stand') walking = false;
       }
-      out.push({ agent: a, x, y, moving: walking, phase: w.phase, sleeping: false, bedHorizontal: false, blanket: '', mode });
+      out.push({ agent: a, x, y, moving: walking, phase: w.phase, sleeping: false, bedHorizontal: false, blanket: '', mode, facing });
     }
     out.sort((p, q) => p.y - q.y || p.agent.id - q.agent.id);
     return out;
@@ -425,7 +437,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     ensureStatic();
     const c = ctx!;
 
-    poses = computePoses(alpha);
+    poses = computePoses(alpha, now, dt);
 
     // camera: keyboard pan, zoom animation, follow
     if (keys.size) {
@@ -617,6 +629,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       const r = canvas.getBoundingClientRect();
       const p = cam.toScreen(wx, wy);
       return { x: p.x + r.left, y: p.y + r.top };
+    },
+    visualOf: (id) => {
+      const m = motion.of(id);
+      return m ? { x: m.x, y: m.y, moving: m.moving } : null;
     },
   };
 }

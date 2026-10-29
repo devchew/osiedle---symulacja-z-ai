@@ -1,5 +1,6 @@
 import type { Agent, Conversation, Gossip, SimEvent, World } from '../types';
 import { pushEvent } from '../world/events';
+import { loadEventSet, registerWorldState, saveEventSet } from '../core/state';
 import { conversationDelta } from './conversation';
 
 // Residents' memories and gossip.
@@ -81,6 +82,73 @@ interface Store {
 }
 
 const stores = new WeakMap<World, Store>();
+
+interface SavedMemory {
+  /** story key (gossip text) */
+  s: string;
+  strength: number;
+  tick: number;
+  source: MemorySource;
+  fromId?: number;
+  toldTo: number[];
+}
+
+// snapshots (core/state.ts): stories by text (their key), memories point at stories by text;
+// byGossip is rebuilt (lookups fall back to the text anyway)
+registerWorldState('memory', {
+  save: (world) => {
+    const s = stores.get(world);
+    if (!s) return null;
+    const stories = [...s.stories.values()].map((x) => ({ gossip: x.gossip, tick: x.tick }));
+    const memories = [...s.memories].map(([id, list]) => [
+      id,
+      list.map((m): SavedMemory => {
+        const out: SavedMemory = { s: m.story.gossip.text, strength: m.strength, tick: m.tick, source: m.source, toldTo: [...m.toldTo] };
+        if (m.fromId !== undefined) out.fromId = m.fromId;
+        return out;
+      }),
+    ]);
+    return JSON.parse(
+      JSON.stringify({ processed: saveEventSet(world, s.processed), stories, memories, lastPrune: s.lastPrune, lastLog: s.lastLog, stats: s.stats }),
+    );
+  },
+  load: (world, data) => {
+    const d = data as unknown as {
+      processed: number[];
+      stories: { gossip: Gossip; tick: number }[];
+      memories: [number, SavedMemory[]][];
+      lastPrune: number;
+      lastLog: number;
+      stats: MemoryStats;
+    };
+    const s: Store = {
+      processed: new WeakSet(),
+      stories: new Map(),
+      byGossip: new WeakMap(),
+      memories: new Map(),
+      lastPrune: d.lastPrune,
+      lastLog: d.lastLog,
+      stats: { ...d.stats },
+    };
+    loadEventSet(world, s.processed, d.processed);
+    for (const x of d.stories) {
+      const g: Gossip = { text: x.gossip.text, aboutIds: [...x.gossip.aboutIds], valence: x.gossip.valence };
+      const story: Story = { gossip: g, sharedGossip: { ...g, shared: true }, tick: x.tick };
+      s.stories.set(g.text, story);
+      s.byGossip.set(story.gossip, story);
+      s.byGossip.set(story.sharedGossip, story);
+    }
+    for (const [id, list] of d.memories) {
+      const out: Memory[] = [];
+      for (const m of list) {
+        const story = s.stories.get(m.s);
+        if (story) out.push({ story, strength: m.strength, tick: m.tick, source: m.source, fromId: m.fromId, toldTo: new Set(m.toldTo) });
+      }
+      s.memories.set(id, out);
+    }
+    stores.set(world, s);
+  },
+});
 
 function store(world: World): Store {
   let s = stores.get(world);

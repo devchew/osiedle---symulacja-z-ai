@@ -30,11 +30,19 @@ test('the simulation renders and runs on its own', async ({ page }) => {
   });
   expect(colours).toBeGreaterThan(20);
 
+  // trips take seconds now and people then stay put for a while: over a game hour at 8×
+  // (≈ 1.5 s) somebody must have changed place, and the clock must be running
   const before = await agentPositions(page);
-  await page.waitForTimeout(2500);
-  const after = await agentPositions(page);
-  const moved = before.filter((p, i) => Math.hypot(p.x - after[i].x, p.y - after[i].y) > 0.5).length;
-  expect(moved).toBeGreaterThan(0);
+  const tick0 = await page.evaluate(() => window.__sim.world.tick);
+  await page.keyboard.press('4');
+  await expect
+    .poll(async () => {
+      const now = await agentPositions(page);
+      return before.filter((p, i) => Math.hypot(p.x - now[i].x, p.y - now[i].y) > 0.5).length;
+    }, { timeout: 15_000 })
+    .toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__sim.world.tick)).toBeGreaterThan(tick0);
+  await page.keyboard.press('1');
 
   await page.screenshot({ path: `${SHOTS}/day.png` });
   expect(errors).toEqual([]);

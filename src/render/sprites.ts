@@ -32,6 +32,8 @@ export interface AgentPose {
   /** blanket colour for sleeping agents */
   blanket: string;
   mode: PoseMode;
+  /** facing while visually walking (overrides agent.facing) */
+  facing?: -1 | 1;
 }
 
 export interface AgentLook {
@@ -75,7 +77,8 @@ export function drawSelection(ctx: Ctx, p: AgentPose, now: number): void {
 
 export function drawAgent(ctx: Ctx, a: Agent, p: AgentPose, now: number): void {
   if (p.sleeping || p.mode === 'sleep') return drawSleeping(ctx, a, p);
-  const prop = propOf(a);
+  // no game pad / rod / cards while still walking there
+  const prop = p.moving ? null : propOf(a);
   // console players sit on poufs in front of the screen
   const pose: AgentPose = prop === 'pad' && p.mode === 'stand' ? { ...p, mode: 'sit', moving: false } : p;
   ctx.save();
@@ -219,7 +222,7 @@ export function drawJointBadge(ctx: Ctx, text: string, x: number, y: number): vo
 }
 
 function drawBody(ctx: Ctx, a: Agent, look: AgentLook, p: AgentPose, now: number): void {
-  const f = a.facing;
+  const f = p.facing ?? a.facing;
   const sit = p.mode === 'sit' || p.mode === 'pedal';
   const walking = p.moving || p.mode === 'run';
   const phase = p.mode === 'run' ? now * 0.016 + a.id : p.phase;

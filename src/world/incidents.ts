@@ -1,5 +1,6 @@
 import type { Agent, Grid, ObjectDef, ObjectInstance, Rng, Vec2, World } from '../types';
 import { createRng } from '../core/rng';
+import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
 import { MINUTES_PER_DAY, START_MINUTE } from '../core/time';
 import { findPath } from '../agents/pathfinding';
 import { endAction } from '../agents/actions';
@@ -160,6 +161,27 @@ const WEATHER_TEXT: Record<WeatherKind, { label: string; icon: string }> = {
 // ---------------------------------------------------------------- state
 
 const states = new WeakMap<World, IncidentState>();
+
+// snapshots (core/state.ts): both RNG streams by state; the weather override is a hook, not
+// state (real-time mode re-attaches it with setWeatherOverride after a restore)
+registerWorldState('incidents', {
+  save: (world) => {
+    const s = states.get(world);
+    if (!s) return null;
+    return { rng: s.rng.state(), eventRng: s.eventRng.state(), plan: toJson(s.plan), last: s.last, broken: toJson(s.broken) };
+  },
+  load: (world, data) => {
+    const d = data as { rng: number; eventRng: number; plan: Json; last: WeatherKind | null; broken: Json };
+    states.set(world, {
+      rng: createRng((world.seed ^ 0x5eedc10d) >>> 0, d.rng),
+      eventRng: createRng((world.seed ^ 0x0b5e55ed) >>> 0, d.eventRng),
+      plan: fromJson<DayPlan>(d.plan),
+      last: d.last,
+      broken: fromJson<Map<number, Breakdown>>(d.broken),
+      override: null,
+    });
+  },
+});
 
 function dayOf(tick: number): number {
   return Math.floor((tick + START_MINUTE) / MINUTES_PER_DAY) + 1;
@@ -510,7 +532,7 @@ export function availability(world: World, obj: ObjectInstance, def: ObjectDef):
   if (isBroken(obj)) {
     const b = states.get(world)?.broken.get(obj.uid);
     const hours = b ? (world.tick - b.since) / 60 : 0;
-    return Math.min(8, 3 + 0.75 * hours);
+    return Math.min(10, 5 + hours);
   }
   if (isOutdoorDef(def) && weatherAtTick(stateOf(world), world.tick).raining) return RAIN_OUTDOOR;
   return 1;

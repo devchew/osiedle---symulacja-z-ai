@@ -1,5 +1,6 @@
 import type { Agent, Gossip, NeedKey, ObjectDef, SimEventKind, World } from '../types';
 import { pushEvent } from '../world/events';
+import { loadByAgent, registerWorldState, saveByAgent, type Json } from '../core/state';
 
 // Small story beats for the event log: mishaps and successes during activities,
 // mood swings and neglected needs. Polish texts avoid gendered past tense and
@@ -142,6 +143,21 @@ interface StateFlags {
 }
 
 const flags = new WeakMap<Agent, StateFlags>();
+
+registerWorldState('narration', {
+  save: (world) => {
+    const recent = recentEvents.get(world);
+    const scale = saveByAgent(world, effectScale);
+    const f = saveByAgent(world, flags);
+    return recent || scale || f ? { recent: recent ? [...recent] : null, scale, flags: f } : null;
+  },
+  load: (world, data) => {
+    const d = data as { recent: number[] | null; scale: Json; flags: Json };
+    if (d.recent) recentEvents.set(world, [...d.recent]);
+    if (d.scale) loadByAgent(world, effectScale, d.scale);
+    if (d.flags) loadByAgent(world, flags, d.flags);
+  },
+});
 
 /** mood swings and neglected needs; called once per tick per agent after mood is updated */
 export function narrateState(world: World, agent: Agent, sleeping: boolean): void {

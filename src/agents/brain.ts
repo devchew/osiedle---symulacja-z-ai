@@ -1,5 +1,6 @@
 import type { Agent, GameTime, NeedKey, ObjectDef, ObjectInstance, World } from '../types';
 import { NEED_KEYS } from '../types';
+import { fromJson, loadByAgent, registerWorldState, saveByAgent, toJson, type Json } from '../core/state';
 import { slotStandTile } from '../world/objects';
 import { bedOf } from './home';
 import { urgency } from './needs';
@@ -100,6 +101,21 @@ const recentUses = new WeakMap<Agent, string[]>();
 /** the object an agent just walked away from, and when: no sitting straight back down */
 const leftObject = new WeakMap<Agent, { uid: number; tick: number }>();
 const LEFT_COOLDOWN = 45;
+
+registerWorldState('brain', {
+  save: (world) => {
+    const uses = saveByAgent(world, recentUses);
+    const left = saveByAgent(world, leftObject);
+    const talk = lastTalk.get(world);
+    return uses || left || talk ? { uses, left, talk: talk ? toJson(talk) : null } : null;
+  },
+  load: (world, data) => {
+    const d = data as { uses: Json; left: Json; talk: Json };
+    if (d.uses) loadByAgent(world, recentUses, d.uses);
+    if (d.left) loadByAgent(world, leftObject, d.left);
+    if (d.talk) lastTalk.set(world, fromJson(d.talk));
+  },
+});
 
 export function rememberLeft(agent: Agent, uid: number, tick: number): void {
   leftObject.set(agent, { uid, tick });

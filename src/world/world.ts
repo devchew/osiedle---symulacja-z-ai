@@ -1,6 +1,7 @@
 import type { Agent, DialogueProvider, NeedKey, World } from '../types';
 import { NEED_ICONS } from '../types';
 import { createRng } from '../core/rng';
+import { registerWorldBase } from '../core/state';
 import { timeFromTick } from '../core/time';
 import { getMap, setMapId } from './maps';
 import { tickNews } from './news';
@@ -20,6 +21,14 @@ import { initIncidents, tickIncidents } from './incidents';
 import { initProjects, tickProjects } from './projects';
 import { updateRelations } from '../social/relationships';
 import { tickGatherings } from '../agents/groups';
+// side effects: register the module state of actions.ts / movement.ts with the snapshot registry
+import '../agents/actionsState';
+import '../agents/movementState';
+
+// what core/state.restoreWorld needs to rebuild a World (it must not import simulation modules)
+registerWorldBase({ objectDefs: WORLD_OBJECT_DEFS, createDialogue: createProceduralProvider, createRelationships });
+
+export { restoreWorld, snapshotWorld } from '../core/state';
 
 export interface WorldOptions {
   agentCount?: number;

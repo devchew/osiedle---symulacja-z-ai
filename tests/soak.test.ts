@@ -117,7 +117,12 @@ describe('soak: a week in the house', () => {
     for (const g of [extro, intro, active, lazy]) expect(g.length).toBeGreaterThan(2);
     expect(mean(extro.map((a) => a.conversations))).toBeGreaterThan(mean(intro.map((a) => a.conversations)) * 1.2);
     expect(mean(intro.map((a) => share(a, QUIET)))).toBeGreaterThan(mean(extro.map((a) => share(a, QUIET))) * 2);
-    expect(mean(active.map((a) => share(a, EXERCISE)))).toBeGreaterThan(mean(lazy.map((a) => share(a, EXERCISE))) + 0.01);
+    // exercise is a small slice of the day; since walking became (almost) free (wave 10) the awake
+    // activity time is ~40% larger, so absolute shares shrink: compare relatively, with a small margin
+    const exActive = mean(active.map((a) => share(a, EXERCISE)));
+    const exLazy = mean(lazy.map((a) => share(a, EXERCISE)));
+    expect(exActive).toBeGreaterThan(exLazy * 2);
+    expect(exActive).toBeGreaterThan(exLazy + 0.005);
   });
 
   it('residents pick a goal every day and mostly reach it', () => {

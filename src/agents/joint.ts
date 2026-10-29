@@ -1,5 +1,6 @@
 import type { Agent, GameTime, Gossip, ObjectInstance, Traits, Vec2, World } from '../types';
 import { timeFromTick } from '../core/time';
+import { fromJson, loadByAgent, registerWorldState, saveByAgent, toJson, type Json } from '../core/state';
 import { slotStandTile } from '../world/objects';
 import { pushEvent } from '../world/events';
 import { trace } from '../world/trace';
@@ -368,6 +369,29 @@ export interface JointView {
 
 const views = new WeakMap<Agent, JointView>();
 const casts = new WeakMap<Agent, Vec2>();
+
+// snapshots (core/state.ts): sessions keep their game as an id; the per-tick partner cache is not
+// state (it is keyed by the tick and rebuilt on the next tick)
+registerWorldState('joint', {
+  save: (world) => {
+    const s = stores.get(world);
+    const v = saveByAgent(world, views);
+    const c = saveByAgent(world, casts);
+    if (!s && !v && !c) return null;
+    const store = s ? toJson({ ...s, sessions: s.sessions.map((x) => ({ ...x, game: x.game?.id ?? null })) }) : null;
+    return { store, views: v, casts: c };
+  },
+  load: (world, data) => {
+    const d = data as { store: Json; views: Json; casts: Json };
+    if (d.store) {
+      const s = fromJson<Omit<Store, 'sessions'> & { sessions: (Omit<Session, 'game'> & { game: string | null })[] }>(d.store);
+      const sessions = s.sessions.map((x) => ({ ...x, game: x.game === null ? null : JOINT_GAMES[x.kind].find((g) => g.id === x.game) ?? null }));
+      stores.set(world, { ...s, sessions });
+    }
+    if (d.views) loadByAgent(world, views, d.views);
+    if (d.casts) loadByAgent(world, casts, d.casts);
+  },
+});
 
 /** called when someone starts fishing (alone or together): which way the water is, for the rod */
 export function noteFishingCast(world: World, agent: Agent, obj: ObjectInstance): void {

@@ -1,5 +1,6 @@
 import type { Agent, GameTime, Gossip, ObjectInstance, Traits, World } from '../types';
 import { START_MINUTE } from '../core/time';
+import { loadByAgent, registerWorldState, saveByAgent, type Json } from '../core/state';
 import { pushEvent } from '../world/events';
 
 // Daily goals: every morning at 06:00 each resident picks a goal for the day,
@@ -179,6 +180,19 @@ export interface GoalRecord {
 
 const state = new WeakMap<Agent, GoalState>();
 const history = new WeakMap<Agent, GoalRecord[]>();
+
+registerWorldState('goals', {
+  save: (world) => {
+    const s = saveByAgent(world, state);
+    const h = saveByAgent(world, history);
+    return s || h ? { state: s, history: h } : null;
+  },
+  load: (world, data) => {
+    const d = data as { state: Json; history: Json };
+    if (d.state) loadByAgent(world, state, d.state);
+    if (d.history) loadByAgent(world, history, d.history);
+  },
+});
 
 /** goal days start at 06:00 */
 export function goalDayOf(tick: number): number {

@@ -1,9 +1,15 @@
 import type { Agent, World } from '../types';
+import { loadByAgent, registerWorldState, saveByAgent } from '../core/state';
 
 // Bed ownership. Agent has no field for it (contract unchanged), so it lives here,
 // keyed by the agent object.
 
 const ownBed = new WeakMap<Agent, number>();
+
+registerWorldState('home', {
+  save: (world) => saveByAgent(world, ownBed),
+  load: (world, data) => loadByAgent(world, ownBed, data),
+});
 
 function isBed(world: World, type: string): boolean {
   return !!world.objectDefs[type]?.tags?.includes('sleep');

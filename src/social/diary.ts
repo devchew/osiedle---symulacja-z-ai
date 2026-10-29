@@ -1,5 +1,6 @@
 import type { Agent, NeedKey, Rng, SimEvent, Traits, World } from '../types';
 import { createRng } from '../core/rng';
+import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
 import { formatClock, timeFromTick } from '../core/time';
 import { traceOf, type TraceEntry } from '../world/trace';
 import { goalOf, type GoalKind } from '../agents/goals';
@@ -201,9 +202,34 @@ interface DiaryState {
 
 const states = new WeakMap<World, DiaryState>();
 
+// snapshots (core/state.ts): entries, day facts, open buckets and dedupe sets; listeners and the
+// AI rewrite state are hooks of the running page (re-attached with onDiaryChange / setDiaryAiEnabled)
+registerWorldState('diary', {
+  save: (world, opts) => {
+    const s = states.get(world);
+    if (!s) return null;
+    let agents = s.agents;
+    const keep = opts.diaryFactDays;
+    if (keep !== undefined) {
+      // facts only feed the AI rewrite of recent entries: network snapshots keep the last days
+      agents = new Map(
+        [...s.agents].map(([id, d]) => {
+          const last = Math.max(0, ...d.facts.keys());
+          return [id, { ...d, facts: new Map([...d.facts].filter(([day]) => day > last - keep)) }];
+        }),
+      );
+    }
+    return toJson({ enabled: s.enabled, agents, lastTick: s.lastTick, weather: s.weather });
+  },
+  load: (world, data) => {
+    const d = fromJson<Pick<DiaryState, 'enabled' | 'agents' | 'lastTick' | 'weather'>>(data as Json);
+    states.set(world, { ...d, listeners: new Set(), ai: null });
+  },
+});
+
 function stateOf(world: World): DiaryState {
   let s = states.get(world);
-  if (!s) states.set(world, (s = { enabled: true, agents: new Map(), lastTick: world.tick, weather: new Map(), listeners: new Set(), ai: null }));
+  if (!s) states.set(world, (s = { enabled: true, agents: new Map(), lastTick: Math.max(0, world.tick - 1), weather: new Map(), listeners: new Set(), ai: null }));
   return s;
 }
 
@@ -508,7 +534,7 @@ function buildFacts(world: World, s: DiaryState, agent: Agent, b: Bucket, late: 
   const sympathy = (id: number) => world.relationships.get(agent.id, id);
   const met = [...b.met].filter((id) => id !== agent.id && world.agents.some((a) => a.id === id));
   const feelings = met
-    .map((id) => ({ with: nameOf(world, id), status: statusOf(world, agent.id, id), sympathy: Math.round(sympathy(id)) }))
+    .map((id) => ({ with: nameOf(world, id), status: statusOf(world, agent.id, id), sympathy: Math.round(sympathy(id)) || 0 }))
     .sort((x, y) => Math.abs(y.sympathy) - Math.abs(x.sympathy));
   const order: DayPart[] = ['rano', 'w południe', 'po południu', 'wieczorem'];
   const activities = [...b.activities.values()].sort((x, y) => order.indexOf(x.part) - order.indexOf(y.part));
@@ -521,7 +547,7 @@ function buildFacts(world: World, s: DiaryState, agent: Agent, b: Bucket, late: 
     late,
     activities,
     meals: b.meals,
-    talks: b.talks.map((t) => ({ with: t.with, topic: t.topic, outcome: t.outcome, mine: t.mine, sympathy: Math.round(sympathy(t.withId)) })),
+    talks: b.talks.map((t) => ({ with: t.with, topic: t.topic, outcome: t.outcome, mine: t.mine, sympathy: Math.round(sympathy(t.withId)) || 0 })),
     refusedBy: b.refusedBy,
     refused: b.refused,
     gatherings: b.gatherings,

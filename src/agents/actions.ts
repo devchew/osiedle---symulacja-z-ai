@@ -4,13 +4,13 @@ import { decide, engagement, rememberLeft, hasCriticalNeed, isSleepingObject, re
 import { onFinishUse, onStartUse, useEffectScale } from './narration';
 import { applyEffects } from './needs';
 import { findPath, nearestWalkable } from './pathfinding';
-import { WALK_SPEED, stepAgent } from './movement';
+import { STROLL_SPEED, WALK_SPEED, placeAgent, stepAgent } from './movement';
 import { randomWalkableTile } from '../world/grid';
 import { slotStandTile, slotUsePos } from '../world/objects';
 import { pushEvent } from '../world/events';
 import { trace } from '../world/trace';
 import { newsFor } from '../world/news';
-import { availability } from '../world/incidents';
+import { availability, isOutdoorTile, weatherOf } from '../world/incidents';
 import { chatAcceptanceChance, conversationDelta, describeConversation, startConversation, type ConversationMood } from '../social/conversation';
 import { feltSympathy, recordConversation, recordFriction, statusOf } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
@@ -20,7 +20,8 @@ import { gatheringOf as gatheringOfAgent, noticeCompetition, onHeadingTo } from 
 import { JOINT_CHATTINESS, JOINT_QUIET_BOOST, JOINT_TOPIC, jointGroups, jointMemberOf, noteFishingCast, onJointArrive, onJointHeadingTo, tickJoint } from './joint';
 
 const TALK_EFFECTS = { social: 0.7, fun: 0.12 };
-const APPROACH_TIMEOUT = 60;
+/** walking is quick (src/agents/movement.ts): a partner in the house is reached within a tick or two */
+const APPROACH_TIMEOUT = 10;
 const MIN_USE_BEFORE_INTERRUPT = 10;
 /** "needs satisfied" may end an activity only after this long (no sit-down, stand-up flicker) */
 const MIN_USE_BEFORE_SATISFIED = 20;
@@ -29,18 +30,24 @@ const MAX_CHAT_EXTENSION = 60;
 const CHAT_WRAP_UP = 20;
 /** don't start an ambient chat with someone about to leave */
 const MIN_TICKS_LEFT_FOR_CHAT = 15;
-const REPATH_EVERY = 8;
+const REPATH_EVERY = 2;
 const LINE_TICKS: [number, number] = [11, 15];
-const AMBIENT_CHAT_CHANCE = 0.02;
+const AMBIENT_CHAT_CHANCE = 0.008;
 /** ambient chats are this much likelier during a gathering, and per extra free person at the object */
 const AMBIENT_GATHERING_FACTOR = 2;
 const AMBIENT_PER_EXTRA = 0.5;
 /** ambient chat partners must sit at most this far apart (conversations end beyond 3.5) */
 const AMBIENT_REACH = 3;
 const TALK_DISTANCE = 1.6;
-/** waiting behind an agent standing in the way: re-path every BLOCKED_REPATH ticks, walk through after BLOCKED_GIVE_UP */
-const BLOCKED_REPATH = 3;
-const BLOCKED_GIVE_UP = 12;
+/** a detour around people standing in the way may be at most this many tiles longer */
+const DETOUR_EXTRA = 8;
+/** a stroll: several short legs at an ambling pace, pausing in between (game minutes) */
+const STROLL_TICKS: [number, number] = [8, 20];
+const STROLL_RADIUS = 8;
+const STROLL_LEG_RADIUS = 5;
+const STROLL_LEG_CHANCE = 0.5;
+/** after a refused invitation: a short pause before deciding again (game minutes) */
+const REFUSED_PAUSE: [number, number] = [4, 8];
 /** an unserved need below this interrupts any activity (after MIN_USE_BEFORE_INTERRUPT) */
 const DESPERATE = 4;
 
@@ -123,19 +130,17 @@ function tryStart(world: World, agent: Agent, d: Decision, time: GameTime): bool
         partnerId: partner.id,
         conversationId: null,
         // enough time to cover the distance (partners may move a bit meanwhile)
-        ticksLeft: Math.max(APPROACH_TIMEOUT, Math.ceil((path.length * 1.5) / WALK_SPEED) + 20),
+        ticksLeft: Math.max(APPROACH_TIMEOUT, Math.ceil((path.length * 1.5) / WALK_SPEED) + 5),
         label: `Idzie pogadać: ${partner.name}`,
         icon: '💬',
       };
       return true;
     }
     case 'wander': {
-      const r = 8;
-      const area = { x: Math.round(agent.pos.x) - r, y: Math.round(agent.pos.y) - r, w: 2 * r + 1, h: 2 * r + 1 };
-      const path = findPath(world.grid, agent.pos, randomWalkableTile(world.grid, rng, area));
-      if (!path || path.length === 0) return false;
+      const path = strollLeg(world, agent, STROLL_RADIUS);
+      if (!path) return false;
       agent.path = path;
-      agent.action = { kind: 'wander', phase: 'walking', ticksLeft: 80, label: 'Przechadza się', icon: '🚶' };
+      agent.action = { kind: 'wander', phase: 'walking', ticksLeft: rng.int(STROLL_TICKS[0], STROLL_TICKS[1]), label: STROLL_LABEL, icon: STROLL_ICON };
       return true;
     }
     case 'idle':
@@ -216,7 +221,7 @@ export function endAction(world: World, agent: Agent, reason = 'koniec'): void {
       if (obj.reservedBy[a.slot] === agent.id) obj.reservedBy[a.slot] = null;
       if (a.phase === 'using') {
         const def = world.objectDefs[obj.type];
-        agent.pos = slotStandTile(obj, def, a.slot);
+        placeAgent(agent, slotStandTile(obj, def, a.slot), world.tick);
         rememberLeft(agent, obj.uid, world.tick);
         if (isSleepingObject(def)) pushEvent(world, 'info', `${agent.name} wstaje z łóżka`, [agent.id]);
         else goalUseEnd(world, agent, obj.type, usedFor.get(agent) ?? 0, a.ticksLeft <= 0);
@@ -270,7 +275,7 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
           usedFor.set(agent, 0);
           chatExtension.delete(agent);
           if (!together) a.label = def.verb;
-          agent.pos = slotUsePos(obj, def, a.slot);
+          placeAgent(agent, slotUsePos(obj, def, a.slot), world.tick);
           if (obj.type === 'fishing_spot') noteFishingCast(world, agent, obj);
           agent.stats.objectsUsed++;
           rememberUse(agent, obj.type);
@@ -327,16 +332,34 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
         agent.path = path;
       }
       walk(world, agent);
+      // the walk usually takes seconds: say hello in the same minute
+      if (dist(agent.pos, partner.pos) <= TALK_DISTANCE) invite(world, agent, partner);
       return;
     }
-    case 'wander':
+    case 'wander': {
       a.ticksLeft--;
-      if (walk(world, agent) !== 'moving' || a.ticksLeft <= 0) {
+      if (a.icon !== STROLL_ICON) {
+        // a plain walk somewhere (e.g. ☔ going indoors): over on arrival
+        if (walk(world, agent) !== 'moving' || a.ticksLeft <= 0) {
+          trace(world, agent, 'end', `${a.label} — koniec`);
+          agent.action = null;
+          agent.path = [];
+        }
+        return;
+      }
+      // a stroll: amble a few steps, look around, amble on
+      if (agent.path.length === 0 && a.ticksLeft > 1 && world.rng.chance(STROLL_LEG_CHANCE)) {
+        const leg = strollLeg(world, agent, STROLL_LEG_RADIUS);
+        if (leg) agent.path = leg;
+      }
+      walk(world, agent, STROLL_SPEED);
+      if (a.ticksLeft <= 0) {
         trace(world, agent, 'end', 'spacer — koniec');
         agent.action = null;
         agent.path = [];
       }
       return;
+    }
     case 'idle':
       agent.stats.ticksIdle++;
       if (--a.ticksLeft <= 0) {
@@ -366,7 +389,22 @@ function usersOf(world: World, obj: ObjectInstance, self: Agent): Agent[] {
 
 // ---------------------------------------------------------------- walking with avoidance
 
-const blockedFor = new WeakMap<Agent, number>();
+const STROLL_LABEL = 'Przechadza się';
+const STROLL_ICON = '🚶';
+
+/** a path to a random nearby tile; in the rain a stroll stays on the same side of the door */
+function strollLeg(world: World, agent: Agent, r: number): Vec2[] | null {
+  const area = { x: Math.round(agent.pos.x) - r, y: Math.round(agent.pos.y) - r, w: 2 * r + 1, h: 2 * r + 1 };
+  const wet = weatherOf(world).kind;
+  const outside = isOutdoorTile(world.grid, agent.pos.x, agent.pos.y);
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const goal = randomWalkableTile(world.grid, world.rng, area);
+    if ((wet === 'rain' || wet === 'storm') && isOutdoorTile(world.grid, goal.x, goal.y) !== outside) continue;
+    const path = findPath(world.grid, agent.pos, goal);
+    if (path && path.length > 0) return path;
+  }
+  return null;
+}
 
 /** an agent that is not walking (using, talking, idle) on tile x,y */
 function standingAt(world: World, self: Agent, x: number, y: number): boolean {
@@ -377,33 +415,23 @@ function standingAt(world: World, self: Agent, x: number, y: number): boolean {
 }
 
 /**
- * stepAgent, but agents don't walk through someone standing on their next waypoint:
- * they wait, re-path around standing agents every few ticks, and after a timeout
- * walk through anyway (never deadlocks). The final waypoint is never treated as blocked.
+ * stepAgent with avoidance: a path leading through someone standing still (using an
+ * object, chatting) is replaced by a detour when a short one exists, otherwise the
+ * agent squeezes past. Walking takes seconds, so nobody waits: avoidance only keeps
+ * the replayed walk (src/render/motion.ts) from passing through people. The final
+ * waypoint is never treated as blocked.
  */
-function walk(world: World, agent: Agent): 'moving' | 'arrived' | 'idle' {
-  const next = agent.path[0];
-  if (!next || agent.path.length < 2 || !standingAt(world, agent, next.x, next.y)) {
-    blockedFor.delete(agent);
-    return stepAgent(agent);
-  }
-  const n = (blockedFor.get(agent) ?? 0) + 1;
-  blockedFor.set(agent, n);
-  if (n > BLOCKED_GIVE_UP) return stepAgent(agent);
-  if (n % BLOCKED_REPATH === 0) {
-    const goal = agent.path[agent.path.length - 1];
+function walk(world: World, agent: Agent, speed = WALK_SPEED): 'moving' | 'arrived' | 'idle' {
+  const path = agent.path;
+  if (path.length >= 2 && path.slice(0, -1).some((p) => standingAt(world, agent, p.x, p.y))) {
+    const goal = path[path.length - 1];
     const detour = findPath(world.grid, agent.pos, goal, {
       extraBlocked: (x, y) => !(x === goal.x && y === goal.y) && standingAt(world, agent, x, y),
       maxNodes: 2000,
     });
-    if (detour && detour.length > 0 && detour.length <= agent.path.length + 8) {
-      agent.path = detour;
-      blockedFor.delete(agent);
-      return stepAgent(agent);
-    }
+    if (detour && detour.length > 0 && detour.length <= path.length + DETOUR_EXTRA) agent.path = detour;
   }
-  if (agent.path.length > 0) faceTowards(agent, next);
-  return 'moving';
+  return stepAgent(agent, speed, world.tick);
 }
 
 /**
@@ -443,7 +471,8 @@ function invite(world: World, agent: Agent, partner: Agent): void {
       [agent.id, partner.id],
     );
     trace(world, agent, 'end', `podchodzi do: ${partner.name} — odmowa`);
-    agent.action = null;
+    // walking over took seconds: shrug it off for a moment instead of asking the next person right away
+    agent.action = { kind: 'idle', ticksLeft: world.rng.int(REFUSED_PAUSE[0], REFUSED_PAUSE[1]), label: 'Wzrusza ramionami', icon: '🤷' };
     return;
   }
   trace(world, partner, 'accept', `zaproszenie od ${agent.name}${eng.chatInPlace ? ' (rozmowa na miejscu)' : ''}`);
@@ -638,5 +667,39 @@ export function ambientChats(world: World): void {
     world.conversations.push(conv);
     trace(world, x, 'conv-start', `przy okazji z ${y.name}, temat: ${conv.topic}, do ${conv.maxLines} kwestii`);
     trace(world, y, 'conv-start', `przy okazji z ${x.name}, temat: ${conv.topic}`);
+  }
+}
+
+// ---------------------------------------------------------------- snapshot helpers (world state registry)
+
+/** module state of actions.ts: conversation id counter, minutes at the current object, chat extensions (by agent id) */
+export interface ActionsSnapshot {
+  conversationId: number;
+  usedFor: Record<number, number>;
+  chatExtension: Record<number, number>;
+}
+
+export function saveActionsState(world: World): ActionsSnapshot {
+  const usedForOut: Record<number, number> = {};
+  const extOut: Record<number, number> = {};
+  for (const a of world.agents) {
+    const u = usedFor.get(a);
+    if (u !== undefined) usedForOut[a.id] = u;
+    const e = chatExtension.get(a);
+    if (e !== undefined) extOut[a.id] = e;
+  }
+  return { conversationId: conversationIds.get(world) ?? 0, usedFor: usedForOut, chatExtension: extOut };
+}
+
+export function loadActionsState(world: World, data: ActionsSnapshot | null | undefined): void {
+  if (data?.conversationId) conversationIds.set(world, data.conversationId);
+  else conversationIds.delete(world);
+  for (const a of world.agents) {
+    const u = data?.usedFor[a.id];
+    if (u !== undefined) usedFor.set(a, u);
+    else usedFor.delete(a);
+    const e = data?.chatExtension[a.id];
+    if (e !== undefined) chatExtension.set(a, e);
+    else chatExtension.delete(a);
   }
 }

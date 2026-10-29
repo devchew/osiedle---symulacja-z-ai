@@ -48,3 +48,6 @@
 | 2026-10-29 | Projekty: etapy jako typy obiektów (przebudowa warstwy statycznej), własny RNG, praca 8–19 bez deszczu, tempo przez mnożnik harmonogramu | budowa altany ~2 tygodnie bez zmian w agentach |
 | 2026-10-29 | Wieczory: energia 22 h, łóżko 20–22 ×0,08 przy energii > 40, premia wypoczynku 18–22 | wcześniej wszyscy spali od ~20:30, wieczorów nie było |
 | 2026-10-29 | Kierunek produktu: 4 stałe światy na żywo na serwerze (24/7, Europe/Warsaw), sandbox = kopia stanu w sesji, realne tempo ruchu; kronika/„ostatnie 24 h” później | decyzja użytkownika |
+| 2026-10-29 | Snapshot świata: `core/state.ts` (rejestr w modułach), czysty JSON, stan kluczowany obiektami zapisywany po id, `SNAPSHOT_VERSION` + zgodność kluczy modułów; haki (pogoda na żywo, feed, AI pamiętnika) podpina właściciel | serwer 24/7 i sandbox z kopii |
+| 2026-10-29 | Ruch realny: 82,5 kafla/tick, spacer o połowę wolniej, ślad (trail) tylko do renderu; renderer odtwarza ścieżkę (na żywo 1:1, sandbox ~6 kafli/s z limitem opóźnienia) | na żywo postacie nie mogą „pełzać” godzinami |
+| 2026-10-29 | Po realnym ruchu: rozmowy przy okazji 0,02 → 0,008, energia 26 h, romans/irytacja razem 0,04/0,17, rywale zostają do 10, naprawy atrakcyjniejsze (5 + h, max 10) | więcej czasu w czynnościach zmieniło dynamikę |
