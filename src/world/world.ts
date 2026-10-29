@@ -15,6 +15,7 @@ import { narrateState } from '../agents/narration';
 import { createRelationships } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 import { updateMemories } from '../social/memory';
+import { tickDiary } from '../social/diary';
 import { initIncidents, tickIncidents } from './incidents';
 import { updateRelations } from '../social/relationships';
 import { tickGatherings } from '../agents/groups';
@@ -95,4 +96,5 @@ export function tickWorld(world: World): void {
     thinkAloud(world, agent);
     narrateState(world, agent, isAgentSleeping(world, agent));
   }
+  tickDiary(world);
 }

@@ -129,7 +129,10 @@ Przygotowanie [x]: rejestr domów `src/world/maps/index.ts` (`MAPS`, `getMap`, `
 - **Fala 10 — oglądanie jak serial:** kronika dnia, **pamiętniki mieszkańców** (niżej), tryb reżysera (kamera skacze do ciekawych momentów), dźwięk
 - **Fala 11 — serwer i współdzielenie:** wspólny świat 24/7 na serwerze (WebSocket), CI (testy + obraz), dostępność
 
-### [ ] Pamiętnik każdej postaci (pomysł użytkownika, 2026-10-29)
+### [~] Pamiętnik każdej postaci (pomysł użytkownika, 2026-10-29) — realizowany jako fala 8 (budowanie przesunięte dalej)
+Przygotowanie [x]: stub `src/social/diary.ts` (`DiaryEntry`, `tickDiary` w `world.ts`, `diaryOf`, `onDiaryChange`, `formatDiary`).
+- R „treść”: `src/social/diary.ts`, `src/social/diaryAi.ts`, `server/llm.ts` (+ `llmProxy.ts`/`prod.ts` dla endpointu), `tests/diary.test.ts`
+- S „UI”: `src/ui/**` (zakładka w inspektorze, eksport), `src/main.ts`, `e2e/**`
 Każdy mieszkaniec prowadzi własny pamiętnik, a użytkownik ma do niego wgląd.
 - Wpisy pisane w 1. osobie z perspektywy postaci (np. wieczorem przed snem): co robiła, z kim rozmawiała, jak się czuła, cel dnia (udany/nie), plotki i newsy, które ją poruszyły, zmiany w relacjach („Chyba coraz bardziej lubię Bartka…”)
 - Ton zależny od osobowości (optymista vs maruda, introwertyk vs dusza towarzystwa) i nastroju; subiektywność — ta sama kłótnia inaczej opisana przez obie strony
