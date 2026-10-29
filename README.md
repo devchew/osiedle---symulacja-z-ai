@@ -52,3 +52,7 @@ prawdziwe nagłówki). Klucz nigdy nie trafia do obrazu (`.env` jest w `.dockeri
 **Testy:** `npm test` (logika + 7-dniowy soak), `npm run test:e2e` (Playwright, zrzuty w `test-results/shots/`).
 
 Architektura, decyzje i stan prac: `plan/`.
+
+## Współpraca
+
+Zadania: GitHub Issues. Zasady pracy (gałęzie, testy, determinizm, język, AI, wdrożenie): `CONTRIBUTING.md`.

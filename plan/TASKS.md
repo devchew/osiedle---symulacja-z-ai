@@ -1,4 +1,6 @@
-# Taski
+# Taski (archiwum)
+
+> Archiwum fal 0–10. **Nowe i otwarte zadania są w GitHub Issues** (przeniesione 2026-10-29 jako #1–#24); zasady pracy: `CONTRIBUTING.md`.
 
 Legenda: `[ ]` do zrobienia · `[~]` w toku · `[x]` zrobione. Aktualizuje orkiestrator po weryfikacji fali.
 Każdy task posiada wyłącznie wymienione pliki. Kontrakty: `src/types.ts`.
@@ -145,6 +147,9 @@ Kontrakt [x]: `src/live/protocol.ts` (`PLACES` z miastami/seedami, endpointy `/a
 - Wynik: `server/worlds*.ts` (4 światy, Europe/Warsaw, Open-Meteo per miasto, newsy, AI w procesie z podziałem budżetu, zapis `/app/data` co 5 min + SIGTERM, re-anchor po >3 dniach przestoju), SSE z ramką raz na tick wspólną dla widzów (gzip ~13–22 kB), limity strumieni; klient: `/dom|kamienica|jezioro|akademik`, `#imię`, przełącznik z podsumowaniem, sandbox `/sandbox?from=` (sessionStorage), ukryte `/lab` (dawny tryb, testy e2e); 363 testy + 41 e2e
 - Orkiestrator: bezpieczna kolejność importów w `server/prod.ts`/`worldsEntry.ts` (cykle importów!), porównanie świata z serwera z headless — identyczne
 - Dalej → issues na GitHubie (applySnapshot, `meta.weather.sample`, usunięcie cykli importów, „ostatnie 24 h”, kronika)
+
+## Backlog → GitHub Issues (2026-10-29)
+Otwarte pozycje przeniesione do issues #1–#24 (m.in. #1 cykle importów, #2 applySnapshot, #3 pogoda w ramce, #4 kronika, #5 „ostatnie 24 h”, #6 tryb budowania w sandboxie, #7–#11 nowe mechaniki i projekty, #12–#13 tryb reżysera i dźwięk, #14 CI, #15 dostępność, #16–#24 błędy i dług techniczny). Pozycje nieaktualne po zmianie kierunku (wybór seeda, zapisy w localStorage, edytor mieszkańców) i już zrobione (rzadkie wieczory filmowe) nie zostały przeniesione.
 
 ## Pomysły na kolejne fale (backlog)
 

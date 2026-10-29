@@ -1,5 +1,8 @@
 # Osiedle — autonomiczna symulacja życia w przeglądarce
 
+> **Od 2026-10-29 zadania prowadzimy w GitHub Issues**, a zasady pracy opisuje `CONTRIBUTING.md`.
+> Ten folder to archiwum fal 0–10 (`TASKS.md`) i dziennik decyzji (`DECISIONS.md`, nadal aktualizowany).
+
 Plansza 2D (widok z góry) z domem i ogrodem. Postacie same żyją: mają potrzeby, wybierają
 aktywności (utility AI), chodzą (A*), rozmawiają i budują relacje. Użytkownik tylko obserwuje.
 
