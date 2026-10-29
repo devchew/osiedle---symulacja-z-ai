@@ -46,6 +46,11 @@ export function topicAbout(topic: string): string {
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
+/** minutes between exchanges (an opener and its reply) of a conversation, see agents/actions.ts */
+export const EXCHANGE_GAP: readonly [number, number] = [1, 2];
+/** a line's bubble stays (in ticks) until the next exchange; the renderer fades it out sooner in real time */
+export const LINE_TTL = EXCHANGE_GAP[1] + 1;
+
 function topicWeight(t: TopicDef, a: Traits, b: Traits): number {
   let w = 1;
   for (const key of Object.keys(t.affinity) as (keyof Traits)[]) {
@@ -73,13 +78,14 @@ export function startConversation(id: number, a: Agent, b: Agent, tick: number, 
   const weights = TOPIC_DEFS.map((t) => topicWeight(t, a.traits, b.traits) * (extra?.[t.name] ?? 1));
   const topic = TOPIC_DEFS[rng.weightedIndex(weights)].name;
   const chatty = (a.traits.sociability + b.traits.sociability) / 2; // -1..1
-  const maxLines = clamp(Math.round(rng.range(4, 7) + chatty * 1.5), 4, 8);
+  // a few exchanges: long talks used to be cut short by wrap-ups, short ones run their full length
+  const maxLines = clamp(Math.round(rng.range(3.5, 5.5) + chatty * 1.5), 4, 7);
   return {
     id,
     participants: [a.id, b.id],
     topic,
     lines: [],
-    nextLineIn: rng.int(1, 3),
+    nextLineIn: rng.int(1, 2),
     pending: false,
     maxLines,
     startedAt: tick,

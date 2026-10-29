@@ -16,6 +16,8 @@ export interface BubbleItem {
   priority?: number;
   /** conversation the speaker takes part in; at most MAX_PER_CONVERSATION bubbles each */
   conversationId?: number | null;
+  /** opacity from the presenter (real-time fade); default: fade by the remaining ticks */
+  fade?: number;
 }
 
 /** screen rect the bubbles should avoid (agent bodies, name labels) */
@@ -166,8 +168,8 @@ export function drawBubbles(ctx: Ctx, items: BubbleItem[], viewW: number, viewH:
 function drawOne(ctx: Ctx, p: Placed): void {
   const b = p.item.bubble;
   ctx.save();
-  // fade out over the last couple of ticks
-  ctx.globalAlpha = Math.max(0.35, Math.min(1, 0.35 + b.ttl * 0.33));
+  // presenter fade (real time), else fade out over the last couple of ticks
+  ctx.globalAlpha = p.item.fade ?? Math.max(0.35, Math.min(1, 0.35 + b.ttl * 0.33));
   if (b.kind === 'thought') drawThought(ctx, p);
   else drawSpeech(ctx, p);
   ctx.restore();
@@ -251,4 +253,100 @@ function drawThought(ctx: Ctx, p: Placed): void {
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
   p.lines.forEach((l, i) => ctx.fillText(l, x + w / 2, y + PAD_Y + 2 + LINE_H * (i + 0.5)));
+}
+
+// ---------------------------------------------------------------- real-time presentation
+
+// The simulation keeps a bubble for `ttl` ticks, but a tick lasts 0.2 s in the sandbox and a whole
+// minute in the live view. The presenter decides in wall-clock time what is on screen: a bubble shows
+// from `at` (fraction of the tick it was said in), stays for its reading time and fades out; at fast
+// speeds each bubble is held at least MIN_SHOW_MS before a newer one replaces it or it disappears.
+
+/** a bubble stays at least this long (ms), so lines stay readable when ticks fly by */
+export const MIN_SHOW_MS = 1500;
+const FADE_MS = 450;
+
+/** how long (ms) a bubble stays on screen: a few seconds, longer for longer text */
+export function readingTimeMs(text: string): number {
+  return Math.max(3500, Math.min(9000, 2500 + text.length * 55));
+}
+
+interface Shown {
+  kind: Bubble['kind'];
+  text: string;
+  /** last seen ttl: a bubble with the same text but a higher ttl was said again */
+  ttl: number;
+  /** tick when the simulation bubble was first seen (its `at` applies only in that tick) */
+  tick: number;
+  /** performance.now() when it went on screen, null while waiting for `at` */
+  since: number | null;
+  /** copy drawn on screen (kept while lingering after the simulation dropped it) */
+  bubble: Bubble;
+}
+
+export interface BubblePresenter {
+  /** the bubble to draw for the agent now and its opacity, or null */
+  present(agentId: number, bubble: Bubble | null, tick: number, alpha: number, now: number): { bubble: Bubble; fade: number } | null;
+  /** forgets agents not in `ids` (another world / place) */
+  retain(ids: ReadonlySet<number>): void;
+  clear(): void;
+}
+
+export function createBubblePresenter(): BubblePresenter {
+  /** what each agent shows (or waits to show) */
+  const cur = new Map<number, Shown>();
+  /** a bubble said while the current one is still within MIN_SHOW_MS */
+  const next = new Map<number, Shown>();
+
+  const fresh = (b: Bubble, tick: number): Shown => ({ kind: b.kind, text: b.text, ttl: b.ttl, tick, since: null, bubble: { ...b } });
+  const same = (s: Shown | undefined, b: Bubble): boolean => !!s && s.kind === b.kind && s.text === b.text && b.ttl <= s.ttl;
+  const due = (s: Shown, tick: number, alpha: number): boolean => tick > s.tick || alpha >= (s.bubble.at ?? 0);
+  const maxShow = (s: Shown): number => (s.text === '…' ? Infinity : readingTimeMs(s.text));
+
+  return {
+    present(agentId, bubble, tick, alpha, now) {
+      const b = bubble && bubble.text ? bubble : null;
+      let s = cur.get(agentId);
+      if (b) {
+        if (same(s, b)) s!.ttl = b.ttl;
+        else {
+          const q = next.get(agentId);
+          if (same(q, b)) q!.ttl = b.ttl;
+          else next.set(agentId, fresh(b, tick));
+        }
+      } else if (s?.since == null) {
+        // gone before it ever showed
+        cur.delete(agentId);
+        s = undefined;
+      }
+      // promote the newer bubble once it is due and the current one had its minimum time
+      const q = next.get(agentId);
+      if (q && due(q, tick, alpha) && (!s || s.since === null || now - s.since >= MIN_SHOW_MS)) {
+        next.delete(agentId);
+        cur.set(agentId, (s = q));
+      }
+      if (!s) return null;
+      if (s.since === null) {
+        if (!due(s, tick, alpha)) return null;
+        s.since = now;
+      }
+      const age = now - s.since;
+      const live = !!b && same(s, b);
+      // the simulation dropped it (or moved on): linger for the minimum time, then fade out
+      const end = live ? maxShow(s) : Math.min(maxShow(s), Math.max(MIN_SHOW_MS, age));
+      if (age >= end) {
+        if (!live) cur.delete(agentId);
+        return null;
+      }
+      const fade = end === Infinity ? 1 : Math.max(0, Math.min(1, (end - age) / FADE_MS));
+      return { bubble: s.bubble, fade };
+    },
+    retain(ids) {
+      for (const m of [cur, next]) for (const id of [...m.keys()]) if (!ids.has(id)) m.delete(id);
+    },
+    clear() {
+      cur.clear();
+      next.clear();
+    },
+  };
 }

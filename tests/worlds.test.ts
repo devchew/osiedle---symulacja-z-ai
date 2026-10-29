@@ -8,6 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { snapshotWorld, DISK_SNAPSHOT, NETWORK_SNAPSHOT } from '../src/core/state';
 import { createProceduralProvider } from '../src/social/dialogueProvider';
 import { createWorld } from '../src/world/world';
+import { findGenderedForms } from '../src/social/diaryAi';
 import {
   MAX_CATCH_UP_TICKS,
   baseDayFor,
@@ -209,7 +210,7 @@ describe('live host', () => {
       if (x.highlight !== null) {
         expect(x.highlight.length).toBeGreaterThan(3);
         // no past-tense / gendered forms like "grał", "grała", "poszedł"
-        expect(x.highlight).not.toMatch(/\b\w+(ł|ła|li|ły)\b/u);
+        expect(findGenderedForms(x.highlight), x.highlight).toEqual([]);
       }
     }
     expect(s.some((x) => x.highlight)).toBe(true);
