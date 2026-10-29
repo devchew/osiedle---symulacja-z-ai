@@ -9,6 +9,7 @@ import { socialObjectBias, talkStatusFactor } from './groups';
 import { statusOf } from '../social/relationships';
 
 import { availability } from '../world/incidents';
+import { projectAppeal } from '../world/projects';
 
 // Utility AI: every candidate activity advertises how much it would reduce the
 // agent's "discomfort"; the agent picks one of the best few, weighted by score.
@@ -290,7 +291,7 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
       base = withGoal(base, socialObjectBias(world, agent, obj, def, calm), calm);
     }
     // broken objects, rain outside: caps every bonus too
-    base *= availability(world, obj, def);
+    base *= availability(world, obj, def) * projectAppeal(world, obj, def);
     if (base <= 0) continue;
     if (isSleepingObject(def) && own !== undefined) {
       if (obj.uid === own) base *= OWN_BED_BONUS;

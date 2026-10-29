@@ -1,4 +1,5 @@
 import type { ObjectDef, ObjectInstance, Vec2 } from '../types';
+import { PROJECT_DEFS } from './projects';
 
 // Effects are per tick (1 tick = 1 game minute), needs are 0..100.
 // Slot coordinates are relative to the object's top-left tile. Unless noted,
@@ -215,7 +216,7 @@ export const REPAIR_DEFS: Record<string, ObjectDef> = Object.fromEntries(
 );
 
 /** catalogue used by a running world: placeable objects plus their "being repaired" variants */
-export const WORLD_OBJECT_DEFS: Record<string, ObjectDef> = { ...OBJECT_DEFS, ...REPAIR_DEFS };
+export const WORLD_OBJECT_DEFS: Record<string, ObjectDef> = { ...OBJECT_DEFS, ...REPAIR_DEFS, ...PROJECT_DEFS };
 
 export function slotStandTile(obj: ObjectInstance, def: ObjectDef, i: number): Vec2 {
   const s = def.slots[i].stand;

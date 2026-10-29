@@ -17,6 +17,7 @@ import { createProceduralProvider } from '../social/dialogueProvider';
 import { updateMemories } from '../social/memory';
 import { tickDiary } from '../social/diary';
 import { initIncidents, tickIncidents } from './incidents';
+import { initProjects, tickProjects } from './projects';
 import { updateRelations } from '../social/relationships';
 import { tickGatherings } from '../agents/groups';
 
@@ -53,6 +54,7 @@ export function createWorld(seed = 1, opts: WorldOptions = {}): World {
   setMapId(world, mapDef.id);
   assignBeds(world);
   initIncidents(world);
+  initProjects(world);
   pushEvent(world, 'info', `Nowy dzień na osiedlu. Mieszkańcy: ${agents.map((a) => a.name).join(', ')}`, []);
   return world;
 }
@@ -84,6 +86,7 @@ export function tickWorld(world: World): void {
   }
   for (const agent of world.agents) updateAgent(world, agent, time);
   tickIncidents(world);
+  tickProjects(world);
   tickNews(world);
   updateMemories(world);
   tickConversations(world, time);
