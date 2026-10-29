@@ -120,7 +120,7 @@ function inviteKind(type: string, time: GameTime): GatheringKind | null {
   const h = hourOf(time);
   if (type === 'dining_table') return isMealTime(time) ? 'meal' : null;
   if (type === 'grill') return h >= 11 && h < 20 ? 'grill' : null;
-  if (type === 'tv') return h >= MOVIE_FROM && h < 21 ? 'movie' : null;
+  if (type === 'tv') return h >= MOVIE_FROM && h < 22 ? 'movie' : null;
   return null;
 }
 
@@ -174,6 +174,21 @@ function maybeInvite(world: World, agent: Agent, obj: ObjectInstance, time: Game
   if (!world.rng.chance(inviteChance(agent) * scale)) return;
   s.invites.push({ objectUid: obj.uid, hostId: agent.id, kind, until: world.tick + T.INVITE_WINDOW });
   agent.bubble = { kind: 'speech', text: world.rng.pick(INVITE_LINES[kind]), ttl: 25, tone: 'positive' };
+}
+
+/**
+ * `host` calls everyone to a gathering at `obj` right away (no chance roll), e.g. after fishing:
+ * "let's grill the fish". Returns false when the object hosts nothing now or is already invited to.
+ */
+export function callGathering(world: World, host: Agent, obj: ObjectInstance, text: string): boolean {
+  const kind = inviteKind(obj.type, timeFromTick(world.tick));
+  if (!kind) return false;
+  const s = store(world);
+  s.invites = s.invites.filter((i) => i.until > world.tick);
+  if (s.invites.some((i) => i.objectUid === obj.uid)) return false;
+  s.invites.push({ objectUid: obj.uid, hostId: host.id, kind, until: world.tick + GROUP_TUNING.INVITE_WINDOW, proposed: true });
+  host.bubble = { kind: 'speech', text, ttl: 25, tone: 'positive' };
+  return true;
 }
 
 /** active invitations (UI may show them) */

@@ -32,9 +32,16 @@ export const TOPICS: readonly string[] = TOPIC_DEFS.map((t) => t.name);
 
 const TOPIC_BY_NAME = new Map(TOPIC_DEFS.map((t) => [t.name, t]));
 
+/** about-forms for topics used only by joint activities (not picked at random, so no weights) */
+const EXTRA_ABOUT: Record<string, string> = {
+  wędkowanie: 'o wędkowaniu',
+  'gry na konsoli': 'o grach na konsoli',
+  planszówki: 'o planszówkach',
+};
+
 /** "o muzyce"; falls back to "o: <topic>" for unknown topics (e.g. LLM-chosen) */
 export function topicAbout(topic: string): string {
-  return TOPIC_BY_NAME.get(topic)?.about ?? `o: ${topic}`;
+  return TOPIC_BY_NAME.get(topic)?.about ?? EXTRA_ABOUT[topic] ?? `o: ${topic}`;
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));

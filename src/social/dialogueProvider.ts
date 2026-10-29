@@ -135,6 +135,79 @@ export const TOPIC_LINES: Record<string, ToneLines> = {
   },
 };
 
+// topics of chats during joint activities (agents/joint.ts sets them)
+TOPIC_LINES['wędkowanie'] = {
+  positive: ['Tu zawsze coś bierze, zobaczysz!', 'Cisza, woda… tego mi trzeba.', 'Złowimy dziś coś dużego!'],
+  neutral: ['Na co łowisz, na robaka?', 'Spławik ani drgnie.', 'Ryby chyba śpią {pora}.'],
+  negative: ['Żyłka znowu się plącze…', 'Komary gryzą bardziej niż ryby.', 'Same wodorosty, szkoda gadać.'],
+};
+TOPIC_LINES['gry na konsoli'] = {
+  positive: ['Ten zakręt to moja specjalność!', 'Gramy do skutku, nie?', 'Najlepszy wieczór od dawna!'],
+  neutral: ['Kto ma lepszy pad?', 'Zmieniamy postacie?', 'Jeszcze jedna runda i koniec.'],
+  negative: ['Pad mi się zacina, serio.', 'Ta gra jest niesprawiedliwa.', 'Znowu ten sam poziom…'],
+};
+TOPIC_LINES['planszówki'] = {
+  positive: ['Uwielbiam takie wieczory przy stole!', 'Jeszcze jedna partia?', 'Dobra karta, oj dobra!'],
+  neutral: ['Czyja teraz kolej?', 'Zapisuj punkty, proszę.', 'Hmm, muszę to przemyśleć.'],
+  negative: ['Ktoś tu chyba oszukuje…', 'Ech, ta kostka mnie nie lubi.', 'Nie znoszę przegrywać.'],
+};
+
+type JointKindKey = 'fishing' | 'console' | 'boardgame';
+/** topics of chats during joint activities (see agents/joint.ts JOINT_TOPIC) */
+const JOINT_TOPICS = new Set(['wędkowanie', 'gry na konsoli', 'planszówki']);
+
+/** bubbles for joint activities (agents/joint.ts): invitations, answers and game moments; no gendered forms */
+export const JOINT_LINES = {
+  invite: {
+    fishing: ['Kto idzie ze mną na ryby? 🎣', 'Wędki w dłoń, idziemy nad wodę!', 'Ryby biorą, chodźcie! 🎣'],
+    console: ['Kto gra na konsoli? 🎮', 'Turniej na konsoli, wchodzicie? 🎮', 'Pady czekają! Kto gra?'],
+    boardgame: ['Partyjka czegoś? 🎲', 'Kto zagra w karty? 🃏', 'Planszówka? Rozkładam! 🎲'],
+  } as Record<JointKindKey, string[]>,
+  accept: ['Wchodzę w to!', 'Jasne, już idę!', 'Pewnie, czemu nie!', 'Super pomysł!'],
+  refuseHungry: 'Najpierw coś zjem 🍽️',
+  refuseTired: 'Padam z nóg, innym razem',
+  refuseDirty: 'Muszę się najpierw umyć',
+  refuseBusy: ['Teraz nie mogę, coś kończę', 'Może później!', 'Daj mi skończyć, potem!'],
+  refuseMood: {
+    fishing: ['Nie dziś, ryby poczekają', 'Wędkowanie to nie dla mnie'],
+    console: ['Nie mam dziś ochoty na gry', 'Konsola? Może jutro'],
+    boardgame: ['Nie dziś, głowa mnie boli', 'Planszówki? Innym razem'],
+  } as Record<JointKindKey, string[]>,
+  start: {
+    fishing: ['Zarzucamy! 🎣', 'Kto pierwszy, ten lepszy!', 'Cisza, bo spłoszymy ryby!'],
+    console: ['Gramy! 🎮', 'Wybieram swoją postać!', 'Trzy, dwa, jeden, start!'],
+    boardgame: ['Rozdaję! 🃏', 'Kto zaczyna?', 'Zasady wszyscy znają?'],
+  } as Record<JointKindKey, string[]>,
+  alone: ['Nikt nie dochodzi… 😕', 'Trudno, solo też fajnie', 'No nic, to solo 🙂'],
+  laugh: ['Hahaha! 😂', 'Ale akcja! 😂', 'Nie mogę, ale śmiech!', 'Widzisz to? 😂'],
+  draw: ['Remis!', 'Nikt nie wygrywa, jeszcze raz!', 'Po równo!'],
+  lose: ['Rewanż!', 'Jeszcze jedna, teraz ja!', 'Dobra, tym razem twoje.'],
+  sore: ['To nie fair!', 'Laguje, to się nie liczy!', 'Ech, oszustwo…', 'Pad mi się zaciął!'],
+  grillCatch: ['Grillujemy złowione ryby! 🐟🔥', 'Ryby na grilla, kto głodny? 🔥', 'Rozpalam grilla, mamy rybki! 🐟'],
+  quarrel: ['To jest nieuczciwe!', 'Z tobą się nie da grać!', 'Mam dość, koniec gry!'],
+  fishing: {
+    catch: ['Mam! 🐟', 'Bierze! Bierze! 🐟', 'Jest ryba! 🐟', 'Patrz, płotka! 🐟'],
+    big: ['Ale sztuka! 🐟🐟', 'Potwór z głębin! 🐟', 'To rekord, serio! 🐟'],
+    miss: ['Ryba się zrywa…', 'Ech, ucieka mi!', 'Znowu tylko wodorost'],
+    wait: ['Cisza… nic nie bierze', 'Spławik ani drgnie', 'Cierpliwości…'],
+  },
+  console: {
+    win: {
+      race: ['Pierwsze miejsce! 🏁', 'Kto mnie dogoni? 🏎️', 'Meta! 🏁'],
+      football: ['Gooool! ⚽', 'Co za strzał! ⚽', 'Hat-trick! ⚽'],
+      fight: ['K.O.! 🥊', 'Kombo! 🥊', 'Wygrana runda! 🥊'],
+    } as Record<string, string[]>,
+    coopWin: ['Boss pokonany! 🗡️', 'Poziom zaliczony! ⭐', 'Razem damy radę! 🗡️'],
+    coopFail: ['Game over… 💀', 'Od checkpointu jeszcze raz', 'Ten boss jest za mocny!'],
+  },
+  board: {
+    chessMove: ['Szach!', 'Hmm, ciekawy ruch…', 'Ups, moja wieża…', 'Twój ruch'],
+    chessWin: ['Szach mat! ♟️', 'Mat w trzech ruchach! ♟️'],
+    cardsWin: ['Moje rozdanie! 🃏', 'As w rękawie! 🃏', 'Wygrana lewa! 🃏'],
+    euroWin: ['Hotel na Ateny! 🏨', 'Płać czynsz! 💸', 'Kupuję Wiedeń! 🎲', 'Bankrut! Nie ja! 💸'],
+  },
+};
+
 export const THINGS: readonly string[] = ['pilot', 'parasol', 'klucze', 'mój kubek', 'ładowarka', 'książka kucharska', 'nożyczki', 'czerwony szalik', 'konewka', 'pudełko z ciastkami'];
 
 const PORA: Record<DayPhase, string> = { morning: 'rano', day: 'dziś', evening: 'wieczorem', night: 'w nocy' };
@@ -252,6 +325,8 @@ export function gossipChance(ctx: ConversationContext, shared: boolean): number 
   const t = ctx.speaker.traits;
   let p = 0.24 + t.sociability * 0.14 + t.cheerfulness * 0.05;
   if (ctx.topic === 'plotki') p += 0.3;
+  // long hours side by side (fishing, cards, a console evening): plenty of time for stories
+  if (JOINT_TOPICS.has(ctx.topic)) p += 0.3;
   if (shared && ctx.topic === 'wspomnienia') p += 0.3;
   if (ctx.turn >= 2) p += 0.08; // mid-conversation, after the warm-up
   return clamp(p, 0.05, 0.8);
@@ -332,6 +407,8 @@ export function newsLine(tpl: string, headline: string, max = MAX_GOSSIP_LINE): 
 export function newsChance(ctx: ConversationContext): number {
   let p = 0.2 + ctx.speaker.traits.sociability * 0.06;
   if (ctx.topic === 'polityka' || ctx.topic === 'plotki') p += 0.2;
+  // between rounds / casts people chat about what they saw on TV, too
+  if (JOINT_TOPICS.has(ctx.topic)) p += 0.15;
   if (ctx.topic === 'pogoda' && ctx.news?.some((n) => n.startsWith('Pogoda:'))) p += 0.2;
   if (ctx.turn >= 2) p += 0.05;
   return clamp(p, 0.05, 0.5);

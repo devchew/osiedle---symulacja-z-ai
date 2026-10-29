@@ -17,6 +17,7 @@ import { createProceduralProvider } from '../social/dialogueProvider';
 import { onConversationEnd, recallFor } from '../social/memory';
 import { goalConversation, goalUseEnd, goalUseTick, updateGoal } from './goals';
 import { gatheringOf as gatheringOfAgent, noticeCompetition, onHeadingTo } from './groups';
+import { JOINT_CHATTINESS, JOINT_QUIET_BOOST, JOINT_TOPIC, jointGroups, jointMemberOf, noteFishingCast, onJointArrive, onJointHeadingTo, tickJoint } from './joint';
 
 const TALK_EFFECTS = { social: 0.7, fun: 0.12 };
 const APPROACH_TIMEOUT = 60;
@@ -103,7 +104,11 @@ function tryStart(world: World, agent: Agent, d: Decision, time: GameTime): bool
         label: `Idzie: ${def.name.toLowerCase()}`,
         icon: def.icon,
       };
-      if (!isSleepingObject(def)) onHeadingTo(world, agent, obj, time);
+      if (!isSleepingObject(def)) {
+        onHeadingTo(world, agent, obj, time);
+        // a console, a card table, fishing spots: maybe with friends (joint.ts)
+        onJointHeadingTo(world, agent, obj, time, endAction);
+      }
       return true;
     }
     case 'talk': {
@@ -260,11 +265,13 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
       if (a.phase === 'walking') {
         if (walk(world, agent) !== 'moving') {
           a.phase = 'using';
-          trace(world, agent, 'arrive', `${def.name}#${obj.uid} na ${a.ticksLeft} min`);
+          const together = onJointArrive(world, agent);
+          trace(world, agent, 'arrive', together ? `${def.name}#${obj.uid} — ${together}` : `${def.name}#${obj.uid} na ${a.ticksLeft} min`);
           usedFor.set(agent, 0);
           chatExtension.delete(agent);
-          a.label = def.verb;
+          if (!together) a.label = def.verb;
           agent.pos = slotUsePos(obj, def, a.slot);
+          if (obj.type === 'fishing_spot') noteFishingCast(world, agent, obj);
           agent.stats.objectsUsed++;
           rememberUse(agent, obj.type);
           if (isSleepingObject(def)) pushEvent(world, 'use', `${agent.name} idzie spać`, [agent.id]);
@@ -277,9 +284,11 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
       a.ticksLeft--;
       const used = (usedFor.get(agent) ?? 0) + 1;
       usedFor.set(agent, used);
-      let done = a.ticksLeft <= 0 || (used >= MIN_USE_BEFORE_SATISFIED && satisfied(agent, def));
+      // joint sessions share one end: nobody leaves because their own needs are met
+      const joint = jointMemberOf(world, agent);
+      let done = a.ticksLeft <= 0 || (!joint && used >= MIN_USE_BEFORE_SATISFIED && satisfied(agent, def));
       // mid-chat at a shared object: stay until the conversation wraps up (within reason)
-      if (done && !isSleepingObject(def) && !hasCriticalNeed(agent) && inAmbientChat(world, agent) && availability(world, obj, def) >= 0.5) {
+      if (done && !joint && !isSleepingObject(def) && !hasCriticalNeed(agent) && inAmbientChat(world, agent) && availability(world, obj, def) >= 0.5) {
         const ext = (chatExtension.get(agent) ?? 0) + 1;
         chatExtension.set(agent, ext);
         if (ext <= MAX_CHAT_EXTENSION) {
@@ -294,7 +303,8 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
       }
       if (done || (used >= MIN_USE_BEFORE_INTERRUPT && interruptedByNeed(agent, def))) {
         endAction(world, agent, a.ticksLeft <= 0 ? 'czas minął' : done ? 'potrzeby zaspokojone' : `przerwane: pilna potrzeba (${worstNeed(agent)})`);
-        if (!isSleepingObject(def)) onFinishUse(world, agent, def, done);
+        // a joint session has its own outcomes (catches, wins)
+        if (!isSleepingObject(def)) onFinishUse(world, agent, def, done && !joint);
       }
       return;
     }
@@ -469,7 +479,8 @@ function inThisConversation(world: World, agent: Agent, conv: Conversation): boo
   // ambient chats happen while both keep using a social object
   if (a?.kind === 'use' && a.phase === 'using') {
     const obj = objectByUid(world, a.objectUid);
-    return !!obj && !!world.objectDefs[obj.type].social;
+    // …and while playing / fishing together
+    return (!!obj && !!world.objectDefs[obj.type].social) || !!jointMemberOf(world, agent);
   }
   return false;
 }
@@ -576,6 +587,8 @@ export function tickConversations(world: World, time: GameTime): void {
  * sometimes start chatting on their own; a big table can hold several chats at once.
  */
 export function ambientChats(world: World): void {
+  // joint sessions (console, cards, fishing together) run first: they may end or wrap up chats
+  tickJoint(world, endAction);
   const busy = new Set(world.conversations.flatMap((c) => c.participants));
   const byObject = new Map<number, Agent[]>();
   const seated: Agent[] = [];
@@ -584,17 +597,24 @@ export function ambientChats(world: World): void {
     if (a?.kind !== 'use' || a.phase !== 'using' || busy.has(ag.id) || a.ticksLeft < MIN_TICKS_LEFT_FOR_CHAT) continue;
     const obj = objectByUid(world, a.objectUid);
     if (!obj || !world.objectDefs[obj.type].social) continue;
+    // players of a joint session chat as their own group (below), about the game
+    if (jointMemberOf(world, ag)) continue;
     byObject.set(obj.uid, [...(byObject.get(obj.uid) ?? []), ag]);
     seated.push(ag);
   }
-  const groups = [...byObject.values()];
+  const groups: { agents: Agent[]; topic?: string; boost?: number }[] = [...byObject.values()].map((agents) => ({ agents }));
+  for (const g of jointGroups(world)) {
+    // sociable players chat more; fishing is a quiet affair
+    const soc = g.agents.reduce((s, ag) => s + ag.traits.sociability, 0) / g.agents.length;
+    groups.push({ agents: g.agents, topic: JOINT_TOPIC[g.kind], boost: JOINT_CHATTINESS[g.kind] * Math.max(0.3, 1 + 0.6 * soc) * (g.quiet ? JOINT_QUIET_BOOST : 1) });
+  }
   // neighbouring seats of a gathering (grill + bench) form one group
   const gathered = seated.filter((ag) => gatheringOfAgent(world, ag.id));
-  if (gathered.length >= 2) groups.push(gathered);
+  if (gathered.length >= 2) groups.push({ agents: gathered });
   for (const group of groups) {
-    const free = group.filter((ag) => !busy.has(ag.id));
+    const free = group.agents.filter((ag) => !busy.has(ag.id));
     if (free.length < 2) continue;
-    const boost = (free.some((ag) => gatheringOfAgent(world, ag.id)) ? AMBIENT_GATHERING_FACTOR : 1) * (1 + AMBIENT_PER_EXTRA * (free.length - 2));
+    const boost = (group.boost ?? (free.some((ag) => gatheringOfAgent(world, ag.id)) ? AMBIENT_GATHERING_FACTOR : 1)) * (1 + AMBIENT_PER_EXTRA * (free.length - 2));
     if (!world.rng.chance(AMBIENT_CHAT_CHANCE * boost)) continue;
     const pairs: [Agent, Agent][] = [];
     const weights: number[] = [];
@@ -613,6 +633,8 @@ export function ambientChats(world: World): void {
     busy.add(x.id);
     busy.add(y.id);
     const conv = startConversation(nextConversationId(world), x, y, world.tick, world.rng, moodOf(world, x.id, y.id));
+    // players mostly talk about the game (sometimes about anything)
+    if (group.topic && world.rng.chance(0.6)) conv.topic = group.topic;
     world.conversations.push(conv);
     trace(world, x, 'conv-start', `przy okazji z ${y.name}, temat: ${conv.topic}, do ${conv.maxLines} kwestii`);
     trace(world, y, 'conv-start', `przy okazji z ${x.name}, temat: ${conv.topic}`);

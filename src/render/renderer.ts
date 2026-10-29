@@ -10,6 +10,7 @@ import { Lighting, lightStateAt } from './lighting';
 import { AGENT_SCALE, drawAgent, drawSelection, headTop, type AgentPose, type PoseMode } from './sprites';
 import { buildStaticLayer, staticSignature, type StaticLayer } from './tiles';
 import { WeatherFx, drawIncidentBadges, drawIncidents, weatherDim } from './weather';
+import { drawProjectBadges } from './projects';
 import { drawTvNews, drawTvScreens } from './tv';
 
 export interface Renderer {
@@ -53,7 +54,7 @@ function poseModeFor(type: string): PoseMode {
   if (/bath|tub|wann/.test(t)) return 'bath';
   if (/bike|rower/.test(t)) return 'pedal';
   if (/treadmill|bie[zż]ni/.test(t)) return 'run';
-  if (/sofa|couch|kanap|\btv\b|^tv|telewiz|bench|[lł]awk|table|st[oó][lł]|computer|desk|komput|piano|pianin|toilet|toalet|chair|krzes|fotel/.test(t)) return 'sit';
+  if (/sofa|couch|kanap|\btv\b|^tv|telewiz|bench|[lł]awk|table|st[oó][lł]|computer|desk|komput|piano|pianin|toilet|toalet|chair|krzes|fotel|altan/.test(t)) return 'sit';
   return 'stand';
 }
 
@@ -494,6 +495,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     c.globalAlpha = 1;
     weather.drawScreen(c, cam.viewW, cam.viewH);
     drawIncidentBadges(c, world, (x, y) => cam.toScreen(x, y), z, now);
+    drawProjectBadges(c, world, (x, y) => cam.toScreen(x, y), z, now);
     const tvPanels = drawTvNews(c, world, (x, y) => cam.toScreen(x, y), z, now, cam.viewW, cam.viewH);
     const ui = Math.max(0.85, Math.min(1.2, z / 34));
     const convOf = new Map<number, number>();

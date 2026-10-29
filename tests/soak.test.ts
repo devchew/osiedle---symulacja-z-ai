@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { runMetrics, type AgentMetrics, type RunMetrics } from './tools/metrics';
 import { GATHERING_RE } from './tools/metrics';
 import { NARRATION_PER_HOUR } from '../src/agents/narration';
@@ -31,6 +32,15 @@ const MAX_GATHERINGS_PER_HOUR = 3;
 /** pair statuses at the end of a week, per world of 6 */
 const MAX_COUPLES = 2;
 const MAX_RIVAL_PAIRS = 4;
+
+/** joint activities (agents/joint.ts): on average one per resident every two days or more (a quiet house a bit less), long ones */
+const MIN_JOINT_PER_RESIDENT_DAY = 0.6;
+const MIN_JOINT_PER_RESIDENT_DAY_SEED = 0.4;
+/** a loner may skip them for a week, but not most of the house */
+const MAX_RESIDENTS_WITHOUT_JOINT = 1;
+const MIN_JOINT_AVG_MINUTES = 60;
+/** joint activity log lines (their own channel next to gatherings) in any single game hour */
+const MAX_JOINT_PER_HOUR = 3;
 
 const QUIET = ['bookshelf', 'fishing_spot', 'computer', 'piano', 'flowerbed'];
 const EXERCISE = ['exercise_bike', 'treadmill'];
@@ -162,7 +172,10 @@ describe('soak: a week in the house', () => {
       expect(g.grill, `seed ${r.seed}`).toBeGreaterThan(0);
       expect(r.maxGatheringsPerHour, `seed ${r.seed}`).toBeLessThanOrEqual(MAX_GATHERINGS_PER_HOUR);
     }
-    expect(runs.some((r) => r.gatherings.movie > 0)).toBe(true);
+    // an evening together at the TV: a movie night or a group console session (the console shares the TV)
+    const eveningAtTv = (r: (typeof runs)[number]) =>
+      r.gatherings.movie > 0 || r.joint.some((j) => j.kind === 'console' && j.ids.length >= 2 && (j.start + 420) % 1440 >= 17 * 60);
+    expect(runs.some(eveningAtTv)).toBe(true);
   });
 
   it('relationships take shape: a few couples and rivals, mostly friendly', () => {
@@ -191,5 +204,60 @@ describe('soak: a week in the house', () => {
     expect(texts.length).toBeGreaterThan(0);
     for (const t of texts) expect(t, t).not.toMatch(/\p{L}+(ł|ła|ło|li|ły)\b/u);
   });
-});
 
+  it('residents do long things together: console, cards, fishing side by side', () => {
+    const rows: string[] = ['seed | sessions | called off | per resident/day | min per resident | avg min | console/board/fishing | players/session'];
+    const checks: (() => void)[] = [];
+    const perDays: number[] = [];
+    for (const r of runs) {
+      const per = new Map<number, number>(r.agents.map((a) => [a.id, 0]));
+      for (const j of r.joint) for (const id of j.ids) per.set(id, (per.get(id) ?? 0) + 1);
+      const counts = [...per.values()];
+      const perDay = counts.reduce((s, n) => s + n, 0) / counts.length / DAYS;
+      const avgMin = mean(r.joint.map((j) => j.minutes));
+      const by = (k: string) => r.joint.filter((j) => j.kind === k).length;
+      rows.push(
+        `${r.seed} | ${r.joint.length} | ${r.jointCalledOff} | ${perDay.toFixed(2)} | ${Math.min(...counts)} | ${avgMin.toFixed(0)} | ${by('console')}/${by('boardgame')}/${by('fishing')} | ${mean(r.joint.map((j) => j.ids.length)).toFixed(1)}`,
+      );
+      perDays.push(perDay);
+      checks.push(() => {
+        expect(perDay, `seed ${r.seed}`).toBeGreaterThanOrEqual(MIN_JOINT_PER_RESIDENT_DAY_SEED);
+        expect(counts.filter((n) => n === 0).length, `seed ${r.seed}`).toBeLessThanOrEqual(MAX_RESIDENTS_WITHOUT_JOINT);
+        expect(avgMin, `seed ${r.seed}`).toBeGreaterThanOrEqual(MIN_JOINT_AVG_MINUTES);
+        for (const j of r.joint) expect(j.ids.length, `seed ${r.seed} ${j.text}`).toBeGreaterThanOrEqual(2);
+        expect(r.maxJointPerHour, `seed ${r.seed}`).toBeLessThanOrEqual(MAX_JOINT_PER_HOUR);
+      });
+    }
+    mkdirSync('test-results', { recursive: true });
+    writeFileSync('test-results/soak-joint.txt', rows.join('\n') + '\n');
+    for (const c of checks) c();
+    expect(mean(perDays)).toBeGreaterThanOrEqual(MIN_JOINT_PER_RESIDENT_DAY);
+  });
+
+  it('joint activities follow personality: quiet ones for introverts, a crowded console for extroverts', () => {
+    const agents = allAgents();
+    const intro = agents.filter((a) => a.traits.sociability < -0.3);
+    const extro = agents.filter((a) => a.traits.sociability > 0.3);
+    const sessionsOf = (a: AgentMetrics) => runs.find((r) => r.agents.includes(a))!.joint.filter((j) => j.ids.includes(a.id));
+    const quietShare = (as: AgentMetrics[]) => {
+      const js = as.flatMap(sessionsOf);
+      return js.filter((j) => j.kind !== 'console').length / Math.max(1, js.length);
+    };
+    // the size of the group someone gathers: extroverts call more people
+    const hostedSize = (as: AgentMetrics[]) => mean(runs.flatMap((r) => r.joint.filter((j) => as.some((a) => a.id === j.hostId && r.agents.includes(a)))).map((j) => j.ids.length));
+    expect(quietShare(intro)).toBeGreaterThan(quietShare(extro));
+    expect(hostedSize(extro)).toBeGreaterThan(hostedSize(intro));
+    const consoleSize = mean(runs.flatMap((r) => r.joint.filter((j) => j.kind === 'console').map((j) => j.ids.length)));
+    const quietSize = mean(runs.flatMap((r) => r.joint.filter((j) => j.kind !== 'console').map((j) => j.ids.length)));
+    expect(consoleSize).toBeGreaterThan(quietSize);
+  });
+
+  it('joint activity log lines are Polish without gendered past tense', () => {
+    const texts = runs.flatMap((r) => r.joint.map((j) => j.text));
+    expect(texts.length).toBeGreaterThan(0);
+    for (const t of texts) {
+      expect(t, t).toMatch(/^Wspóln[aey] /);
+      expect(t, t).not.toMatch(/\p{L}+(ł|ła|ło|li|ły)\b/u);
+    }
+  });
+});

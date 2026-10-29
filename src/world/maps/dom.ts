@@ -170,6 +170,14 @@ export function createDefaultMap(): MapData {
   ];
   for (const [x, y] of bushes) put('bush', x, y);
 
+  // games (joint activities): a console corner behind the sofa, a card table in the kitchen,
+  // and more fishing spots next to the old ones so two or three can fish side by side
+  put('console', 15, 16);
+  put('board_game_table', 25, 14);
+  put('fishing_spot', 33, 17);
+  put('fishing_spot', 35, 17);
+  put('fishing_spot', 37, 13);
+
   const spawnPoints: Vec2[] = [
     { x: 15, y: 12 }, { x: 18, y: 13 }, { x: 23, y: 14 }, { x: 26, y: 15 }, { x: 18, y: 15 },
     { x: 10, y: 13 }, { x: 30, y: 13 }, { x: 35, y: 19 }, { x: 4, y: 14 }, { x: 25, y: 13 },

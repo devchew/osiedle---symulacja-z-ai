@@ -17,6 +17,7 @@ import { createSavePanel } from './ui/savePanel';
 import { createNewWorldDialog } from './ui/newWorld';
 import { createStatsPanel } from './ui/statsPanel';
 import { createDiaryPanel } from './ui/diary';
+import { createProjectsPanel } from './ui/projects';
 import { toast } from './ui/toast';
 import { isTypingTarget } from './ui/dom';
 import type { RelationOfFn, WeatherOfFn } from './ui/extras';
@@ -25,6 +26,7 @@ import { relationOf } from './social/relationships';
 import { weatherOf } from './world/incidents';
 import { formatTrace } from './world/trace';
 import { setDiaryAiEnabled } from './social/diary';
+import { projectsOf } from './world/projects';
 
 // adapters from the simulation's views to the UI's small interfaces (ui/extras.ts)
 /** statuses worth an icon on the relationship network (the rest is shown by colour / thickness) */
@@ -97,6 +99,7 @@ async function main(): Promise<void> {
       if (open) {
         stats.setOpen(false);
         diary.setOpen(false);
+        projects.setOpen(false);
       }
     },
   });
@@ -113,6 +116,7 @@ async function main(): Promise<void> {
       if (open) {
         savePanel.setOpen(false);
         diary.setOpen(false);
+        projects.setOpen(false);
       }
     },
   });
@@ -123,9 +127,25 @@ async function main(): Promise<void> {
       if (open) {
         stats.setOpen(false);
         savePanel.setOpen(false);
+        projects.setOpen(false);
       }
     },
     onUnreadChange: (n) => hud.setBadge('diary', n > 0, n ? `nowe wpisy (${n})` : undefined),
+  });
+  // building projects (B): the gazebo under construction, progress, crew, milestones
+  const projects = createProjectsPanel(world, {
+    onSelectAgent: (id) => {
+      if (matchMedia('(max-width: 720px)').matches) projects.setOpen(false);
+      select(id);
+    },
+    onToggle: (open) => {
+      hud.setActive('projects', open);
+      if (open) {
+        stats.setOpen(false);
+        savePanel.setOpen(false);
+        diary.setOpen(false);
+      }
+    },
   });
 
   const hud = createHud(document.getElementById('hud')!, controls, world, {
@@ -133,6 +153,7 @@ async function main(): Promise<void> {
     buttons: [
       { id: 'stats', icon: '📊', title: 'Statystyki (T)', onClick: () => stats.setOpen(!stats.isOpen) },
       { id: 'diary', icon: '📔', title: 'Pamiętniki (P)', onClick: () => (diary.isOpen ? diary.setOpen(false) : diary.openOverview()) },
+      { id: 'projects', icon: '🔨', title: 'Projekty budowlane (B)', onClick: () => projects.setOpen(!projects.isOpen) },
       { id: 'save', icon: '💾', title: 'Zapis i wczytanie (Z)', onClick: () => savePanel.setOpen(!savePanel.isOpen) },
     ],
   });
@@ -176,6 +197,22 @@ async function main(): Promise<void> {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
+  // toasts for project milestones (proposal, stage changes, completion) from now on (not the replayed past)
+  const seenMilestones = new Map(projectsOf(world).map((p) => [p.id, p.milestones.length] as const));
+  function projectToasts(): void {
+    const all = projectsOf(world);
+    for (const p of all) {
+      const seen = seenMilestones.get(p.id) ?? 0;
+      const fresh = p.milestones.length - seen;
+      if (fresh <= 0) continue;
+      seenMilestones.set(p.id, p.milestones.length);
+      // milestones are capped (oldest dropped): show at most the newest two
+      for (const m of p.milestones.slice(-Math.min(fresh, 2))) toast(`${p.icon} ${m.text}`);
+    }
+    const building = all.find((p) => p.status === 'building');
+    hud.setBadge('projects', !!building && building.workerIds.length > 0, building ? `${building.short}: ${Math.floor(building.progress * 100)}%` : undefined);
+  }
+
   let diaryAi = false;
   let lastAutosaveHour = Math.floor(world.tick / 60);
   setInterval(() => {
@@ -184,6 +221,8 @@ async function main(): Promise<void> {
     log.update();
     stats.update();
     diary.update();
+    projects.update();
+    projectToasts();
     // diary entries rewritten by AI follow the dialogue toggle
     if (!!llm?.enabled !== diaryAi) {
       diaryAi = !!llm?.enabled;
@@ -212,6 +251,8 @@ async function main(): Promise<void> {
     stats,
     savePanel,
     diary,
+    projects,
+    projectList: () => projectsOf(world),
     trace: (agentId) => formatTrace(world, agentId),
   };
 
@@ -233,6 +274,9 @@ declare global {
       stats: ReturnType<typeof createStatsPanel>;
       savePanel: ReturnType<typeof createSavePanel>;
       diary: ReturnType<typeof createDiaryPanel>;
+      projects: ReturnType<typeof createProjectsPanel>;
+      /** building projects (world/projects), for tests and debugging */
+      projectList: () => ReturnType<typeof projectsOf>;
       /** detailed activity trace as text (optionally one agent) */
       trace: (agentId?: number) => string;
       /** set once /api/llm/status has answered */

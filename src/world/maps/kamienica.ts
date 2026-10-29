@@ -208,6 +208,10 @@ export function createKamienicaMap(): MapData {
   // street trees
   for (const x of [4, 14, 30, 40, 47]) put('tree', x, 33);
 
+  // games in the residents' club (joint activities): a console by the south wall, a card table
+  put('console', 6, 30);
+  put('board_game_table', 18, 28);
+
   const spawnPoints: Vec2[] = [
     { x: 7, y: 9 }, { x: 22, y: 9 }, { x: 37, y: 9 }, { x: 15, y: 17 }, { x: 28, y: 16 },
     { x: 34, y: 18 }, { x: 10, y: 28 }, { x: 30, y: 27 }, { x: 6, y: 14 }, { x: 43, y: 15 },

@@ -7,6 +7,7 @@ import { chatAcceptanceChance } from '../social/conversation';
 import { goalObjectBias, goalTalkBias, type GoalBias } from './goals';
 import { socialObjectBias, talkStatusFactor } from './groups';
 import { statusOf } from '../social/relationships';
+import { jointBlocksChat, jointKindOf, jointMemberOf, jointObjectBias } from './joint';
 
 import { availability } from '../world/incidents';
 import { projectAppeal } from '../world/projects';
@@ -159,6 +160,18 @@ function withGoal(score: number, bias: GoalBias, calm: number): number {
   return bias.add === 0 && bias.mult === 1 ? score : score * bias.mult + bias.add * calm;
 }
 
+/** appeal of leisure in the evening (18–22) even when needs are met: films, games, books, talks */
+const EVENING_LEISURE = 6;
+
+function eveningLeisure(agent: Agent, def: ObjectDef, time: GameTime): number {
+  if (time.hour < 18 || time.hour >= 22 || agent.needs.energy <= 30) return 0;
+  const tags = def.tags ?? [];
+  if (isSleepingObject(def) || tags.includes('food') || tags.includes('repair')) return 0;
+  if (tags.includes('outdoor') && time.hour >= 20) return 0;
+  const leisure = (def.effects.fun ?? 0) > 0 || (def.effects.social ?? 0) > 0;
+  return leisure ? EVENING_LEISURE : 0;
+}
+
 function scoreObject(agent: Agent, def: ObjectDef, time: GameTime): number {
   const dur = averageDuration(def);
   const tags = def.tags ?? [];
@@ -172,6 +185,7 @@ function scoreObject(agent: Agent, def: ObjectDef, time: GameTime): number {
     if (k === 'hunger' && meal) v = Math.max(0, v - MEAL_HUNGER_BONUS);
     score += e > 0 ? relief(v, e * dur) * NEED_WEIGHT[k] : -costOf(v, e * dur) * NEED_WEIGHT[k] * COST_WEIGHT;
   }
+  score += eveningLeisure(agent, def, time);
   if (score <= 0) return 0;
 
   // personality matters for leisure; an urgent need overrides taste
@@ -189,7 +203,8 @@ function scoreObject(agent: Agent, def: ObjectDef, time: GameTime): number {
     const night = h >= 22 || h < 6;
     const evening = h >= 20 && h < 22;
     if (night) score *= agent.needs.energy < 85 ? 2.5 : 1;
-    else if (evening) score *= 1.3;
+    // evenings are for films, games and talks: bed only when really tired
+    else if (evening) score *= agent.needs.energy < 25 ? 1.3 : agent.needs.energy < 40 ? 0.3 : 0.08;
     // daytime naps only when really tired; otherwise a rested-enough bed beats idling
     else if (agent.needs.energy > NAP_ENERGY) return 0;
     // take care of a pressing need before turning in, unless exhausted
@@ -222,8 +237,12 @@ export function canChat(other: Agent, world: World): boolean {
   if (hasCriticalNeed(other)) return false;
   // already chatting (also a chat "on the side" at a table or bench)
   if (world.conversations.some((c) => c.participants.includes(other.id))) return false;
+  // on the way to a joint session, or one about to end: no new chats with its players
+  if (jointBlocksChat(world, other)) return false;
   if (!a) return true;
   if (a.kind === 'talk') return false;
+  // running for shelter from the rain (world/incidents.ts): not now
+  if (a.kind === 'wander' && a.icon === '☔') return false;
   if (a.kind === 'use') {
     const obj = world.objects.find((o) => o.uid === a.objectUid);
     const def = obj && world.objectDefs[obj.type];
@@ -246,6 +265,9 @@ export interface Engagement {
 export function engagement(world: World, agent: Agent): Engagement {
   const a = agent.action;
   if (a?.kind !== 'use' || a.phase !== 'using') return { acceptFactor: 1, chatInPlace: false, busyWith: null };
+  // in the middle of a game / fishing with friends: a chat right there at most
+  const joint = jointMemberOf(world, agent);
+  if (joint) return { acceptFactor: 0.4, chatInPlace: true, busyWith: joint.label };
   const obj = world.objects.find((o) => o.uid === a.objectUid);
   const def = obj && world.objectDefs[obj.type];
   if (!def) return { acceptFactor: 1, chatInPlace: false, busyWith: null };
@@ -289,9 +311,11 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
       base = withGoal(base, goalObjectBias(world, agent, obj, time), calm);
       // invitations, a partner's company, a rival's presence
       base = withGoal(base, socialObjectBias(world, agent, obj, def, calm), calm);
+      // friends to play / fish with (and sessions in progress)
+      if (jointKindOf(obj.type)) base = withGoal(base, jointObjectBias(world, agent, obj, time), calm);
     }
     // broken objects, rain outside: caps every bonus too
-    base *= availability(world, obj, def) * projectAppeal(world, obj, def);
+    base *= availability(world, obj, def) * projectAppeal(world, obj, def, agent);
     if (base <= 0) continue;
     if (isSleepingObject(def) && own !== undefined) {
       if (obj.uid === own) base *= OWN_BED_BONUS;

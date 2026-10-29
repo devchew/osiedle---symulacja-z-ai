@@ -44,3 +44,7 @@
 | 2026-10-29 | Pamiętniki: fakty dnia zbierane przyrostowo z trace i zdarzeń; wpis przy położeniu się na noc (≥19:00, ≥180 min snu) lub o 23:30; dzień pamiętnika od 05:00; 60 dni/postać | wpis zgodny z tym, co naprawdę się wydarzyło |
 | 2026-10-29 | Wpisy proceduralne z własnym RNG `diarySeed(seed, agent, day)`, tylko odczyt stanu; replay odtwarza wpisy; detektor form z rodzajem w testach | determinizm, symulacja nietknięta, polszczyzna bez rodzaju |
 | 2026-10-29 | AI pamiętników przez ten sam proxy i budżet co dialogi, max 1 próba/postać/dzień, odmowa przy ≤ max(20, 15%) budżetu, ścisła walidacja wyniku | dialogi mają pierwszeństwo, każdy błąd = wpis proceduralny |
+| 2026-10-29 | Wspólne zajęcia (`agents/joint.ts`) nad zwykłymi akcjami `use`: wspólny koniec, wyjście tylko przy krytycznej potrzebie/deszczu | długie zajęcia razem zamiast krótkich solo |
+| 2026-10-29 | Projekty: etapy jako typy obiektów (przebudowa warstwy statycznej), własny RNG, praca 8–19 bez deszczu, tempo przez mnożnik harmonogramu | budowa altany ~2 tygodnie bez zmian w agentach |
+| 2026-10-29 | Wieczory: energia 22 h, łóżko 20–22 ×0,08 przy energii > 40, premia wypoczynku 18–22 | wcześniej wszyscy spali od ~20:30, wieczorów nie było |
+| 2026-10-29 | Kierunek produktu: 4 stałe światy na żywo na serwerze (24/7, Europe/Warsaw), sandbox = kopia stanu w sesji, realne tempo ruchu; kronika/„ostatnie 24 h” później | decyzja użytkownika |

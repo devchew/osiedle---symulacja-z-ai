@@ -40,6 +40,7 @@ export const HELP_KEYS: [string, string][] = [
   ['T', 'statystyki: relacje, nastrój'],
   ['Z', 'zapis, wczytanie, link'],
   ['P', 'pamiętniki mieszkańców (← → dni)'],
+  ['B', 'projekty budowlane (altana, warzywnik)'],
   ['N', 'nowy świat'],
   ['L', 'pobierz log aktywności (.txt)'],
   ['przeciągnij', 'przesuń widok'],

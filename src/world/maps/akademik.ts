@@ -182,6 +182,10 @@ export function createAkademikMap(): MapData {
   const bushes: [number, number][] = [[3, 22], [42, 22], [21, 22], [26, 22], [6, 29], [39, 29], [2, 14], [43, 16]];
   for (const [x, y] of bushes) put('bush', x, y);
 
+  // games in the common room (joint activities): console under the south wall, a card table
+  put('console', 19, 19);
+  put('board_game_table', 28, 16);
+
   const spawnPoints: Vec2[] = [
     { x: 7, y: 10 }, { x: 13, y: 11 }, { x: 24, y: 10 }, { x: 30, y: 11 }, { x: 39, y: 11 },
     { x: 22, y: 18 }, { x: 12, y: 15 }, { x: 34, y: 17 }, { x: 23, y: 23 }, { x: 33, y: 25 },

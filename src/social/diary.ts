@@ -8,6 +8,7 @@ import { statusOf, type RelationStatus } from './relationships';
 import { agentMemories } from './memory';
 import { newsFor } from '../world/news';
 import { weatherOf, type WeatherKind } from '../world/incidents';
+import { projectDayFacts, type ProjectDayFact } from '../world/projects';
 import { topicAbout } from './conversation';
 import { describeTraits } from './llmProvider';
 import { createDiaryAiClient, DiaryAiError, type DiaryAiClient, type DiaryAiClientOptions, type LlmDiaryRequest } from './diaryAi';
@@ -107,6 +108,8 @@ export interface DiaryFacts {
   mood: { start: number; end: number; min: number; max: number; minPart: DayPart | null };
   /** needs that dropped very low while awake */
   lowNeeds: NeedKey[];
+  /** building projects: work done today, stages finished, proposal, completion (world/projects) */
+  projects?: ProjectDayFact[];
   /** how the writer feels about the people met today (strongest first) */
   feelings: { with: string; status: RelationStatus; sympathy: number }[];
 }
@@ -541,6 +544,7 @@ function buildFacts(world: World, s: DiaryState, agent: Agent, b: Bucket, late: 
     },
     lowNeeds: [...b.lowNeeds],
     feelings,
+    projects: projectDayFacts(world, agent.id, b.day),
   };
 }
 
@@ -686,7 +690,8 @@ const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const ACT_NOUN: Record<string, string> = {
   fishing_spot: 'wędkowanie', bookshelf: 'książka', computer: 'gry na komputerze', piano: 'pianino', exercise_bike: 'rowerek',
   treadmill: 'bieżnia', tv: 'telewizja', bench: 'ławka w ogrodzie', flowerbed: 'praca w ogródku', bathtub: 'kąpiel w wannie',
-  shower: 'prysznic', nap: 'drzemka', repair: 'naprawy', grill: 'grill', stove: 'gotowanie',
+  shower: 'prysznic', nap: 'drzemka', repair: 'naprawy', grill: 'grill', stove: 'gotowanie', altana: 'altana w ogrodzie',
+  warzywnik: 'praca w warzywniku', console: 'granie na konsoli', board_game_table: 'planszówki',
 };
 const ACT_VERB: Record<string, readonly string[]> = {
   fishing_spot: ['Łowię ryby na pomoście', 'Siedzę z wędką nad wodą', 'Moczę kij w jeziorze'],
@@ -703,14 +708,19 @@ const ACT_VERB: Record<string, readonly string[]> = {
   repair: ['Majstruję przy naprawie', 'Zajmuję się naprawą'],
   grill: ['Stoję przy grillu', 'Grilluję w ogrodzie'],
   stove: ['Gotuję', 'Pichcę coś w kuchni'],
+  altana: ['Odpoczywam w altanie', 'Siedzę w altanie w ogrodzie'],
+  warzywnik: ['Pielę warzywnik', 'Doglądam grządek w warzywniku'],
+  console: ['Gram na konsoli', 'Siedzę z padem przed telewizorem'],
+  board_game_table: ['Gram w planszówki', 'Siedzę nad planszą i kartami'],
 };
 const ACT_ICON: Record<string, string> = {
   fishing_spot: '🎣', bookshelf: '📖', computer: '🎮', piano: '🎹', exercise_bike: '🚴', treadmill: '🏃', tv: '📺', bench: '🪑',
-  flowerbed: '🌷', bathtub: '🛁', nap: '💤', repair: '🔧', grill: '🌭', stove: '🍳',
+  flowerbed: '🌷', bathtub: '🛁', nap: '💤', repair: '🔧', grill: '🌭', stove: '🍳', altana: '🛖', warzywnik: '🥕',
+  console: '🎮', board_game_table: '🎲',
 };
 const EXERCISE = new Set(['exercise_bike', 'treadmill']);
-const LOUNGE = new Set(['tv', 'bench', 'nap']);
-const QUIET = new Set(['bookshelf', 'fishing_spot', 'piano', 'flowerbed', 'computer']);
+const LOUNGE = new Set(['tv', 'bench', 'nap', 'altana']);
+const QUIET = new Set(['bookshelf', 'fishing_spot', 'piano', 'flowerbed', 'computer', 'warzywnik']);
 const HYGIENE = new Set(['bathtub', 'shower']);
 const SUMMARY_SKIP = new Set(['toilet', 'sink', 'fridge', 'dining_table', 'stove', 'grill']);
 const MEAL_ORDER: MealFact['kind'][] = ['śniadanie', 'obiad', 'kolacja', 'przekąska'];
@@ -936,6 +946,29 @@ const GOAL_PARTNER: Record<'friend' | 'reconcile' | 'meet', { done: readonly str
   },
 };
 
+// building projects (world/projects): {A} accusative, {G} genitive, {L} locative, {D} duration, {W} co-workers
+const PROJECT_PROPOSE: Pools = {
+  pos: ['Proponuję wszystkim: budujemy razem {A}! Już nie mogę się doczekać.', 'Rzucam hasło: wspólnie budujemy {A}. Będzie pięknie!'],
+  neu: ['Proponuję wspólną budowę. Cel: {N} w ogrodzie. Zobaczymy, kto pomoże.', 'Pora na coś nowego — proponuję, by razem zrobić {A}.'],
+  neg: ['Proponuję, by razem zrobić {A}. Ciekawe, czy ktoś w ogóle ruszy palcem.'],
+};
+const PROJECT_WORK_WITH = [
+  'Pracuję przy {L} — {D}, razem z: {W}.',
+  '{D} przy budowie {G}. Ekipa dnia: {W} i ja.',
+  'Budowa {G} idzie do przodu: {D} pracy, a obok mnie {W}.',
+];
+const PROJECT_WORK_ALONE: Pools = {
+  pos: ['Pracuję przy {L} — {D}, tym razem w pojedynkę. To też daje radość.', '{D} przy budowie {G}: tylko ja, deski i gwoździe.'],
+  neu: ['Pracuję przy {L} — {D}, bez towarzystwa.', '{D} przy budowie {G}, w pojedynkę.'],
+  neg: ['Pracuję przy {L} — {D}, i to w pojedynkę. Gdzie reszta?', '{D} przy budowie {G}. Cała robota na mojej głowie, nikt nie pomaga.'],
+};
+const PROJECT_STAGE = ['Kończymy etap: {S}! Coraz bliżej celu 💪', 'Etap „{S}” za nami. Widać postęp!', 'Następny etap: {S} — zrobione!'];
+const PROJECT_DONE = [
+  '{N} gotowa! Ekipa: {C}. Co za radość 🎉',
+  'Udało się — {n} stoi gotowa! Ekipa: {C}. Świętujemy 🎉',
+];
+const PROJECT_DONE_M = ['{N} gotowy! Ekipa: {C}. Co za radość 🎉', 'Udało się — {n} gotowy! Ekipa: {C}. Świętujemy 🎉'];
+
 const NEWS = ['W telewizji: „{H}”.', 'W telewizji mówią: „{H}”.', 'Z wiadomości: „{H}”.'];
 
 const BROKE: Pools = {
@@ -1128,6 +1161,24 @@ function composeDiaryInternal(facts: DiaryFacts, persona: DiaryPersona, seed: nu
     if (key) add(0, 35, w.toned(HIGHLIGHT_COMMENT[key]));
   }
   for (const m of facts.moments.slice(0, 2)) add(0, 70, m);
+  for (const p of facts.projects ?? []) {
+    const vars = { A: p.accusative, G: p.genitive, L: p.locative, N: cap(p.name), n: p.name };
+    if (p.proposed) add(0, 80, fill(w.toned(PROJECT_PROPOSE), vars));
+    if (p.minutes >= 15) {
+      const tpl = p.with.length ? w.pick(PROJECT_WORK_WITH) : w.toned(PROJECT_WORK_ALONE);
+      add(0, 74, fill(tpl, { ...vars, D: duration(p.minutes), W: joinList(p.with.slice(0, 3)) }));
+    }
+    const st = p.stages[p.stages.length - 1];
+    if (st && !p.finished) add(0, 78, fill(w.pick(PROJECT_STAGE), { S: st }));
+    if (p.finished) {
+      const crew = p.crew.map((c) => (c === facts.name ? 'ja' : c));
+      // "ja" last: "Ola, Bartek i ja"
+      const ordered = [...crew.filter((c) => c !== 'ja'), ...crew.filter((c) => c === 'ja')];
+      const pool = p.kindId === 'altana' ? PROJECT_DONE : PROJECT_DONE_M;
+      add(0, 92, fill(w.pick(pool), { ...vars, C: joinList(ordered) }));
+    }
+    if (p.proposed || p.minutes >= 15 || p.finished) tag(p.finished ? '🎉' : '🔨');
+  }
   if (facts.moments.some((m) => m.includes('🐟'))) tag('🐟');
 
   const wx = facts.weather;
@@ -1330,6 +1381,12 @@ export function diaryFactLines(f: DiaryFacts): string[] {
   for (const a of f.broke) out.push(`awaria z mojej winy: psuję ${a}`);
   for (const a of f.fixed) out.push(`naprawa: naprawiam ${a}`);
   for (const m of f.moments) out.push(`chwila dnia: ${m}`);
+  for (const p of f.projects ?? []) {
+    if (p.proposed) out.push(`moja propozycja: wspólna budowa — ${p.name}`);
+    if (p.minutes >= 15) out.push(`pracuję przy ${p.locative} (${p.minutes} min${p.with.length ? `, z: ${p.with.join(', ')}` : ', w pojedynkę'})`);
+    for (const st of p.stages) out.push(`budowa (${p.name}): etap ${st} — gotowe`);
+    if (p.finished) out.push(`${p.name} — budowa ukończona, ekipa: ${p.crew.join(', ')}`);
+  }
   const NEED: Partial<Record<NeedKey, string>> = { hunger: 'silny głód', energy: 'duże zmęczenie', social: 'samotność', hygiene: 'potrzeba prysznica' };
   const needs = f.lowNeeds.map((k) => NEED[k]).filter(Boolean);
   if (needs.length) out.push(`w ciągu dnia: ${needs.join(', ')}`);

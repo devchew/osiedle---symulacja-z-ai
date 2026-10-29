@@ -5,6 +5,7 @@ import type { Agent, NeedKey, Traits, World } from '../../src/types';
 import { timeFromTick } from '../../src/core/time';
 import { goalHistory, type GoalRecord } from '../../src/agents/goals';
 import { gatheringTotals, type GatheringKind } from '../../src/agents/groups';
+import { jointLog, type JointRecord } from '../../src/agents/joint';
 import { REL_TUNING, chemistry, relationStats, statusOf as relationStatus, type RelationStatus } from '../../src/social/relationships';
 
 export interface AgentMetrics {
@@ -57,6 +58,12 @@ export interface RunMetrics {
   maxGatheringsPerHour: number;
   /** gatherings logged during the run, per kind */
   gatherings: Record<GatheringKind, number>;
+  /** joint activities (agents/joint.ts) that took place: console, card table, fishing together */
+  joint: JointRecord[];
+  /** joint sessions called off (nobody came, rain…) */
+  jointCalledOff: number;
+  /** max number of joint activity log lines in any single game hour */
+  maxJointPerHour: number;
   /** pair statuses at the end of the run */
   statuses: Record<RelationStatus, number>;
   /** distinct pairs that were a couple / rivals-or-enemies at some point (sampled hourly) */
@@ -78,6 +85,8 @@ export interface RunMetrics {
 export const GATHERING_RE = /^(Wspólny|Wspólne|Wspólna|Wieczór filmowy)/;
 /** evening TV gatherings */
 export const MOVIE_NIGHT_RE = /^Wieczór filmowy/;
+/** log lines of joint activities (agents/joint.ts): "Wspólne granie (…)", "Wspólna gra (…)", "Wspólne wędkowanie …" */
+export const JOINT_RE = /^(Wspólne granie|Wspólna gra|Wspólne wędkowanie)/;
 
 function pairsOf(world: World): [number, number][] {
   const ids = world.agents.map((a) => a.id);
@@ -131,6 +140,7 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
   const goalsPerHour = new Map<number, number>();
   const storiesPerHour = new Map<number, number>();
   const gatheringsPerHour = new Map<number, number>();
+  const jointPerHour = new Map<number, number>();
   const everCouples = new Set<string>();
   const everRivals = new Set<string>();
   const everRomance = new Set<string>();
@@ -198,6 +208,12 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
         const h = Math.floor(world.tick / 60);
         // world incidents (weather, breakdowns, repairs; src/world/incidents.ts) have their own budget
         if (e.agentIds.length === 0 || /🔧|🧰/.test(e.text)) continue;
+        // estate news bulletins (world/news.ts, "📰 …") are TV, not narration
+        if (e.text.startsWith('📰')) continue;
+        if (JOINT_RE.test(e.text)) {
+          jointPerHour.set(h, (jointPerHour.get(h) ?? 0) + 1);
+          continue;
+        }
         if (GATHERING_RE.test(e.text)) {
           gatheringsPerHour.set(h, (gatheringsPerHour.get(h) ?? 0) + 1);
           continue;
@@ -236,7 +252,10 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
     maxGoalEventsPerHour: Math.max(0, ...goalsPerHour.values()),
     maxStoriesPerHour: Math.max(0, ...storiesPerHour.values()),
     maxGatheringsPerHour: Math.max(0, ...gatheringsPerHour.values()),
+    maxJointPerHour: Math.max(0, ...jointPerHour.values()),
     gatherings: gatheringTotals(world),
+    joint: jointLog(world).filter((r) => r.happened),
+    jointCalledOff: jointLog(world).filter((r) => !r.happened).length,
     statuses: relationStats(world),
     everCouples: everCouples.size,
     everRivals: everRivals.size,
@@ -274,6 +293,8 @@ export function formatMetrics(m: RunMetrics): string {
   for (const a of m.agents) a.eatingByHour.forEach((v, h) => (eat[h] += v));
   out.push(`eating by hour: ${eat.map((v, h) => `${h}:${v}`).join(' ')}`);
   out.push(`gatherings: ${JSON.stringify(m.gatherings)} max/h=${m.maxGatheringsPerHour}`);
+  const jm = m.joint.reduce((s, r) => s + r.minutes, 0) / Math.max(1, m.joint.length);
+  out.push(`joint: ${m.joint.length} sessions (${m.jointCalledOff} called off), avg ${Math.round(jm)} min; ${m.joint.map((r) => `${r.kind}/${r.game}×${r.ids.length} ${r.minutes}m`).join(', ')}`);
   out.push(`statuses: ${JSON.stringify(Object.fromEntries(Object.entries(m.statuses).filter(([, v]) => v > 0)))} everCouples=${m.everCouples} everRivals=${m.everRivals} everRomance=${m.everRomance} compatible=${m.compatiblePairs}`);
   out.push(`status events: ${m.statusEvents.join(' | ')}`);
   out.push(`events: ${JSON.stringify(m.eventCounts)}`);

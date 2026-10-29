@@ -134,6 +134,32 @@ const defs: Record<string, Def> = {
     effects: { fun: 0.75, energy: -0.3, hygiene: -0.4, comfort: 0.25 }, duration: [30, 45], tags: ['fun', 'exercise'],
   },
 
+  // games console with its own screen, standing against a south wall; up to four players sit on
+  // poufs in the row above it (joint activity, see agents/joint.ts; alone it is a short session)
+  console: {
+    name: 'Konsola do gier', verb: 'Gra na konsoli', icon: '🕹️', color: '#2d3142',
+    size: { w: 2, h: 1 }, blocking: true,
+    slots: [
+      { stand: { x: 0, y: -1 }, use: { x: 0, y: -0.82 } },
+      { stand: { x: 1, y: -1 }, use: { x: 1, y: -0.82 } },
+      { stand: { x: -1, y: -1 }, use: { x: -1, y: -0.82 } },
+      { stand: { x: 2, y: -1 }, use: { x: 2, y: -0.82 } },
+    ],
+    effects: { fun: 0.75, comfort: 0.2, social: 0.1, energy: -0.03 }, duration: [30, 50], social: true, tags: ['fun', 'games'],
+  },
+  // small square card / board game table with a seat on every side (N, S, W, E)
+  board_game_table: {
+    name: 'Stolik do gier', verb: 'Gra w planszówkę', icon: '🎲', color: '#7c5b3a',
+    size: { w: 1, h: 1 }, blocking: true,
+    slots: [
+      { stand: { x: 0, y: -1 }, use: { x: 0, y: -0.62 } },
+      { stand: { x: 0, y: 1 }, use: { x: 0, y: 0.6 } },
+      { stand: { x: -1, y: 0 }, use: { x: -0.66, y: 0 } },
+      { stand: { x: 1, y: 0 }, use: { x: 0.66, y: 0 } },
+    ],
+    effects: { fun: 0.6, comfort: 0.25, social: 0.15 }, duration: [25, 40], social: true, tags: ['fun', 'games'],
+  },
+
   // ------------------------------------------------------------ garden
   bench: {
     name: 'Ławka', verb: 'Odpoczywa na ławce', icon: '🪑', color: '#8d6e4a',

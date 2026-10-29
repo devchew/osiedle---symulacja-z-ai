@@ -121,12 +121,25 @@ Przygotowanie [x]: rejestr domów `src/world/maps/index.ts` (`MAPS`, `getMap`, `
 - [x] `Dockerfile` multi-stage (build → test → runtime, node:24-alpine, user `node`, healthcheck), `.dockerignore`, `compose.yaml`
 - Weryfikacja: obraz 170 MB, 27/27 e2e Playwright na kontenerze, test stage 247 testów, AI + 30 nagłówków z kluczem z `--env-file`, cross-origin 403
 
-## Fala 9 — wspólne zajęcia i projekty (2 agentów) — [~] w toku
+## Fala 9 — wspólne zajęcia i projekty (2 agentów) — [x]
 Przygotowanie [x]: stub `src/world/projects/index.ts` (`PROJECT_DEFS` w `WORLD_OBJECT_DEFS`, `initProjects`/`tickProjects` w `world.ts`, `projectAppeal` w `brain.ts`), stub `src/render/projects.ts` (`isProjectType`/`drawProjectObject` w `render/objects.ts`).
-### [ ] T „wspólne zajęcia” — `src/agents/**`, `src/world/objects.ts`, `src/world/maps/**`, `src/render/objects.ts`, `src/render/sprites.ts`, `src/social/dialogueProvider.ts`, testy agents/sim/soak/maps/world/behaviour
+### [x] T „wspólne zajęcia” — `src/agents/**`, `src/world/objects.ts`, `src/world/maps/**`, `src/render/objects.ts`, `src/render/sprites.ts`, `src/social/dialogueProvider.ts`, testy agents/sim/soak/maps/world/behaviour
 - Mechanizm zajęć grupowych (zaproszenie, zbiórka, wspólny start/koniec, wynik → relacje/plotki), wędkowanie we dwoje, konsola 2–4 graczy, planszówki/karty
-### [ ] U „projekty budowlane” — `src/world/projects/**`, `src/render/projects.ts`, `src/ui/projects.ts` (+css), `src/ui/hud.ts`, `src/main.ts`, `src/social/diary.ts`, `tests/projects.test.ts`, `e2e/projects.spec.ts`
+- Wynik: `agents/joint.ts`; 0,7–1,2 sesji/mieszkańca/dzień, śr. 76–96 min; konsola i stolik do gier na wszystkich mapach; plakietka wyniku; linie dialogów
+### [x] U „projekty budowlane” — `src/world/projects/**`, `src/render/projects.ts`, `src/ui/projects.ts` (+css), `src/ui/hud.ts`, `src/main.ts`, `src/social/diary.ts`, `tests/projects.test.ts`, `e2e/projects.spec.ts`
 - Altana budowana przez kilka osób ~12–15 dni (etapy, postęp, praca zespołowa), po ukończeniu nowe miejsce spotkań; panel projektu w UI; wpisy w pamiętnikach
+- Wynik: altana 12–17 dni na wszystkich domach i seedach, potem warzywnik (3–6 dni); etapy jako typy obiektów; panel pod B; wpisy w pamiętnikach
+- Orkiestrator: `projectAppeal(…, agent)` w brain, siedzenie w altanie, nowe tematy/pamiętnik dla konsoli i planszówek; **wieczory**: energia na 22 h, łóżko 20–22 tłumione przy energii > 40, premia „wieczorny wypoczynek” 18–22 → mediana snu 21:40–23:00, wieczorne granie i filmy wróciły; testy plotek/wieczorów na średnich zamiast pojedynczych seedów
+
+## Fala 10 — światy na żywo na serwerze (decyzje użytkownika 2026-10-29) — [ ] do zrobienia
+Koncepcja: strona pokazuje 4 stałe miejsca (dom, kamienica, jezioro, akademik), każde to jeden wspólny świat działający 24/7 na serwerze w czasie rzeczywistym; bez tworzenia/modyfikacji światów; przełączanie miejsc. Drugi, niezależny tryb: kopia bieżącego świata do sesji przeglądarki z kontrolą czasu („Co będzie dalej?”), nigdy nie wraca do świata na żywo.
+- [ ] Rdzeń: pełna serializacja stanu świata (World + stany modułów w WeakMapach: pamięć, cele, relacje, grupy, joint, projekty, pamiętniki, incydenty, newsy, trace) — snapshot/restore
+- [ ] Rdzeń: ruch oddzielony od ticków decyzji (realne tempo chodzenia na żywo; czynności w realnym czasie)
+- [ ] Serwer: 4 światy w `server/prod.ts`, zegar Europe/Warsaw, pogoda z miasta przypisanego do miejsca, newsy i AI po stronie serwera (raz na świat), zapis stanu na wolumen co kilka minut + odtworzenie po restarcie
+- [ ] Serwer → klient: strumień stanu (SSE/WebSocket), widzowie tylko odczyt
+- [ ] Klient: widok na żywo, zakładki miejsc, linki `/kamienica#ola`; usunięcie kreatora świata, seeda, zapisów
+- [ ] Sandbox: „Co będzie dalej?” — fork snapshotu do przeglądarki z kontrolą czasu
+- Później: „ostatnie 24 h” w przyspieszeniu, kronika miejsca, wskaźnik aktywności na zakładkach
 
 ## Pomysły na kolejne fale (backlog)
 

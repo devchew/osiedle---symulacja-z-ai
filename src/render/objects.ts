@@ -723,6 +723,111 @@ const flowers: Drawer = (ctx, b) => {
   }
 };
 
+// ------------------------------------------------------------------ games (joint activities)
+
+/** games console corner: low cabinet against the wall, a big screen showing a race, the console and two pads */
+const gameConsole: Drawer = (ctx, b) => {
+  const [x, y, w, h] = inset(b, 0.05);
+  block(ctx, x, y + h * 0.3, w, h * 0.7, 0.06, '#3b3f4f');
+  // screen on the cabinet, facing the players
+  const sx = x + 0.12;
+  const sy = y + 0.02;
+  const sw = w - 0.24;
+  const sh = h * 0.56;
+  dropShadow(ctx, sx, sy, sw, sh, 0.04);
+  rr(ctx, sx, sy, sw, sh, 0.04);
+  ctx.fillStyle = '#14161c';
+  ctx.fill();
+  const g = ctx.createLinearGradient(0, sy, 0, sy + sh);
+  g.addColorStop(0, '#5ec8ff');
+  g.addColorStop(0.5, '#9be7a1');
+  g.addColorStop(1, '#3f9a52');
+  rr(ctx, sx + 0.04, sy + 0.04, sw - 0.08, sh - 0.08, 0.025);
+  ctx.fillStyle = g;
+  ctx.fill();
+  // race track and two little cars
+  ctx.save();
+  rr(ctx, sx + 0.04, sy + 0.04, sw - 0.08, sh - 0.08, 0.025);
+  ctx.clip();
+  ctx.beginPath();
+  ctx.moveTo(sx + sw * 0.3, sy + sh);
+  ctx.lineTo(sx + sw * 0.47, sy + sh * 0.35);
+  ctx.lineTo(sx + sw * 0.53, sy + sh * 0.35);
+  ctx.lineTo(sx + sw * 0.7, sy + sh);
+  ctx.closePath();
+  ctx.fillStyle = '#5b5e66';
+  ctx.fill();
+  line(ctx, sx + sw * 0.5, sy + sh * 0.4, sx + sw * 0.5, sy + sh, '#f1f1f1', 0.012);
+  for (const [cx, c] of [[0.44, '#e8453c'], [0.57, '#ffd23f']] as const) {
+    rr(ctx, sx + sw * cx - 0.035, sy + sh * 0.7, 0.07, 0.05, 0.015);
+    ctx.fillStyle = c;
+    ctx.fill();
+  }
+  ctx.restore();
+  // console box and pads on the cabinet
+  rr(ctx, x + 0.08, y + h * 0.66, 0.34, 0.14, 0.03);
+  ctx.fillStyle = '#f4f5f7';
+  ctx.fill();
+  circle(ctx, x + 0.36, y + h * 0.73, 0.018);
+  ctx.fillStyle = '#4fd1ff';
+  ctx.fill();
+  for (const [px, c] of [[0.62, '#2b2d3a'], [0.95, '#c0392b']] as const) {
+    rr(ctx, x + px, y + h * 0.68, 0.22, 0.1, 0.045);
+    ctx.fillStyle = c;
+    ctx.fill();
+  }
+  // a little glow under the screen
+  ctx.fillStyle = 'rgba(120,200,255,0.18)';
+  ellipse(ctx, x + w / 2, y + h * 0.62, w * 0.4, 0.06);
+  ctx.fill();
+};
+
+/** small card / board game table: green felt, half a chessboard, cards and a die */
+const gameTable: Drawer = (ctx, b) => {
+  const [x, y, w, h] = inset(b, 0.1);
+  block(ctx, x, y, w, h, 0.12, '#8a6440');
+  rr(ctx, x + 0.06, y + 0.06, w - 0.12, h - 0.12, 0.08);
+  ctx.fillStyle = '#2f7d4f';
+  ctx.fill();
+  // chessboard on the left half
+  const n = 4;
+  const cs = (h - 0.24) / n;
+  const bx = x + 0.12;
+  const by = y + 0.12;
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < n; j++) {
+      ctx.fillStyle = (i + j) % 2 ? '#3b2a1c' : '#efe2c4';
+      ctx.fillRect(bx + i * cs, by + j * cs, cs, cs);
+    }
+  for (const [i, j, c] of [[0, 0, '#111'], [2, 1, '#111'], [1, 3, '#fff'], [3, 2, '#fff']] as const) {
+    circle(ctx, bx + (i + 0.5) * cs, by + (j + 0.5) * cs, cs * 0.32);
+    ctx.fillStyle = c;
+    ctx.fill();
+    ctx.lineWidth = 0.01;
+    ctx.strokeStyle = '#777';
+    ctx.stroke();
+  }
+  // cards and a die on the right
+  const rx = bx + n * cs + 0.06;
+  for (let k = 0; k < 3; k++) {
+    ctx.save();
+    ctx.translate(rx + 0.07 + k * 0.03, y + 0.24);
+    ctx.rotate(-0.3 + k * 0.3);
+    rr(ctx, -0.045, -0.07, 0.09, 0.13, 0.015);
+    ctx.fillStyle = k === 1 ? '#fdfcf7' : '#b8463c';
+    ctx.fill();
+    ctx.restore();
+  }
+  rr(ctx, rx + 0.04, y + h - 0.27, 0.11, 0.11, 0.02);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  for (const [dx, dy] of [[0.03, 0.03], [0.08, 0.08], [0.055, 0.055]]) {
+    circle(ctx, rx + 0.04 + dx, y + h - 0.27 + dy, 0.012);
+    ctx.fillStyle = '#222';
+    ctx.fill();
+  }
+};
+
 const fallback: Drawer = (ctx, b) => {
   const [x, y, w, h] = inset(b, 0.1);
   block(ctx, x, y, w, h, 0.14, b.color);
@@ -730,6 +835,8 @@ const fallback: Drawer = (ctx, b) => {
 };
 
 const MATCHERS: [RegExp, Drawer][] = [
+  [/console|konsol/, gameConsole],
+  [/board_game|card_table|planszow/, gameTable],
   [/fridge|lodow/, fridge],
   [/stove|oven|cooker|kuchenk/, stove],
   [/bathtub|tub|wann/, bathtub],

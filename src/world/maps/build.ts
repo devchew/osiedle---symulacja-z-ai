@@ -61,7 +61,7 @@ export function createBuilder(width: number, height: number, ground: TileKind = 
 const OBJECT_CHARS: Record<string, string> = {
   bed: 'B', fridge: 'F', stove: 'S', dining_table: 'T', counter: '=', shower: 'H', bathtub: 'U', toilet: 'W', sink: 'K',
   tv: 'V', sofa: 'O', bookshelf: 'R', piano: 'P', computer: 'C', exercise_bike: 'E', treadmill: 'M', bench: 'L',
-  grill: 'G', flowerbed: '*', fishing_spot: 'f', wardrobe: 'Z', plant: 'p', lamp: 'l', rug: 'r', tree: 'Y', bush: 'b',
+  grill: 'G', flowerbed: '*', fishing_spot: 'f', console: 'X', board_game_table: 'g', wardrobe: 'Z', plant: 'p', lamp: 'l', rug: 'r', tree: 'Y', bush: 'b',
 };
 const TILE_CHARS: Record<TileKind, string> = { wall: '#', door: 'D', floor: ' ', tile: '.', grass: ',', path: ':', water: '~' };
 

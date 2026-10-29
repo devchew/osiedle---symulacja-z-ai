@@ -71,6 +71,8 @@ export function createJezioroMap(): MapData {
   while (tileAt(g, shoreX, 15) !== 'water') shoreX++;
   const pierEnd = shoreX + 3;
   hLine(15, 26, pierEnd, 'path');
+  // a wider pier head, so two or three can fish side by side
+  hLine(14, pierEnd - 1, pierEnd, 'path');
   // paths: cabin porch -> pier, -> campfire, -> forest
   fill(rect(23, 12, 3, 6), 'path'); // porch
   vLine(14, 20, 22, 'path'); // front door -> campfire
@@ -152,11 +154,41 @@ export function createJezioroMap(): MapData {
   const bushes: [number, number][] = [[5, 19], [26, 19], [9, 21], [19, 4], [3, 7], [10, 27]];
   for (const [x, y] of bushes) put('bush', x, y);
 
+  // games (joint activities): a console by the south wall of the main room, a card table,
+  // and fishing spots next to the pier end and two shore spots (fishing side by side)
+  put('console', 16, 18);
+  put('board_game_table', 19, 16);
+  const taken = new Set(shore.map(([x, y]) => `${x},${y}`));
+  put('fishing_spot', pierEnd, 14);
+  taken.add(`${pierEnd},14`);
+  for (const [x, y] of [shore[1], shore[2]]) {
+    const n = besideSpot(g, x, y, taken);
+    if (n) {
+      put('fishing_spot', n[0], n[1]);
+      taken.add(`${n[0]},${n[1]}`);
+    }
+  }
+
   const spawnPoints: Vec2[] = [
     { x: 12, y: 14 }, { x: 18, y: 17 }, { x: 13, y: 17 }, { x: 24, y: 16 }, { x: 30, y: 15 },
     { x: 15, y: 27 }, { x: 22, y: 22 }, { x: 10, y: 26 }, { x: 14, y: 5 }, { x: 20, y: 25 },
   ];
   return { grid: g, objects, spawnPoints };
+}
+
+/** a free shore tile (grass / path next to water) 1–2 tiles from (x, y), not one of `taken` */
+function besideSpot(g: ReturnType<typeof createBuilder>['grid'], x: number, y: number, taken: Set<string>): [number, number] | null {
+  for (const r of [1, 2])
+    for (let dy = -r; dy <= r; dy++)
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        const k = tileAt(g, nx, ny);
+        if ((k !== 'grass' && k !== 'path') || taken.has(`${nx},${ny}`) || g.solid[ny * g.width + nx]) continue;
+        if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([ax, ay]) => tileAt(g, nx + ax, ny + ay) === 'water')) return [nx, ny];
+      }
+  return null;
 }
 
 /** for each wish, the nearest grass/path tile next to water (keeps spots on the real shore) */
