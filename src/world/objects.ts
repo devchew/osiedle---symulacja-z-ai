@@ -1,5 +1,5 @@
 import type { ObjectDef, ObjectInstance, Vec2 } from '../types';
-import { PROJECT_DEFS } from './projects';
+import { PROJECT_DEFS } from './projects/defs';
 
 // Effects are per tick (1 tick = 1 game minute), needs are 0..100.
 // Slot coordinates are relative to the object's top-left tile. Unless noted,
