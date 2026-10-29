@@ -67,6 +67,10 @@ node scripts/observe.mjs "http://localhost:5173/lab?seed=42" 15 test-results/obs
 
 Przy zmianach UI: zrzuty ekranu z Playwright (`test-results/shots/`) obejrzyj przed PR.
 
+**CI** (`.github/workflows/ci.yml`) uruchamia to samo na każdym PR i pushu do `master`: typecheck, Vitest,
+e2e (przy błędzie artefakt `test-results`) oraz budowę obrazu (`--target test` i `runtime`). Tag `v*`
+publikuje obraz `runtime` do GHCR (`ghcr.io/<repo>`).
+
 ## Zasady architektury
 
 - **Symulacja** (`src/core`, `src/world`, `src/agents`, `src/social`) nie importuje DOM ani `render/`/`ui/`

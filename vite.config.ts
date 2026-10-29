@@ -11,5 +11,8 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
+    // soak / tools suites simulate whole weeks; CI runners and Docker builders are slow
+    testTimeout: 60_000,
+    hookTimeout: 120_000,
   },
 });
