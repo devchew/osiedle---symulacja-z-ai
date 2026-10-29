@@ -32,7 +32,22 @@ import {
   parseModelList,
   parseModelText,
   validateLineRequest,
+  DIARY_SYSTEM_PROMPT,
+  buildDiaryChatRequest,
+  buildDiaryPrompt,
+  diaryReserve,
+  parseDiaryCompletion,
 } from '../server/llmProxy';
+import {
+  DiaryAiError,
+  LLM_DIARY_URL,
+  checkDiaryText,
+  countWords,
+  createDiaryAiClient,
+  sanitizeDiaryText,
+  validateDiaryRequest,
+  type LlmDiaryRequest,
+} from '../src/social/diaryAi';
 import type { Agent, ConversationContext, Gossip, Traits } from '../src/types';
 
 function makeAgent(id: number, name: string, traits: Partial<Traits> = {}, extra: Partial<Agent> = {}): Agent {
@@ -483,5 +498,134 @@ describe('fetchLlmStatus', () => {
     expect(await fetchLlmStatus(ok)).toEqual({ available: true, provider: 'openrouter', models: ['a/b:free'] });
     expect(await fetchLlmStatus((async () => jsonResponse({}, 500)) as typeof fetch)).toEqual({ available: false, models: [] });
     expect(await fetchLlmStatus((async () => { throw new Error('x'); }) as typeof fetch)).toEqual({ available: false, models: [] });
+  });
+});
+
+// ------------------------------------------------------------------ diary endpoint (/api/llm/diary)
+
+describe('diary AI: request validation, prompt and output parsing', () => {
+  const diaryReq = (): LlmDiaryRequest => ({
+    name: 'Ola',
+    traits: 'uwielbia towarzystwo, często marudzi',
+    mood: 64,
+    moodArc: 'rano 55, wieczorem 64, najniżej 40 (po południu)',
+    day: 3,
+    facts: ['pobudka: 06:40', 'rano: wędkowanie (95 min)', 'rozmowa: Bartek — kłótnia, temat: polityka', 'cel dnia: złowić rybę — wykonany'],
+    news: ['Burza nad Bałtykiem'],
+  });
+
+  it('validates and clamps requests, rejects junk', () => {
+    expect(validateDiaryRequest(diaryReq())).toEqual(diaryReq());
+    expect(validateDiaryRequest({ ...diaryReq(), mood: 300, name: 'Ola\nX' })).toMatchObject({ mood: 100, name: 'Ola X' });
+    expect(validateDiaryRequest({ junk: true })).toBeNull();
+    expect(validateDiaryRequest({ ...diaryReq(), facts: [] })).toBeNull();
+    expect(validateDiaryRequest({ ...diaryReq(), facts: Array.from({ length: 25 }, () => 'x') })).toBeNull();
+    expect(validateDiaryRequest({ ...diaryReq(), news: ['a', 'b', 'c'] })).toBeNull();
+    expect(validateDiaryRequest({ ...diaryReq(), day: 0 })).toBeNull();
+    expect(validateDiaryRequest({ ...diaryReq(), facts: ['x'.repeat(500)] })!.facts[0].length).toBe(160);
+  });
+
+  it('puts persona, facts and verbatim headlines into the prompt; asks for present tense', () => {
+    const p = buildDiaryPrompt(diaryReq());
+    expect(p).toContain('Autor: Ola. Charakter: uwielbia towarzystwo');
+    expect(p).toContain('- rozmowa: Bartek — kłótnia, temat: polityka');
+    expect(p).toContain('- „Burza nad Bałtykiem”');
+    expect(DIARY_SYSTEM_PROMPT).toMatch(/czasie teraźniejszym/);
+    expect(DIARY_SYSTEM_PROMPT).toMatch(/WYŁĄCZNIE podane fakty/);
+    const body = buildDiaryChatRequest(diaryReq(), ['a/b:free']);
+    expect(body.models).toEqual(['a/b:free']);
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.messages[0].content).toBe(DIARY_SYSTEM_PROMPT);
+  });
+
+  const okText =
+    'Rano łowię ryby, a potem jeszcze trochę siedzę nad wodą. Szczupak jest! 🎣\n\nBartek i ja kłócimy się o politykę. Szkoda, chyba niepotrzebnie się unoszę.\n\nW telewizji: „Burza nad Bałtykiem”. Dobranoc!';
+
+  it('sanitizes good output and rejects gendered, invented quotes or too short texts', () => {
+    expect(sanitizeDiaryText(okText, { name: 'Ola', news: ['Burza nad Bałtykiem'] })).toBe(okText);
+    expect(sanitizeDiaryText(`Ola: ${okText}\n\n— Ola`, { name: 'Ola', news: ['Burza nad Bałtykiem'] })).toBe(okText);
+    expect(sanitizeDiaryText(`Dzień 3\n\n**${okText}**`, { name: 'Ola', news: ['Burza nad Bałtykiem'] })).toBe(okText);
+    expect(sanitizeDiaryText(okText.replace('łowię', 'łowiłam'), { news: ['Burza nad Bałtykiem'] })).toBeNull();
+    expect(sanitizeDiaryText(okText, { news: [] })).toBeNull(); // quoted headline that was not given
+    expect(sanitizeDiaryText('Krótko. Dobranoc.', {})).toBeNull();
+    expect(sanitizeDiaryText(42, {})).toBeNull();
+    const long = Array.from({ length: 60 }, (_, i) => `Zdanie numer ${i} jest tutaj.`).join(' ');
+    expect(countWords(sanitizeDiaryText(long, {})!)).toBeLessThanOrEqual(120);
+  });
+
+  it('rejects prepositions before names (they would need declension) and reports why', () => {
+    const t = 'Rano kąpiel w wannie, potem książka i trochę ciszy. Wspólny obiad ze Staś i Marek, a potem drzemka. Dobranoc, pamiętniku!';
+    expect(sanitizeDiaryText(t, { names: ['Staś', 'Marek'] })).toBeNull();
+    expect(checkDiaryText(t, { names: ['Staś', 'Marek'] })).toEqual({ reason: 'preposition before a name' });
+    expect(sanitizeDiaryText(t.replace('ze Staś i Marek', ': Staś, Marek i ja'), { names: ['Staś', 'Marek'] })).not.toBeNull();
+    expect(checkDiaryText('Dziś zrobiłam obiad i jeszcze trochę posprzątałam w kuchni, a potem długi spacer po ogrodzie.')).toEqual({ reason: 'gendered forms: zrobiłam, posprzątałam' });
+  });
+
+  it('parses chat completions for the diary', () => {
+    const c = (content: string, extra: Record<string, unknown> = {}) => ({ model: 'm/x:free', choices: [{ finish_reason: 'stop', message: { content } }], ...extra });
+    expect(parseDiaryCompletion(c(JSON.stringify({ text: okText })), diaryReq())).toEqual({ text: okText, model: 'm/x:free' });
+    expect(parseDiaryCompletion(c('```json\n' + JSON.stringify({ text: okText }) + '\n```'), diaryReq())?.text).toBe(okText);
+    expect(parseDiaryCompletion(c('no json'), diaryReq())).toBeNull();
+    expect(parseDiaryCompletion({ choices: [{ finish_reason: 'length', message: { content: JSON.stringify({ text: okText }) } }] }, diaryReq())).toBeNull();
+    expect(parseDiaryCompletion({ error: { message: 'x' } }, diaryReq())).toBeNull();
+  });
+
+  it('keeps a reserve of the daily budget for dialogue', () => {
+    expect(diaryReserve(180)).toBe(27);
+    expect(diaryReserve(50)).toBe(20);
+  });
+
+  describe('handler', () => {
+    let server: Server | null = null;
+    afterEach(() => {
+      server?.close();
+      server = null;
+    });
+    async function serve(handler: ReturnType<typeof createLlmHandler>): Promise<string> {
+      server = createServer((req, res) => handler(req, res, () => res.writeHead(404).end()));
+      await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+      return `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
+    }
+    const post = (base: string, body: unknown) =>
+      fetch(`${base}${LLM_DIARY_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+    it('proxies a diary entry (fake upstream), validates input and output, respects the budget reserve', async () => {
+      let content = JSON.stringify({ text: okText });
+      const upstream = vi.fn(async () => jsonResponse({ model: 'm/x:free', choices: [{ finish_reason: 'stop', message: { content } }] }));
+      const daily = createDailyBudget(23);
+      const base = await serve(createLlmHandler({ apiKey: 'k', fetch: upstream as unknown as typeof fetch, daily, log: () => {} }));
+      const ok = await post(base, diaryReq());
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toEqual({ text: okText, model: 'm/x:free' });
+      const sent = JSON.parse(String((upstream.mock.calls[0] as unknown as [string, RequestInit])[1].body)) as ReturnType<typeof buildDiaryChatRequest>;
+      expect(sent.messages[0].content).toBe(DIARY_SYSTEM_PROMPT);
+      expect(sent.messages[1].content).toContain('cel dnia: złowić rybę — wykonany');
+      expect((await post(base, { junk: 1 })).status).toBe(400);
+      content = JSON.stringify({ text: okText.replace('łowię', 'łowiłem') });
+      expect((await post(base, diaryReq())).status).toBe(503);
+      // 23 - 2 used = 21 > reserve 20 → one more; then 20 left ≤ reserve → refused before upstream
+      content = JSON.stringify({ text: okText });
+      expect((await post(base, diaryReq())).status).toBe(200);
+      const low = await post(base, diaryReq());
+      expect(low.status).toBe(429);
+      expect(await low.json()).toEqual({ error: 'daily budget low' });
+      expect(upstream).toHaveBeenCalledTimes(3);
+      // dialogue lines still go through
+      expect((await fetch(`${base}/api/llm/line`, { method: 'POST', body: JSON.stringify({ junk: 1 }) })).status).toBe(400);
+    });
+
+    it('client: returns sanitized text, maps HTTP errors and malformed bodies to DiaryAiError', async () => {
+      const f = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as LlmDiaryRequest;
+        if (body.day === 1) return jsonResponse({ text: okText, model: 'x' });
+        if (body.day === 2) return jsonResponse({ error: 'daily budget low' }, 429);
+        return jsonResponse({ text: 'Wczoraj zrobiłam pyszny obiad i było super, naprawdę super, wszyscy jedzą i chwalą.' });
+      });
+      const client = createDiaryAiClient({ fetch: f as unknown as typeof fetch });
+      expect(await client.write({ ...diaryReq(), day: 1 })).toBe(okText);
+      await expect(client.write({ ...diaryReq(), day: 2 })).rejects.toMatchObject({ status: 429, reason: 'daily budget low' });
+      await expect(client.write({ ...diaryReq(), day: 3 })).rejects.toBeInstanceOf(DiaryAiError);
+      expect(String(f.mock.calls[0][0])).toBe(LLM_DIARY_URL);
+    });
   });
 });

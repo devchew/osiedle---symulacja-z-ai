@@ -1416,3 +1416,26 @@
 .stats-pair-val.is-bad {
   color: var(--ui-bad);
 }
+
+/* very narrow phones: the HUD (clock, speeds, 4 tool buttons) must fit in one row */
+@media (max-width: 420px) {
+  .ui-hud {
+    gap: 5px;
+    padding: 4px 5px 4px 7px;
+  }
+  .hud-phase {
+    display: none;
+  }
+  .hud-btn {
+    min-width: 27px;
+    padding: 0 4px;
+  }
+  .hud-icon-btn,
+  .hud-help-btn {
+    min-width: 27px;
+    width: 27px;
+  }
+  .hud-tools {
+    gap: 2px;
+  }
+}

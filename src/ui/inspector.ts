@@ -5,6 +5,7 @@ import { relationshipLabel } from '../social/relationships';
 import { goalOf } from '../agents/goals';
 import { agentMemories, type MemoryView } from '../social/memory';
 import type { RelationOfFn } from './extras';
+import { entriesLabel } from './diary';
 import { el, moodEmoji, setBar, setText, storageGet, storageSet } from './dom';
 
 export interface InspectorOptions {
@@ -12,6 +13,14 @@ export interface InspectorOptions {
   relationOf?: RelationOfFn;
   onClose(): void;
   onFollow?(id: number): void;
+  /** residents' diaries: entry point "📔 Pamiętnik" */
+  diary?: InspectorDiary;
+}
+
+export interface InspectorDiary {
+  count(id: number): number;
+  unread(id: number): boolean;
+  open(id: number): void;
 }
 
 export interface Inspector {
@@ -133,6 +142,15 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
   goalIcon.style.width = goalIcon.style.height = '30px';
   goalIcon.style.fontSize = '17px';
 
+  // diary entry point (opens the diary panel for this resident)
+  const diaryCount = el('span', 'insp-diary-count');
+  const diaryBtn = el('button', 'insp-diary-btn', [el('span', '', ['📔']), el('span', 'insp-diary-label', ['Pamiętnik']), diaryCount]);
+  diaryBtn.type = 'button';
+  diaryBtn.hidden = !opts.diary;
+  diaryBtn.addEventListener('click', () => {
+    if (current !== null) opts.diary?.open(current);
+  });
+
   const moodRow = barRow('Nastrój', '🙂');
   moodRow.row.classList.add('bar-row--mood');
   const needRows = new Map<NeedKey, BarRow>();
@@ -184,6 +202,7 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
     traits,
     action,
     goal,
+    diaryBtn,
     el('div', 'insp-mood', [moodRow.row]),
     section('Potrzeby', needsBox),
     section('Relacje', relList, relEmpty),
@@ -339,6 +358,14 @@ export function createInspector(root: HTMLElement, world: World, opts: Inspector
         goalState.style.color = g.done ? 'var(--ui-good)' : '';
         goalText.style.opacity = g.expired ? '0.6' : '';
       }
+    }
+
+    if (opts.diary) {
+      const n = opts.diary.count(a.id);
+      setText(diaryCount, n ? entriesLabel(n) : 'pusty');
+      const unread = opts.diary.unread(a.id);
+      diaryBtn.classList.toggle('has-badge', unread);
+      diaryBtn.title = unread ? `Nowy wpis w pamiętniku: ${a.name}` : `Czytaj pamiętnik: ${a.name}`;
     }
 
     setText(moodRow.row.querySelector('.bar-icon')!, moodEmoji(a.mood));

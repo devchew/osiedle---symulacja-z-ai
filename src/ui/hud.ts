@@ -29,6 +29,8 @@ export interface Hud {
   update(): void;
   /** highlights an extra button while its panel is open */
   setActive(id: string, active: boolean): void;
+  /** small dot on an extra button (e.g. unread diary entries) */
+  setBadge(id: string, on: boolean, title?: string): void;
   destroy(): void;
 }
 
@@ -37,6 +39,7 @@ export const HELP_KEYS: [string, string][] = [
   ['1–4', 'prędkość 1× · 2× · 4× · 8×'],
   ['T', 'statystyki: relacje, nastrój'],
   ['Z', 'zapis, wczytanie, link'],
+  ['P', 'pamiętniki mieszkańców (← → dni)'],
   ['N', 'nowy świat'],
   ['L', 'pobierz log aktywności (.txt)'],
   ['przeciągnij', 'przesuń widok'],
@@ -246,6 +249,13 @@ export function createHud(root: HTMLElement, controls: SimControls, world: World
       if (!b) return;
       b.classList.toggle('is-active', active);
       b.setAttribute('aria-pressed', String(active));
+    },
+    setBadge(id, on, title) {
+      const b = extraBtns.get(id);
+      const btn = opts.buttons?.find((x) => x.id === id);
+      if (!b || !btn) return;
+      b.classList.toggle('has-badge', on);
+      b.title = on && title ? `${btn.title} — ${title}` : btn.title;
     },
     destroy() {
       window.removeEventListener('keydown', onKey);

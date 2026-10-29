@@ -12,7 +12,9 @@ npm run dev          # http://localhost:5173
 
 **Sterowanie widokiem:** Spacja = pauza, 1–4 = prędkość, przeciągnij/WASD = przesuń, kółko/szczypnięcie = zoom,
 klik w postać = inspektor (potrzeby, cel dnia, relacje, wspomnienia), dwuklik = śledzenie,
-T = statystyki (sieć relacji, nastroje), Z = zapis/wczytanie, N = nowy świat, L = pobierz log aktywności, `?` = pomoc.
+T = statystyki (sieć relacji, nastroje), Z = zapis/wczytanie, N = nowy świat, P = pamiętniki mieszkańców, L = pobierz log aktywności, `?` = pomoc.
+
+**Pamiętniki:** każdy mieszkaniec wieczorem zapisuje kilka zdań o swoim dniu (📔 w inspektorze lub klawisz P) — na podstawie tego, co naprawdę się wydarzyło; z włączonym AI wpisy mogą być przepisane przez model.
 
 **Domy:** w oknie „Nowy świat” (klawisz N) do wyboru Dom z ogrodem, Kamienica, Domek nad jeziorem i Akademik.
 

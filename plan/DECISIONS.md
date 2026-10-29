@@ -41,3 +41,6 @@
 | 2026-10-28 | Domy w `src/world/maps/*.ts` (wspólny `build.ts`), zapis/link niosą `map` (brak = `dom`); każdy dom ma zestaw podstawowy aktywności zamiast wszystkich | różnorodność domów |
 | 2026-10-28 | Produkcja: własny serwer Node bez zależności (bundel 32 kB) zamiast `vite preview`; konfiguracja tylko przez env przy uruchomieniu | mały obraz runtime bez node_modules, sekrety poza obrazem |
 | 2026-10-28 | Proxy AI akceptuje `X-Forwarded-Host` przy sprawdzaniu Origin | działanie za reverse proxy; przeglądarka nie wyśle tego nagłówka cross-origin bez preflightu |
+| 2026-10-29 | Pamiętniki: fakty dnia zbierane przyrostowo z trace i zdarzeń; wpis przy położeniu się na noc (≥19:00, ≥180 min snu) lub o 23:30; dzień pamiętnika od 05:00; 60 dni/postać | wpis zgodny z tym, co naprawdę się wydarzyło |
+| 2026-10-29 | Wpisy proceduralne z własnym RNG `diarySeed(seed, agent, day)`, tylko odczyt stanu; replay odtwarza wpisy; detektor form z rodzajem w testach | determinizm, symulacja nietknięta, polszczyzna bez rodzaju |
+| 2026-10-29 | AI pamiętników przez ten sam proxy i budżet co dialogi, max 1 próba/postać/dzień, odmowa przy ≤ max(20, 15%) budżetu, ścisła walidacja wyniku | dialogi mają pierwszeństwo, każdy błąd = wpis proceduralny |

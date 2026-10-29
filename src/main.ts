@@ -16,6 +16,7 @@ import { parseStartParams, randomSeed, worldCheck } from './ui/saves';
 import { createSavePanel } from './ui/savePanel';
 import { createNewWorldDialog } from './ui/newWorld';
 import { createStatsPanel } from './ui/statsPanel';
+import { createDiaryPanel } from './ui/diary';
 import { toast } from './ui/toast';
 import { isTypingTarget } from './ui/dom';
 import type { RelationOfFn, WeatherOfFn } from './ui/extras';
@@ -23,6 +24,7 @@ import type { RelationOfFn, WeatherOfFn } from './ui/extras';
 import { relationOf } from './social/relationships';
 import { weatherOf } from './world/incidents';
 import { formatTrace } from './world/trace';
+import { setDiaryAiEnabled } from './social/diary';
 
 // adapters from the simulation's views to the UI's small interfaces (ui/extras.ts)
 /** statuses worth an icon on the relationship network (the rest is shown by colour / thickness) */
@@ -92,7 +94,10 @@ async function main(): Promise<void> {
     onNewWorld: () => newWorld.setOpen(true),
     onToggle: (open) => {
       hud.setActive('save', open);
-      if (open) stats.setOpen(false);
+      if (open) {
+        stats.setOpen(false);
+        diary.setOpen(false);
+      }
     },
   });
   const stats = createStatsPanel(world, {
@@ -105,14 +110,29 @@ async function main(): Promise<void> {
     },
     onToggle: (open) => {
       hud.setActive('stats', open);
-      if (open) savePanel.setOpen(false);
+      if (open) {
+        savePanel.setOpen(false);
+        diary.setOpen(false);
+      }
     },
+  });
+  // residents' diaries (P): everyone's latest entries, one resident's notebook from the inspector
+  const diary = createDiaryPanel(world, {
+    onToggle: (open) => {
+      hud.setActive('diary', open);
+      if (open) {
+        stats.setOpen(false);
+        savePanel.setOpen(false);
+      }
+    },
+    onUnreadChange: (n) => hud.setBadge('diary', n > 0, n ? `nowe wpisy (${n})` : undefined),
   });
 
   const hud = createHud(document.getElementById('hud')!, controls, world, {
     weatherOf: weather,
     buttons: [
       { id: 'stats', icon: '📊', title: 'Statystyki (T)', onClick: () => stats.setOpen(!stats.isOpen) },
+      { id: 'diary', icon: '📔', title: 'Pamiętniki (P)', onClick: () => (diary.isOpen ? diary.setOpen(false) : diary.openOverview()) },
       { id: 'save', icon: '💾', title: 'Zapis i wczytanie (Z)', onClick: () => savePanel.setOpen(!savePanel.isOpen) },
     ],
   });
@@ -120,6 +140,7 @@ async function main(): Promise<void> {
     relationOf: relationKind,
     onClose: () => select(null),
     onFollow: (id) => renderer.follow(id),
+    diary: { count: diary.entryCount, unread: diary.hasUnread, open: diary.openFor },
   });
   const log = createEventLog(document.getElementById('log')!, world, { onSelectAgent: (id) => select(id) });
 
@@ -155,12 +176,19 @@ async function main(): Promise<void> {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
+  let diaryAi = false;
   let lastAutosaveHour = Math.floor(world.tick / 60);
   setInterval(() => {
     hud.update();
     inspector.update();
     log.update();
     stats.update();
+    diary.update();
+    // diary entries rewritten by AI follow the dialogue toggle
+    if (!!llm?.enabled !== diaryAi) {
+      diaryAi = !!llm?.enabled;
+      setDiaryAiEnabled(world, diaryAi);
+    }
     // autosave every game hour
     const hour = Math.floor(world.tick / 60);
     if (hour !== lastAutosaveHour) {
@@ -183,6 +211,7 @@ async function main(): Promise<void> {
     },
     stats,
     savePanel,
+    diary,
     trace: (agentId) => formatTrace(world, agentId),
   };
 
@@ -203,6 +232,7 @@ declare global {
       tick: (n: number) => void;
       stats: ReturnType<typeof createStatsPanel>;
       savePanel: ReturnType<typeof createSavePanel>;
+      diary: ReturnType<typeof createDiaryPanel>;
       /** detailed activity trace as text (optionally one agent) */
       trace: (agentId?: number) => string;
       /** set once /api/llm/status has answered */

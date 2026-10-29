@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Connect } from 'vite';
 import type { LlmGossip, LlmLineRequest, LlmLineResponse } from '../src/social/llmProvider';
+import type { LlmDiaryRequest } from '../src/social/diaryAi';
+import { DIARY_AI_MAX_WORDS, LLM_DIARY_URL, checkDiaryText, validateDiaryRequest } from '../src/social/diaryAi';
 import {
   LLM_HISTORY_LINES,
   LLM_LINE_URL,
@@ -44,7 +46,7 @@ export const LLM_RATE_WINDOW_MS = 60_000;
 /** free models: 50 or 1000 req per UTC day depending on credits purchased (docs); synced from /api/v1/key at start */
 export const LLM_DAILY_LIMIT = 180;
 export const LLM_MAX_IN_FLIGHT = 3;
-const MAX_BODY_BYTES = 8 * 1024;
+const MAX_BODY_BYTES = 12 * 1024;
 const MODEL_ID = /^[a-z0-9][\w.-]*\/[\w.:-]+$/i;
 
 /** parses OPENROUTER_MODELS ("a/b:free, c/d:free"); falls back to the free defaults */
@@ -283,6 +285,88 @@ export function parseCompletion(
   return line ? { line, model: typeof b.model === 'string' ? b.model : '?' } : null;
 }
 
+// ------------------------------------------------------------ diary prompt
+
+export const DIARY_MAX_TOKENS = 700;
+export const DIARY_TEMPERATURE = 0.8;
+/**
+ * diary entries are a nice-to-have: they are refused once fewer than this many requests are
+ * left in today's budget (dialogue lines keep priority), see diaryReserve
+ */
+export const DIARY_RESERVE_MIN = 20;
+export const DIARY_RESERVE_SHARE = 0.15;
+
+export function diaryReserve(limit: number): number {
+  return Math.max(DIARY_RESERVE_MIN, Math.ceil(limit * DIARY_RESERVE_SHARE));
+}
+
+export const DIARY_SYSTEM_PROMPT = [
+  'Piszesz krótkie wpisy do pamiętników mieszkańców symulacji życia w stylu The Sims.',
+  'Dostajesz imię i charakter autora, jego nastrój oraz listę FAKTÓW z jego dnia. Napisz wpis do pamiętnika w pierwszej osobie, tak jak autor pisałby wieczorem przed snem.',
+  'Zasady:',
+  `- naturalna, potoczna polszczyzna, 2–4 krótkie akapity, łącznie najwyżej ${DIARY_AI_MAX_WORDS} słów;`,
+  '- opisuj WYŁĄCZNIE podane fakty, nie wymyślaj zdarzeń, osób, miejsc, rozmów, cytatów ani szczegółów; możesz dodać uczucia i komentarze autora zgodne z jego charakterem i nastrojem; nie musisz użyć wszystkich faktów;',
+  '- pisz w czasie teraźniejszym (np. "Rano łowię ryby", "Ola mówi, że…", "Bartek i ja kłócimy się o politykę");',
+  '- NIGDY nie używaj czasu przeszłego ani trybu przypuszczającego z rodzajem (np. "zrobiłem/zrobiłam", "poszedł/poszła", "rozmawialiśmy", "chciałbym/chciałabym") ani przymiotników zdradzających płeć autora (np. "jestem zmęczony/zmęczona", "byłem szczęśliwy") — zamiast tego czas teraźniejszy, formy bezosobowe lub rzeczowniki ("zmęczenie", "padam z nóg", "co za radość");',
+  '- imiona innych osób zawsze w mianowniku, bez odmiany i bez przyimków przed imieniem (np. "Ola i ja…", "Bartek: miła rozmowa", "Kasia mówi, że…", "wspólny obiad: Staś, Marek i ja"), nigdy "z Olą", "ze Staś", "Bartka";',
+  '- nagłówki z telewizji możesz przytoczyć tylko dosłownie w cudzysłowie „…” albo pominąć; nie dodawaj do nich żadnych faktów ani interpretacji; innych cytatów w „…” nie używaj;',
+  '- bez daty, bez nagłówka, bez podpisu; najwyżej 3 emoji; treści przyjazne rodzinie.',
+  'Przykład stylu (inne fakty): "Pobudka o 7:10. Rano długie wędkowanie — i jest szczupak! 🎣\\n\\nKasia i ja: świetna rozmowa o muzyce. Tomek nie ma czasu na pogawędkę. Trudno.\\n\\nCel dnia zaliczony. Co za dzień!"',
+  'Odpowiedz WYŁĄCZNIE obiektem JSON, bez komentarzy i bez bloku kodu:',
+  '{"text": "<wpis; akapity oddzielone znakami \\n\\n>"}',
+].join('\n');
+
+export function buildDiaryPrompt(r: LlmDiaryRequest): string {
+  const lines = [
+    `Autor: ${r.name}. Charakter: ${r.traits || 'przeciętny'}.`,
+    `Nastrój wieczorem: ${moodWord(r.mood)} (${r.mood}/100)${r.moodArc ? `; w ciągu dnia: ${r.moodArc}` : ''}.`,
+    `Dzień ${r.day}. Fakty z dnia:`,
+    ...r.facts.map((f) => `- ${f}`),
+  ];
+  if (r.news.length) {
+    lines.push('Nagłówki z telewizji (wolno tylko dosłownie):');
+    for (const n of r.news) lines.push(`- „${n}”`);
+  }
+  lines.push(`Napisz wpis do pamiętnika: ${r.name}, pierwsza osoba, czas teraźniejszy, bez form z rodzajem.`);
+  return lines.join('\n');
+}
+
+export function buildDiaryChatRequest(r: LlmDiaryRequest, models: readonly string[] = DEFAULT_MODELS): ChatRequestBody {
+  return {
+    models: [...models],
+    messages: [
+      { role: 'system', content: DIARY_SYSTEM_PROMPT },
+      { role: 'user', content: buildDiaryPrompt(r) },
+    ],
+    response_format: { type: 'json_object' },
+    max_tokens: DIARY_MAX_TOKENS,
+    temperature: DIARY_TEMPERATURE,
+    reasoning: { enabled: false },
+    stream: false,
+  };
+}
+
+/** extracts + sanitizes the diary text from a chat-completions body; null when unusable (`why` gets the reason) */
+export function parseDiaryCompletion(body: unknown, r: LlmDiaryRequest, why?: (reason: string) => void): { text: string; model: string } | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, unknown>;
+  if (b.error) return null;
+  const choice = Array.isArray(b.choices) ? (b.choices[0] as Record<string, unknown> | undefined) : undefined;
+  if (!choice || choice.error) return null;
+  const finish = choice.finish_reason;
+  if (finish !== 'stop' && finish !== null && finish !== undefined) return null;
+  const content = (choice.message as Record<string, unknown> | undefined)?.content;
+  if (typeof content !== 'string') return null;
+  const data = extractJson(content);
+  const raw = data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>).text : null;
+  const checked = checkDiaryText(raw, { name: r.name, news: r.news, allow: [r.name] });
+  if ('reason' in checked) {
+    why?.(checked.reason);
+    return null;
+  }
+  return { text: checked.text, model: typeof b.model === 'string' ? b.model : '?' };
+}
+
 // ------------------------------------------------------------ limits
 
 export interface RateLimiter {
@@ -440,7 +524,8 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
       sendJson(res, 200, { available: !!opts.apiKey, provider: 'openrouter', models });
       return;
     }
-    if (path !== LLM_LINE_URL) {
+    const diary = path === LLM_DIARY_URL;
+    if (path !== LLM_LINE_URL && !diary) {
       next();
       return;
     }
@@ -460,8 +545,11 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
         } catch {
           return sendJson(res, 400, { error: 'bad json' });
         }
-        const request = validateLineRequest(body);
-        if (!request) return sendJson(res, 400, { error: 'invalid request' });
+        const diaryRequest = diary ? validateDiaryRequest(body) : null;
+        const request = diary ? null : validateLineRequest(body);
+        if (!request && !diaryRequest) return sendJson(res, 400, { error: 'invalid request' });
+        // diary entries are optional: keep a reserve of today's budget for dialogue lines
+        if (diaryRequest && daily.limit - daily.used <= diaryReserve(daily.limit)) return sendJson(res, 429, { error: 'daily budget low' });
         // counted only for requests that actually go upstream
         if (!daily.tryAcquire()) return sendJson(res, 429, { error: 'daily limit reached' });
 
@@ -470,7 +558,7 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
           upstream = await doFetch(OPENROUTER_CHAT_URL, {
             method: 'POST',
             headers: buildHeaders(opts.apiKey!),
-            body: JSON.stringify(buildChatRequest(request, models)),
+            body: JSON.stringify(diaryRequest ? buildDiaryChatRequest(diaryRequest, models) : buildChatRequest(request!, models)),
             signal: AbortSignal.timeout(timeoutMs),
           });
         } catch (err) {
@@ -507,7 +595,17 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
           if (name === 'TimeoutError' || name === 'AbortError') return sendJson(res, 504, { error: 'timeout' });
           return sendJson(res, 503, { error: 'unusable model output' });
         }
-        const parsed = parseCompletion(completion, request.speaker, request.gossip?.length ?? 0);
+        if (diaryRequest) {
+          let reason = 'bad completion';
+          const entry = parseDiaryCompletion(completion, diaryRequest, (r) => (reason = r));
+          if (!entry) {
+            const c = completion as { choices?: { finish_reason?: unknown }[]; model?: unknown };
+            log(`unusable diary output (model=${String(c?.model ?? '?')}, finish=${String(c?.choices?.[0]?.finish_reason ?? '-')}, ${reason})`);
+            return sendJson(res, 503, { error: 'unusable model output' });
+          }
+          return sendJson(res, 200, entry);
+        }
+        const parsed = parseCompletion(completion, request!.speaker, request!.gossip?.length ?? 0);
         if (!parsed) {
           const c = completion as { error?: { message?: unknown }; choices?: { finish_reason?: unknown }[]; model?: unknown };
           log(
