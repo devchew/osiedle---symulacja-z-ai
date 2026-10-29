@@ -122,6 +122,20 @@ Przygotowanie [x]: rejestr domów `src/world/maps/index.ts` (`MAPS`, `getMap`, `
 - Weryfikacja: obraz 170 MB, 27/27 e2e Playwright na kontenerze, test stage 247 testów, AI + 30 nagłówków z kluczem z `--env-file`, cross-origin 403
 
 ## Pomysły na kolejne fale (backlog)
+
+### Plan fal 8–11 (propozycja z 2026-10-29, kolejność do potwierdzenia)
+- **Fala 8 — budowanie i personalizacja:** tryb budowania (przestawianie/dodawanie mebli z walidacją osiągalności), edytor mieszkańców (imię, wygląd, cechy), zapis własnego układu domu jako mapy
+- **Fala 9 — głębsze życie:** goście z zewnątrz, praca i pieniądze (zakupy, uzupełnianie lodówki), zwierzęta, pory roku, weekendy
+- **Fala 10 — oglądanie jak serial:** kronika dnia, **pamiętniki mieszkańców** (niżej), tryb reżysera (kamera skacze do ciekawych momentów), dźwięk
+- **Fala 11 — serwer i współdzielenie:** wspólny świat 24/7 na serwerze (WebSocket), CI (testy + obraz), dostępność
+
+### [ ] Pamiętnik każdej postaci (pomysł użytkownika, 2026-10-29)
+Każdy mieszkaniec prowadzi własny pamiętnik, a użytkownik ma do niego wgląd.
+- Wpisy pisane w 1. osobie z perspektywy postaci (np. wieczorem przed snem): co robiła, z kim rozmawiała, jak się czuła, cel dnia (udany/nie), plotki i newsy, które ją poruszyły, zmiany w relacjach („Chyba coraz bardziej lubię Bartka…”)
+- Ton zależny od osobowości (optymista vs maruda, introwertyk vs dusza towarzystwa) i nastroju; subiektywność — ta sama kłótnia inaczej opisana przez obie strony
+- Źródła: trace aktywności, `world.events`, pamięć/plotki (`social/memory.ts`), cele (`agents/goals.ts`), relacje (`social/relationships.ts`)
+- Generowanie: proceduralne szablony (deterministyczne, bez form z rodzajem) + opcjonalnie AI (OpenRouter, darmowe modele) dla bardziej literackich wpisów, z limitem 1 wpis/postać/dzień
+- UI: zakładka „Pamiętnik” w inspektorze (lista dni, wpisy jak kartki zeszytu), ewentualnie eksport do .txt; wpisy zapisywane deterministycznie (odtwarzalne z seeda) lub cache dla AI
 - [ ] Mniej bezcelowych spacerów (wander w `brain.ts`), testy `sim.test.ts` z koordynatami z mapy zamiast na sztywno
 - [ ] Goście z zewnątrz (wymaga rozróżnienia mieszkaniec/gość w kontraktach)
 - [ ] Pomost w Domku nad jeziorem rysowany jak ścieżka — deski dla `path` nad wodą
