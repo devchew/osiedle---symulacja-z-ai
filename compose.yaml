@@ -1,10 +1,8 @@
-# docker compose up -d --build   →   http://<server>:8080
+# Coolify routes the configured domain to the container's internal port 8080.
 services:
   osiedle:
     build: .
     image: osiedle:latest
-    ports:
-      - "8080:8080"
     # optional: OPENROUTER_API_KEY (AI dialogues), OPENROUTER_MODELS, OPENROUTER_DAILY_LIMIT, NEWS_FEEDS
     env_file:
       - path: .env
