@@ -25,8 +25,7 @@ RUN npm run build
 
 # ---------------------------------------------------------------- test (optional target)
 FROM build AS test
-# generous timeouts: the soak / tools suites simulate whole weeks and builders are often slow
-RUN npx vitest run --testTimeout=60000 --hookTimeout=120000
+RUN npx vitest run
 
 # ---------------------------------------------------------------- runtime
 FROM ${NODE_IMAGE} AS runtime
