@@ -161,3 +161,64 @@ test('the vegetable garden comes next (a second, smaller project)', async ({ pag
   await expect(page.locator('#projects-panel .proj-card--done .proj-name').first()).toContainText('Altana');
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+/** drags a project's footprint to the middle of the screen, then zooms in on it */
+async function zoomTo(page: Page, kindId: string): Promise<void> {
+  const where = (k: string) =>
+    page.evaluate((id) => {
+      const g = window.__sim.projectList().find((x) => x.kindId === id)!;
+      return window.__sim.renderer.toScreen(g.pos.x + (g.size.w - 1) / 2, g.pos.y + (g.size.h - 1) / 2);
+    }, k);
+  await page.evaluate(() => window.__sim.renderer.fitView());
+  await page.waitForTimeout(200);
+  const from = await where(kindId);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(700, 450, { steps: 10 });
+  await page.mouse.up();
+  for (let i = 0; i < 4; i++) {
+    const p = await where(kindId);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.wheel(0, -160);
+    await page.waitForTimeout(120);
+  }
+  await page.waitForTimeout(500);
+}
+
+test('tree house and pier: every stage is drawn, the pier stands on the pond', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = trackErrors(page);
+  await open(page, `?seed=1&map=dom&tick=${22 * DAY}&paused`);
+  for (const kindId of ['domek_na_drzewie', 'pomost']) {
+    const stages = await page.evaluate((k) => {
+      const w = window.__sim;
+      for (let i = 0; i < 40 * 24 * 2 && !w.projectList().some((p) => p.kindId === k); i++) w.tick(30);
+      return w.projectList().find((p) => p.kindId === k)?.stages.length ?? 0;
+    }, kindId);
+    expect(stages, `${kindId} is proposed`).toBeGreaterThan(0);
+    // one shot per stage and one of the finished building
+    for (let stage = 0; stage <= stages; stage++) {
+      const ok = await page.evaluate(
+        ([k, s]) => {
+          const w = window.__sim;
+          for (let i = 0; i < 20 * 24 * 2; i++) {
+            if (w.projectList().find((p) => p.kindId === k)!.stage >= (s as number)) return true;
+            w.tick(30);
+          }
+          return false;
+        },
+        [kindId, stage] as const,
+      );
+      expect(ok, `${kindId} reaches stage ${stage}`).toBe(true);
+      const type = await page.evaluate((k) => {
+        const p = window.__sim.projectList().find((x) => x.kindId === k)!;
+        return window.__sim.world.objects.find((o) => o.uid === p.uid)!.type;
+      }, kindId);
+      await zoomTo(page, kindId);
+      await page.screenshot({ path: `${SHOTS}/project-${type}.png` });
+    }
+    const p = await page.evaluate((k) => window.__sim.projectList().find((x) => x.kindId === k)!, kindId);
+    expect(p.status).toBe('done');
+  }
+  expect(errors, errors.join('\n')).toEqual([]);
+});
