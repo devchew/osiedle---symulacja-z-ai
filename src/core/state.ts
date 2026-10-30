@@ -1,5 +1,5 @@
-import type { Agent, Conversation, DialogueProvider, Grid, ObjectDef, ObjectInstance, Relationships, Room, SimEvent, TileKind, World } from '../types';
-import { createRng } from './rng';
+import type { Agent, Conversation, DialogueProvider, Grid, ObjectDef, ObjectInstance, Relationships, Room, SimEvent, TileKind, World } from '../types.ts';
+import { createRng } from './rng.ts';
 
 // World snapshots: the whole simulation state as plain JSON, and a working World rebuilt from it.
 //

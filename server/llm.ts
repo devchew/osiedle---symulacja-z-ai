@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Connect } from 'vite';
-import type { LlmGossip, LlmLineRequest, LlmLineResponse } from '../src/social/llmProvider';
-import type { LlmDiaryRequest } from '../src/social/diaryAi';
-import { DIARY_AI_MAX_WORDS, LLM_DIARY_URL, checkDiaryText, validateDiaryRequest } from '../src/social/diaryAi';
+import type { LlmGossip, LlmLineRequest, LlmLineResponse } from '../src/social/llmProvider.ts';
+import type { LlmDiaryRequest } from '../src/social/diaryAi.ts';
+import { DIARY_AI_MAX_WORDS, LLM_DIARY_URL, checkDiaryText, validateDiaryRequest } from '../src/social/diaryAi.ts';
 import {
   LLM_HISTORY_LINES,
   LLM_LINE_URL,
@@ -14,7 +14,7 @@ import {
   isGossipIndex,
   isTone,
   sanitizeLine,
-} from '../src/social/llmProvider';
+} from '../src/social/llmProvider.ts';
 
 // Server-side proxy for LLM dialogue lines via OpenRouter (chat completions).
 // Runs inside the Vite dev / preview server (via the plugin) or the production server (server/prod.ts), so OPENROUTER_API_KEY stays in

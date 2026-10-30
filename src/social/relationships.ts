@@ -1,6 +1,6 @@
-import type { Agent, Relationships, World } from '../types';
-import { pushEvent } from '../world/events';
-import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
+import type { Agent, Relationships, World } from '../types.ts';
+import { pushEvent } from '../world/events.ts';
+import { fromJson, registerWorldState, toJson, type Json } from '../core/state.ts';
 
 export const REL_MIN = -100;
 export const REL_MAX = 100;

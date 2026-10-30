@@ -1,6 +1,6 @@
-import type { ConversationContext, DialogueLine, DialogueProvider, Gossip, NeedKey, Tone, Traits } from '../types';
-import { NEED_KEYS, NEED_LABELS } from '../types';
-import { relationshipLabel } from './relationships';
+import type { ConversationContext, DialogueLine, DialogueProvider, Gossip, NeedKey, Tone, Traits } from '../types.ts';
+import { NEED_KEYS, NEED_LABELS } from '../types.ts';
+import { relationshipLabel } from './relationships.ts';
 
 // LLM-backed dialogue. The browser never talks to OpenRouter directly: it posts
 // a compact context to the local proxy (server/llmProxy.ts, a Vite plugin),

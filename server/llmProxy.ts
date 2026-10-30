@@ -1,10 +1,10 @@
 import { loadEnv, type Connect, type Plugin } from 'vite';
-import { isFreeModel } from '../src/social/llmProvider';
-import { createDailyBudget, createLlmHandler, fetchKeyInfo, parseDailyLimit, parseModelList } from './llm';
+import { isFreeModel } from '../src/social/llmProvider.ts';
+import { createDailyBudget, createLlmHandler, fetchKeyInfo, parseDailyLimit, parseModelList } from './llm.ts';
 
 // Vite plugin wrapper: mounts the handler from ./llm.ts on the dev and preview servers.
 // The production server (server/prod.ts) mounts the same handler without Vite.
-export * from './llm';
+export * from './llm.ts';
 
 export function llmProxy(): Plugin {
   let handler: Connect.NextHandleFunction | null = null;
