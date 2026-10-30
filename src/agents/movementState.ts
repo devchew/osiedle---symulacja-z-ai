@@ -11,4 +11,5 @@ registerWorldState('movement', {
     return Object.keys(s.agents).length ? (JSON.parse(JSON.stringify(s)) as Json) : null;
   },
   load: (world, data) => loadMovementState(world, data as unknown as MovementSnapshot),
+  clear: (world) => loadMovementState(world, null),
 });

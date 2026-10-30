@@ -3,6 +3,7 @@ import type { World } from '../src/types';
 import { createWorld, tickWorld } from '../src/world/world';
 import {
   NETWORK_SNAPSHOT,
+  applySnapshot,
   SNAPSHOT_VERSION,
   SnapshotVersionError,
   registeredWorldStates,
@@ -19,7 +20,7 @@ import { bedOf } from '../src/agents/home';
 import { projectsOf } from '../src/world/projects';
 import { brokenObjects, weatherOf } from '../src/world/incidents';
 import { traceOf } from '../src/world/trace';
-import { diaryOf } from '../src/social/diary';
+import { diaryOf, onDiaryChange } from '../src/social/diary';
 import { agentMemories } from '../src/social/memory';
 import { statusOf } from '../src/social/relationships';
 import { mapIdOf } from '../src/world/maps';
@@ -223,6 +224,61 @@ describe('world snapshots: determinism (restore then tick = tick the original)',
     run(restored, DAY);
     expectSameSnapshot(snapshotWorld(w, NETWORK_SNAPSHOT), snapshotWorld(restored, NETWORK_SNAPSHOT), 'network');
     expect(publicView(restored)).toEqual(publicView(w));
+  }, 60_000);
+});
+
+describe('applySnapshot: in-place update', () => {
+  it('turns a world into the snapshot it is given, whatever it held before', () => {
+    for (const opts of [NETWORK_SNAPSHOT, { includeTrace: true }] as SnapshotOptions[]) {
+      // A knows things B does not (other seed, map, cast size, trace, diary, projects)
+      const a = run(createWorld(9, { mapId: 'jezioro', agentCount: 4 }), 2 * DAY + 77);
+      const b = run(createWorld(4, { agentCount: 6 }), DAY + 500);
+      const snap = roundTrip(snapshotWorld(b, opts));
+      const copy = roundTrip(snap);
+      applySnapshot(a, snap);
+      const fresh = restoreWorld(snap);
+      expectSameSnapshot(snapshotWorld(fresh, opts), snapshotWorld(a, opts), 'applied');
+      expect(publicView(a)).toEqual(publicView(fresh));
+      expect(snap).toEqual(copy);
+      // and it keeps simulating exactly like a restored world (no stale module state)
+      run(a, 300);
+      run(fresh, 300);
+      expectSameSnapshot(snapshotWorld(fresh, opts), snapshotWorld(a, opts), 'applied, then ticked');
+    }
+  }, 60_000);
+
+  it('keeps the World, the residents, the grid and the unchanged events (frame after frame)', () => {
+    const server = createWorld(1912, { agentCount: 8, mapId: 'kamienica' });
+    run(server, 100);
+    const view = restoreWorld(roundTrip(snapshotWorld(server, NETWORK_SNAPSHOT)));
+    const agents = [...view.agents];
+    const objects = [...view.objects];
+    const grid = view.grid;
+    const events = [...view.events];
+    run(server, 60);
+    applySnapshot(view, roundTrip(snapshotWorld(server, NETWORK_SNAPSHOT)));
+    expect(view.agents.every((x, i) => x === agents[i])).toBe(true);
+    expect(view.objects.every((x, i) => x === objects[i])).toBe(true);
+    expect(view.grid).toBe(grid);
+    for (const e of events) if (view.events.some((x) => JSON.stringify(x) === JSON.stringify(e))) expect(view.events).toContain(e);
+    expect(view.tick).toBe(server.tick);
+    expectSameSnapshot(snapshotWorld(server, NETWORK_SNAPSHOT), snapshotWorld(view, NETWORK_SNAPSHOT), 'frames');
+  });
+
+  it('keeps page hooks (diary listeners) and refuses a bad snapshot without touching the world', () => {
+    const view = run(createWorld(5), 100);
+    const seen: number[] = [];
+    onDiaryChange(view, (e) => seen.push(e.agentId));
+    const server = run(createWorld(5), 100);
+    run(server, 10);
+    applySnapshot(view, roundTrip(snapshotWorld(server, NETWORK_SNAPSHOT)));
+    run(view, 2 * DAY);
+    expect(seen.length).toBeGreaterThan(0);
+
+    const before = JSON.stringify(snapshotWorld(view));
+    const bad = roundTrip(snapshotWorld(server));
+    expect(() => applySnapshot(view, { ...bad, version: SNAPSHOT_VERSION + 1 })).toThrow(SnapshotVersionError);
+    expect(JSON.stringify(snapshotWorld(view))).toBe(before);
   }, 60_000);
 });
 

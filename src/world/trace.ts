@@ -44,6 +44,7 @@ registerWorldState('trace', {
     const rows = data as [number, number, TraceKind, string, string][];
     traces.set(world, rows.map(([tick, agentId, kind, text, needs]) => ({ tick, agentId, kind, text, needs })));
   },
+  clear: (world) => void traces.delete(world),
 });
 
 export function needsSnapshot(agent: Agent): string {

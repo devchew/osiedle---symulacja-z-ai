@@ -223,7 +223,13 @@ registerWorldState('diary', {
   },
   load: (world, data) => {
     const d = fromJson<Pick<DiaryState, 'enabled' | 'agents' | 'lastTick' | 'weather'>>(data as Json);
-    states.set(world, { ...d, listeners: new Set(), ai: null });
+    const prev = states.get(world);
+    states.set(world, { ...d, listeners: prev?.listeners ?? new Set(), ai: prev?.ai ?? null });
+  },
+  // listeners and the AI rewrite state are hooks of the page: they survive an in-place update
+  clear: (world) => {
+    const s = states.get(world);
+    if (s) states.set(world, { ...s, enabled: true, agents: new Map(), lastTick: Math.max(0, world.tick - 1), weather: new Map() });
   },
 });
 

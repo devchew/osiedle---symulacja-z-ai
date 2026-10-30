@@ -192,6 +192,12 @@ registerWorldState('goals', {
     if (d.state) loadByAgent(world, state, d.state);
     if (d.history) loadByAgent(world, history, d.history);
   },
+  clear: (world) => {
+    for (const a of world.agents) {
+      state.delete(a);
+      history.delete(a);
+    }
+  },
 });
 
 /** goal days start at 06:00 */

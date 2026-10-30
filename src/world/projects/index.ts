@@ -153,6 +153,7 @@ registerWorldState('projects', {
       days: fromJson<Map<string, DayWork[]>>(d.days),
     });
   },
+  clear: (world) => void states.delete(world),
 });
 
 function dayOf(tick: number): number {

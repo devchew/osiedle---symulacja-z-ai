@@ -202,6 +202,7 @@ registerWorldState('relationships', {
     loadEventSet(world, seen, d.seen);
     stores.set(world, { bonds: fromJson<Map<string, Bond>>(d.bonds), lastUpdate: d.lastUpdate, seen });
   },
+  clear: (world) => void stores.delete(world),
 });
 
 function bondStore(world: World): BondStore {

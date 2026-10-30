@@ -1,6 +1,5 @@
 import type { World } from '../types';
-import * as state from '../core/state';
-import { restoreWorld, type WorldSnapshot } from '../core/state';
+import { restoreWorld, applySnapshot, type WorldSnapshot } from '../core/state';
 import '../world/world'; // registers the world base and every module's state codec (restoreWorld needs them)
 import { setWeatherOverride, type WeatherKind, type WeatherSample } from '../world/incidents';
 import { markRealtime } from '../realtime/state';
@@ -9,22 +8,12 @@ import { placeById, type LiveFrame, type LiveMeta } from './protocol';
 // Turning live frames into a World the renderer and the panels can show.
 //
 // The first frame builds the world (restoreWorld). Every later frame of the same place is applied
-// in place when core/state provides `applySnapshot(world, snap)` (same World object: panels,
-// listeners and WeakMap state keep working); otherwise a fresh world is restored and the caller
-// swaps it into the view (setWorld). The live world is never ticked in the browser.
+// in place (applySnapshot: same World object, so panels, listeners and WeakMap state keep working
+// and the renderer keeps its static layer); a frame of another place restores a fresh world that
+// the caller swaps into the view (setWorld). The live world is never ticked in the browser.
 //
 // Hooks are not part of a snapshot: after each frame the live weather override (the server's real
 // weather) and the real-time flag (renderer: residents walk at real speed) are attached again.
-
-type ApplyFn = (world: World, snap: WorldSnapshot) => void;
-
-/** core/state's in-place apply, when this build has it */
-function inPlaceApply(): ApplyFn | null {
-  // looked up by a computed name: the bundler would warn about a missing export otherwise
-  const name = ['apply', 'Snapshot'].join('');
-  const fn = (state as unknown as Record<string, ApplyFn | undefined>)[name];
-  return typeof fn === 'function' ? fn : null;
-}
 
 export interface FrameResult {
   world: World;
@@ -33,15 +22,14 @@ export interface FrameResult {
 }
 
 /**
- * the world after `frame`: `current` updated in place when possible, else a new one.
+ * the world after `frame`: `current` updated in place when it shows the same place, else a new one.
  * `current` = null (first frame) or a world of another place always restores.
  */
 export function applyFrame(current: World | null, currentPlace: string | null, frame: LiveFrame): FrameResult {
-  const apply = inPlaceApply();
   let world: World;
   let swapped = true;
-  if (current && apply && currentPlace === frame.meta.place) {
-    apply(current, frame.snapshot);
+  if (current && currentPlace === frame.meta.place) {
+    applySnapshot(current, frame.snapshot);
     world = current;
     swapped = false;
   } else world = restoreWorld(frame.snapshot);

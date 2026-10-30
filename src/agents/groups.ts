@@ -410,6 +410,10 @@ registerWorldState('groups', {
     if (d.store) stores.set(world, fromJson<GroupStore>(d.store));
     if (d.compete) lastCompete.set(world, fromJson<Map<string, number>>(d.compete));
   },
+  clear: (world) => {
+    stores.delete(world);
+    lastCompete.delete(world);
+  },
 });
 
 /**
