@@ -1,6 +1,7 @@
 import type { Agent, Grid, ObjectDef, ObjectInstance, Rng, Vec2, World } from '../types';
 import { createRng } from '../core/rng';
 import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
+import { timeAt } from '../core/calendar';
 import { MINUTES_PER_DAY, START_MINUTE } from '../core/time';
 import { findPath } from '../agents/pathfinding';
 import { pushEvent } from './events';
@@ -36,6 +37,8 @@ export interface WeatherInfo {
   intensity: number;
   /** true while it rains (rain or storm): outdoor activities are off */
   raining: boolean;
+  /** the precipitation is snow (kind stays 'rain': people stay in just the same) */
+  snow?: boolean;
 }
 
 export interface BrokenInfo {
@@ -91,6 +94,8 @@ interface IncidentState {
   broken: Map<number, Breakdown>;
   /** external weather source (real-time mode); null = the seeded plan */
   override: WeatherSource | null;
+  /** 0..1 snow lying on the ground: grows while it snows, melts slowly otherwise */
+  snow: number;
 }
 
 /** one weather reading from an external source (e.g. real weather in real-time mode) */
@@ -101,6 +106,8 @@ export interface WeatherSample {
   /** optional Polish label / icon (e.g. "Mżawka", "Śnieg ❄️"); defaults per kind */
   label?: string;
   icon?: string;
+  /** the precipitation is snow (kind 'rain') */
+  snow?: boolean;
 }
 /** weather at a tick; null = no data for that tick (the seeded plan is used) */
 export type WeatherSource = (tick: number) => WeatherSample | null;
@@ -123,6 +130,10 @@ const REPAIR_WORK: [number, number] = [25, 40];
 const HANDYMAN_AFTER = 8 * 60;
 /** minutes of fade at the start and end of a spell */
 const RAMP = 25;
+/** snow cover: full after ~5 h of snowfall (per minute, scaled by intensity), melts in ~30 h in winter and ~3 h otherwise */
+const SNOW_GROWTH = 1 / 300;
+const SNOW_MELT_WINTER = 1 / (30 * 60);
+const SNOW_MELT = 1 / (3 * 60);
 
 const SHELTER_LABEL = 'Chowa się przed deszczem';
 const WAIT_LABEL = 'Czeka, aż przestanie padać';
@@ -172,10 +183,10 @@ registerWorldState('incidents', {
   save: (world) => {
     const s = states.get(world);
     if (!s) return null;
-    return { rng: s.rng.state(), eventRng: s.eventRng.state(), plan: toJson(s.plan), last: s.last, broken: toJson(s.broken) };
+    return { rng: s.rng.state(), eventRng: s.eventRng.state(), plan: toJson(s.plan), last: s.last, broken: toJson(s.broken), snow: s.snow };
   },
   load: (world, data) => {
-    const d = data as { rng: number; eventRng: number; plan: Json; last: WeatherKind | null; broken: Json };
+    const d = data as { rng: number; eventRng: number; plan: Json; last: WeatherKind | null; broken: Json; snow?: number };
     states.set(world, {
       rng: createRng((world.seed ^ 0x5eedc10d) >>> 0, d.rng),
       eventRng: createRng((world.seed ^ 0x0b5e55ed) >>> 0, d.eventRng),
@@ -183,6 +194,7 @@ registerWorldState('incidents', {
       last: d.last,
       broken: fromJson<Map<number, Breakdown>>(d.broken),
       override: null,
+      snow: d.snow ?? 0,
     });
   },
   // the weather override is a hook: whoever attached it re-attaches it after an in-place update
@@ -230,7 +242,7 @@ function stateOf(world: World): IncidentState {
   if (!s) {
     const rng = createRng((world.seed ^ 0x5eedc10d) >>> 0);
     const eventRng = createRng((world.seed ^ 0x0b5e55ed) >>> 0);
-    s = { rng, eventRng, plan: makePlan(rng, dayOf(world.tick)), last: null, broken: new Map(), override: null };
+    s = { rng, eventRng, plan: makePlan(rng, dayOf(world.tick)), last: null, broken: new Map(), override: null, snow: 0 };
     states.set(world, s);
   }
   return s;
@@ -265,14 +277,18 @@ function toInfo(sample: WeatherSample, minute: number): WeatherInfo {
   const label = kind === 'sunny' && night ? 'Pogodnie' : (sample.label ?? t.label);
   const icon = kind === 'sunny' && night ? '🌙' : (sample.icon ?? t.icon);
   const intensity = Math.max(0, Math.min(1, sample.intensity));
-  return { kind, label, icon, intensity, raining: kind === 'rain' || kind === 'storm' };
+  return { kind, label, icon, intensity, raining: kind === 'rain' || kind === 'storm', ...(sample.snow ? { snow: true } : {}) };
 }
 
 /** weather at a tick: the external source when set and it has data, else the seeded plan of that tick's day */
-function weatherAtTick(s: IncidentState, tick: number): WeatherInfo {
+function weatherAtTick(world: World, s: IncidentState, tick: number): WeatherInfo {
   const minute = minuteOfDay(tick);
   const sample = s.override?.(tick);
-  return sample ? toInfo(sample, minute) : weatherAt(s.plan, minute);
+  if (sample) return toInfo(sample, minute);
+  const planned = weatherAt(s.plan, minute);
+  // seeded winter days: the rain of the plan falls as snow
+  if (planned.kind === 'rain' && timeAt(world, tick).season === 'winter') return { ...planned, label: 'Śnieg', icon: '🌨️', snow: true };
+  return planned;
 }
 
 /**
@@ -290,14 +306,19 @@ export function hasWeatherOverride(world: World): boolean {
 
 /** current weather, for the HUD and the renderer */
 export function weatherOf(world: World): WeatherInfo {
-  return weatherAtTick(stateOf(world), world.tick);
+  return weatherAtTick(world, stateOf(world), world.tick);
+}
+
+/** 0..1: how much snow lies on the ground (the renderer whitens the garden with it) */
+export function snowCoverOf(world: World): number {
+  return states.get(world)?.snow ?? 0;
 }
 
 /** today's weather in hourly steps (24 entries), e.g. for a forecast strip */
 export function forecastOf(world: World): WeatherInfo[] {
   const s = stateOf(world);
   const dayStart = world.tick - minuteOfDay(world.tick);
-  return Array.from({ length: 24 }, (_, h) => weatherAtTick(s, dayStart + h * 60 + 30));
+  return Array.from({ length: 24 }, (_, h) => weatherAtTick(world, s, dayStart + h * 60 + 30));
 }
 
 export function isOutdoorTile(grid: Grid, x: number, y: number): boolean {
@@ -392,7 +413,7 @@ function weatherEvents(world: World, s: IncidentState, now: WeatherInfo): void {
   const wasRaining = prev === 'rain' || prev === 'storm';
   let text: string | null = null;
   if (now.kind === 'storm') text = wasRaining ? 'Zaczyna się burza ⛈️' : 'Nadciąga burza ⛈️';
-  else if (now.kind === 'rain') text = prev === 'storm' ? 'Burza przechodzi, jeszcze pada 🌧️' : 'Zaczyna padać 🌧️';
+  else if (now.kind === 'rain') text = prev === 'storm' ? 'Burza przechodzi, jeszcze pada 🌧️' : now.snow ? 'Zaczyna padać śnieg 🌨️' : 'Zaczyna padać 🌧️';
   else if (wasRaining) text = now.kind === 'sunny' ? 'Przejaśnia się ☀️' : 'Przestaje padać ☁️';
   if (text) pushEvent(world, 'info', text, []);
 }
@@ -522,8 +543,11 @@ export function tickIncidents(world: World, endAction: EndAction): void {
   if (day !== s.plan.day) s.plan = makePlan(s.rng, day);
   const minute = minuteOfDay(world.tick);
 
-  const weather = weatherAtTick(s, world.tick);
+  const weather = weatherAtTick(world, s, world.tick);
   weatherEvents(world, s, weather);
+  s.snow = weather.snow
+    ? Math.min(1, s.snow + SNOW_GROWTH * (0.5 + weather.intensity))
+    : Math.max(0, s.snow - (timeAt(world, world.tick).season === 'winter' ? SNOW_MELT_WINTER : SNOW_MELT));
   if (weather.raining) applyRain(world, s, endAction);
 
   for (const m of s.plan.breaks) if (m === minute) breakSomething(world, s, endAction);
@@ -540,6 +564,6 @@ export function availability(world: World, obj: ObjectInstance, def: ObjectDef):
     const hours = b ? (world.tick - b.since) / 60 : 0;
     return Math.min(10, 5 + hours);
   }
-  if (isOutdoorDef(def) && weatherAtTick(stateOf(world), world.tick).raining) return RAIN_OUTDOOR;
+  if (isOutdoorDef(def) && weatherAtTick(world, stateOf(world), world.tick).raining) return RAIN_OUTDOOR;
   return 1;
 }

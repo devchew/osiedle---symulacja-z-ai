@@ -10,21 +10,26 @@
 // crossing a wall (flood fill within its radius).
 
 import type { Grid, TileKind, World } from '../types';
-import { MINUTES_PER_DAY, START_MINUTE, daylightAt } from '../core/time';
+import { calendarBaseDay } from '../core/calendar';
+import { LEGACY_SUN, MINUTES_PER_DAY, START_MINUTE, calendarOf, daylightAt } from '../core/time';
 import { isLampObject } from './objects';
 
 const MT = 10; // mask pixels per tile
 const DARK = 'rgba(18,16,50,0.7)';
 
 export interface LightState {
+  /** hour on the twilight timeline: the clock moved so that sunrise / sunset fall where the grades were tuned */
   hour: number;
   daylight: number;
 }
 
-export function lightStateAt(tick: number, alpha: number): LightState {
-  const minute = (((tick + alpha + START_MINUTE) % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
-  const hour = minute / 60;
-  return { hour, daylight: daylightAt(hour) };
+export function lightStateAt(world: World, alpha: number): LightState {
+  const total = world.tick + alpha + START_MINUTE;
+  const dayIndex = Math.floor(total / MINUTES_PER_DAY);
+  const hour = (total - dayIndex * MINUTES_PER_DAY) / 60;
+  const sun = calendarOf(calendarBaseDay(world) + dayIndex);
+  const shift = hour >= 12 ? sun.set - LEGACY_SUN.set : sun.rise - LEGACY_SUN.rise;
+  return { hour: hour - shift, daylight: daylightAt(hour, sun) };
 }
 
 /** smooth bump: 0 outside [a, d], 1 in [b, c], smoothstep ramps in between */

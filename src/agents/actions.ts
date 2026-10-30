@@ -16,6 +16,7 @@ import { feltSympathy, recordConversation, recordFriction, statusOf } from '../s
 import { createProceduralProvider } from '../social/dialogueProvider';
 import { onConversationEnd, recallFor } from '../social/memory';
 import { goalConversation, goalUseEnd, goalUseTick, updateGoal } from './goals';
+import { wakeHour } from './seasons';
 import { gatheringOf as gatheringOfAgent, noticeCompetition, onHeadingTo } from './groups';
 import { JOINT_CHATTINESS, JOINT_QUIET_BOOST, JOINT_TOPIC, jointGroups, jointMemberOf, noteFishingCast, onJointArrive, onJointHeadingTo, tickJoint } from './joint';
 
@@ -238,10 +239,10 @@ export function endAction(world: World, agent: Agent, reason = 'koniec'): void {
   agent.path = [];
 }
 
-/** night sleep lasts until the morning (06:30 + jitter); daytime sleep is a short nap */
+/** night sleep lasts until the morning (06:00 + jitter, later on weekends and dark winter mornings); daytime sleep is a short nap */
 function sleepLength(time: GameTime, jitter: number): number {
   const minuteOfDay = time.hour * 60 + time.minute;
-  const wake = 6 * 60 + jitter;
+  const wake = Math.round(wakeHour(time, time.hour >= 19) * 60) + jitter;
   if (time.hour >= 19) return 24 * 60 - minuteOfDay + wake;
   if (minuteOfDay < wake - 60) return wake - minuteOfDay;
   return 60 + jitter;

@@ -5,7 +5,7 @@ import { GATHERING_RE } from './tools/metrics';
 import { NARRATION_PER_HOUR } from '../src/agents/narration';
 import { GOAL_KINDS, QUIET_GOALS, type GoalRecord } from '../src/agents/goals';
 
-// A week of headless life for several seeds. Inspect failures with
+// A week of headless life for several seeds (SOAK_DATE=YYYY-MM-DD shifts the season). Inspect failures with
 // `DAYS=7 SEED=1,2,3,4 npx vitest run tests/tools/diag.test.ts` -> test-results/diag.txt
 
 const DAYS = 7;
