@@ -1,34 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
+import { SHOTS, mockLive, openLive, trackErrors } from './support/live';
+import { frameFor } from './support/worldFixtures';
 
-// Wave 5 UI: save / load / share links, new world dialog, stats panel, memories in the inspector.
-// Shots land in test-results/shots/ui-*.png.
+// Panels of the live view on a fixture world (e2e/support): stats panel, memories in the inspector,
+// phone layout. Shots land in test-results/shots/ui-*.png.
 
-const SHOTS = 'test-results/shots';
-
-function trackErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  return errors;
-}
-
-async function open(page: Page, query: string): Promise<void> {
-  await page.goto(`/lab${query}`);
-  await page.waitForFunction(() => !!window.__sim, undefined, { timeout: 20_000 });
-}
-
-type State = { tick: number; positions: { x: number; y: number }[]; needs: number[] };
-
-async function state(page: Page): Promise<State> {
-  return page.evaluate(() => {
-    const w = window.__sim.world;
-    return {
-      tick: w.tick,
-      positions: w.agents.map((a) => ({ ...a.pos })),
-      needs: w.agents.map((a) => Math.round(a.needs.hunger * 1000)),
-    };
-  });
-}
+const DOM = { place: 'dom' } as const;
+/** day 3 */
+const TICK_STATS = 3300;
+const TICK_MEMORIES = 2400;
 
 /** distinct colours in a canvas (sampled) — proves something was drawn */
 async function canvasColours(page: Page, selector: string): Promise<number> {
@@ -41,86 +21,12 @@ async function canvasColours(page: Page, selector: string): Promise<number> {
   }, selector);
 }
 
-test('save to a slot, load it in another world: same tick and same positions', async ({ page }) => {
-  const errors = trackErrors(page);
-  await page.addInitScript(() => {
-    if (!sessionStorage.getItem('cleared')) {
-      localStorage.removeItem('sim.saves.v1');
-      sessionStorage.setItem('cleared', '1');
-    }
-  });
-  await open(page, '?seed=11&agents=5&paused');
-  await page.evaluate(() => window.__sim.tick(437));
-  const saved = await state(page);
-  expect(saved.tick).toBe(437);
-
-  await page.locator('.hud-save-btn').click();
-  await expect(page.locator('#save-panel')).toBeVisible();
-  await page.locator('.save-slot[data-slot="0"] .save-btn-save').click();
-  await expect(page.locator('.save-slot[data-slot="0"]')).toContainText('Dzień 1, 14:17');
-  await page.waitForTimeout(250);
-  await page.screenshot({ path: `${SHOTS}/ui-save-panel.png` });
-
-  // a different world, paused (so the loaded game arrives paused too)
-  await open(page, '?seed=99&agents=3&paused');
-  expect(await page.evaluate(() => window.__sim.world.agents.length)).toBe(3);
-  await page.keyboard.press('z');
-  await expect(page.locator('#save-panel')).toBeVisible();
-  await Promise.all([page.waitForURL(/tick=437/), page.locator('.save-slot[data-slot="0"] .save-btn-load').click()]);
-  await page.waitForFunction(() => !!window.__sim);
-  const loaded = await state(page);
-  expect(loaded).toEqual(saved);
-  expect(new URL(page.url()).searchParams.get('seed')).toBe('11');
-  // the fingerprint matched: no mismatch warning
-  await expect(page.locator('.ui-toast--warn')).toHaveCount(0);
-  expect(errors).toEqual([]);
-});
-
-test('?tick= link replays to that moment (also via "Kopiuj link"), ~10k ticks quickly', async ({ page, context }) => {
-  const errors = trackErrors(page);
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-
-  // reference: run the same world forward by hand
-  await open(page, '?seed=5&agents=6&paused');
-  await page.evaluate(() => window.__sim.tick(1234));
-  const reference = await state(page);
-  await page.locator('.hud-save-btn').click();
-  await page.locator('.save-link').click();
-  const link = await page.evaluate(() => navigator.clipboard.readText());
-  const url = new URL(link);
-  expect(url.searchParams.get('seed')).toBe('5');
-  expect(url.searchParams.get('agents')).toBe('6');
-  expect(url.searchParams.get('tick')).toBe('1234');
-
-  await open(page, `${url.search}&paused`);
-  expect(await state(page)).toEqual(reference);
-  await expect(page.locator('.ui-toast--warn')).toHaveCount(0);
-
-  // a long replay shows progress and stays fast
-  const t0 = Date.now();
-  await page.goto('/lab?seed=5&agents=6&tick=10000&paused', { waitUntil: 'commit' });
-  await expect(page.locator('.replay-overlay')).toBeVisible();
-  await page.waitForFunction(() => !!window.__sim && window.__sim.world.tick === 10000, undefined, { timeout: 20_000 });
-  const ms = Date.now() - t0;
-  console.log(`replay of 10000 ticks incl. page load: ${ms} ms`);
-  expect(ms).toBeLessThan(8000);
-  await expect(page.locator('.replay-overlay')).toHaveCount(0);
-
-  // progress overlay of a long replay (screenshot mid-way)
-  await page.goto('/lab?seed=5&agents=6&tick=60000&paused', { waitUntil: 'commit' });
-  await page.waitForFunction(() => parseInt(document.querySelector('.replay-overlay')?.getAttribute('aria-valuenow') ?? '0') >= 20);
-  await page.screenshot({ path: `${SHOTS}/ui-replay.png` });
-  await page.waitForFunction(() => window.__sim?.world.tick === 60000, undefined, { timeout: 30_000 });
-
-  // ?hour= still works
-  await open(page, '?seed=5&hour=9&paused');
-  expect(await page.evaluate(() => window.__sim.world.tick)).toBe(120);
-  expect(errors).toEqual([]);
-});
-
 test('stats panel: network, mood history and table are drawn', async ({ page }) => {
   const errors = trackErrors(page);
-  await open(page, '?seed=7&tick=3300&paused');
+  const live = await mockLive(page, frameFor(DOM, TICK_STATS));
+  await openLive(page, '/dom');
+  // the mood history is recorded from the frames in the browser: let a few arrive
+  for (let i = 1; i <= 3; i++) await live.push(frameFor(DOM, TICK_STATS + i * 30));
   await page.keyboard.press('t');
   const panel = page.locator('#stats-panel');
   await expect(panel).toBeVisible();
@@ -128,9 +34,9 @@ test('stats panel: network, mood history and table are drawn', async ({ page }) 
   await page.waitForTimeout(400);
   expect(await canvasColours(page, '.stats-net')).toBeGreaterThan(10);
   expect(await canvasColours(page, '.stats-chart')).toBeGreaterThan(10);
+  await expect(panel.locator('.stats-empty')).toBeHidden();
   const n = await page.evaluate(() => window.__sim.world.agents.length);
   await expect(panel.locator('.stats-table tbody tr')).toHaveCount(n);
-  await expect(panel.locator('.stats-empty')).toBeHidden();
 
   // hover an edge between the first two residents (midpoint of the chord)
   const box = (await panel.locator('.stats-net').boundingBox())!;
@@ -149,7 +55,6 @@ test('stats panel: network, mood history and table are drawn', async ({ page }) 
   );
   await page.mouse.move(box.x + mid.x, box.y + mid.y);
   await expect(panel.locator('.stats-info')).toContainText('↔');
-
   // hover the chart for the crosshair tooltip
   const chart = (await panel.locator('.stats-chart').boundingBox())!;
   await page.mouse.move(chart.x + chart.width * 0.6, chart.y + chart.height / 2);
@@ -167,7 +72,8 @@ test('stats panel: network, mood history and table are drawn', async ({ page }) 
 
 test('stats and diary panels stay clear of the open inspector (720–1300 px)', async ({ page }) => {
   const errors = trackErrors(page);
-  await open(page, '?seed=7&tick=1000&paused');
+  await mockLive(page, frameFor(DOM, TICK_MEMORIES));
+  await openLive(page, '/dom');
   const id = await page.evaluate(() => window.__sim.world.agents[0].id);
   await page.evaluate((i) => window.__sim.select(i), id);
   const inspector = page.locator('#inspector');
@@ -198,7 +104,8 @@ test('stats and diary panels stay clear of the open inspector (720–1300 px)', 
 
 test('inspector shows memories (collapsible)', async ({ page }) => {
   const errors = trackErrors(page);
-  await open(page, '?seed=7&tick=2400&paused');
+  await mockLive(page, frameFor(DOM, TICK_MEMORIES));
+  await openLive(page, '/dom');
   // the resident with the most memories
   const id = await page.evaluate(() => {
     const w = window.__sim.world;
@@ -232,33 +139,13 @@ test('inspector shows memories (collapsible)', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('new world dialog starts a world with the chosen seed and residents', async ({ page }) => {
-  const errors = trackErrors(page);
-  await open(page, '?seed=7&paused');
-  await page.keyboard.press('n');
-  const dialog = page.locator('.newworld');
-  await expect(dialog).toBeVisible();
-  // keys typed into the dialog do not reach the game
-  await page.locator('#newworld-seed').fill('4242');
-  await page.locator('#newworld-agents').fill('3');
-  await page.screenshot({ path: `${SHOTS}/ui-newworld.png` });
-  await Promise.all([page.waitForURL(/seed=4242/), dialog.locator('.newworld-start').click()]);
-  await page.waitForFunction(() => !!window.__sim);
-  expect(await page.evaluate(() => [window.__sim.world.seed, window.__sim.world.agents.length])).toEqual([4242, 3]);
-
-  // help lists the new keys
-  await page.keyboard.press('h');
-  await expect(page.locator('.hud-help')).toContainText('statystyki');
-  await expect(page.locator('.hud-help')).toContainText('nowy świat');
-  expect(errors).toEqual([]);
-});
-
 test.describe('mobile 390×844', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
-  test('HUD fits; stats is a full-screen sheet; save panel fits', async ({ page }) => {
+  test('HUD fits; stats is a full-screen sheet', async ({ page }) => {
     const errors = trackErrors(page);
-    await open(page, '?seed=7&tick=3300&paused');
+    await mockLive(page, frameFor(DOM, TICK_STATS));
+    await openLive(page, '/dom');
     const hud = (await page.locator('#hud').boundingBox())!;
     expect(hud.x).toBeGreaterThanOrEqual(0);
     expect(hud.x + hud.width).toBeLessThanOrEqual(390);
@@ -271,12 +158,6 @@ test.describe('mobile 390×844', () => {
     await page.screenshot({ path: `${SHOTS}/ui-mobile-stats.png` });
     await page.locator('#stats-panel .panel-header .ui-icon-btn').tap();
     await expect(panel).toBeHidden();
-
-    await page.locator('.hud-save-btn').tap();
-    const save = (await page.locator('#save-panel').boundingBox())!;
-    expect(save.x).toBeGreaterThanOrEqual(0);
-    expect(save.x + save.width).toBeLessThanOrEqual(390);
-    await page.screenshot({ path: `${SHOTS}/ui-mobile-save.png` });
     expect(errors).toEqual([]);
   });
 });

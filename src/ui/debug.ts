@@ -35,6 +35,8 @@ export interface SimDebug {
   /** live view: current place and the number of frames received */
   place?: string;
   frames?: number;
+  /** live view: the replay being shown (null = live) */
+  replay?: { tick: number; fromTick: number; toTick: number; playing: boolean } | null;
   /** live view: stream status */
   status?: string;
 }
