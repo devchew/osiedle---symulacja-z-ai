@@ -7,6 +7,7 @@ import type { PlaceId } from '../src/live/protocol';
 //   GET /api/live/places              → PlaceSummary[]
 //   GET /api/live/:place/snapshot     → LiveFrame (503 { error: 'starting' } until the world is synced)
 //   GET /api/live/:place/chronicle    → ChronicleResponse (503 { error: 'starting' } until the world is synced)
+//   GET /api/live/:place/replay      → ReplayResponse: the last 24 h recorded (503 `starting` until synced)
 //   GET /api/live/:place/stream       → SSE: `event: frame` right away (as soon as the world is
 //                                       synced) and after every tick; `event: ping` every ~25 s
 // Frames are serialized once per tick by the host and written as the same Buffer to every
@@ -161,10 +162,10 @@ export function createLiveHandler(host: LiveHost, opts: LiveHttpOptions = {}): L
       return sendJson(res, 200, host.summaries(), { 'Cache-Control': 'no-cache' });
     }
     const lw = parts.length === 2 ? host.get(parts[0]) : undefined;
-    if (!lw || (parts[1] !== 'snapshot' && parts[1] !== 'stream' && parts[1] !== 'chronicle')) return sendJson(res, 404, { error: 'not found' });
+    if (!lw || (parts[1] !== 'snapshot' && parts[1] !== 'stream' && parts[1] !== 'chronicle' && parts[1] !== 'replay')) return sendJson(res, 404, { error: 'not found' });
     if (parts[1] === 'stream') return stream(req, res, lw.place.id);
-    if (parts[1] === 'chronicle') {
-      const c = host.chronicle(lw.place.id);
+    if (parts[1] === 'chronicle' || parts[1] === 'replay') {
+      const c = parts[1] === 'chronicle' ? host.chronicle(lw.place.id) : host.replay(lw.place.id);
       if (!c) return sendJson(res, 503, { error: 'starting' }, { 'Retry-After': '5' });
       if (req.headers['if-none-match'] === c.etag) {
         res.writeHead(304, { ETag: c.etag, 'Cache-Control': 'no-cache' }).end();

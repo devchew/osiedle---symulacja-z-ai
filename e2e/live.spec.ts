@@ -220,11 +220,14 @@ test('chronicle panel: real endpoint, empty state and error state; phone layout'
   const panel = page.locator('#chronicle-panel');
   await expect(panel).toContainText('Kronika jest jeszcze pusta');
   await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
   await page.unroute('**/api/live/akademik/chronicle');
 
   await page.route('**/api/live/akademik/chronicle', (route) => route.fulfill({ json: { ...MOCK_CHRONICLE, place: 'akademik' } }));
   await page.keyboard.press('k');
-  await expect(panel.locator('.chr-day')).toHaveCount(2);
+  await expect(panel).toBeVisible();
+  // the panel first shows the previous (empty) answer and swaps in the new one when it arrives
+  await expect(panel.locator('.chr-day')).toHaveCount(2, { timeout: 10_000 });
   const box = await panel.boundingBox();
   expect(box && box.x >= 0 && box.x + box.width <= 390).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
@@ -272,4 +275,58 @@ test('no connection: offline banner, then the world appears when the server answ
   block = false;
   await page.waitForFunction(() => (window.__sim?.frames ?? 0) >= 1, undefined, { timeout: 30_000 });
   await expect(page.locator('.ui-conn')).toBeHidden();
+});
+
+test('replay: the button plays the recorded hours with a clear banner and leads back to live', async ({ page, request }) => {
+  const errors = trackErrors(page);
+  const raw = await request.get('/api/live/kamienica/replay');
+  expect(raw.ok()).toBe(true);
+  expect((await raw.body()).length).toBeLessThan(1_000_000);
+
+  await openLive(page, '/kamienica');
+  const liveTick = await page.evaluate(() => window.__sim.world.tick);
+  const btn = page.locator('#hud .hud-replay-btn');
+  await expect(btn).toBeVisible();
+  await btn.click();
+
+  const bar = page.locator('.ui-replay');
+  await expect(bar).toBeVisible();
+  await expect(bar).toContainText('POWTÓRKA');
+  await expect(page.locator('body')).toHaveClass(/is-replay/);
+  await expect(page.locator('#hud .hud-live-pill').first()).toBeHidden();
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  const start = await page.evaluate(() => window.__sim.replay);
+  expect(start).not.toBeNull();
+  expect(start!.toTick - start!.fromTick).toBeGreaterThan(60);
+  expect(start!.toTick).toBeLessThanOrEqual(liveTick);
+
+  // it plays on its own, faster than real time
+  await page.waitForFunction((t) => (window.__sim.replay?.tick ?? 0) >= t + 20, start!.fromTick, { timeout: 15_000 });
+  await page.screenshot({ path: `${SHOTS}/live-replay.png` });
+
+  // pause + scrub to the middle
+  await bar.locator('.rp-play').click();
+  await expect(bar.locator('.rp-play')).toHaveText('▶');
+  const mid = Math.floor((start!.fromTick + start!.toTick) / 2);
+  await bar.locator('.rp-range').fill(String(mid));
+  await expect.poll(() => page.evaluate(() => window.__sim.replay?.tick)).toBe(mid);
+  expect(await page.evaluate(() => window.__sim.world.tick)).toBe(mid);
+  await expect(bar.locator('.rp-time')).toContainText('temu');
+
+  await bar.locator('.rp-live').click();
+  await expect(bar).toBeHidden();
+  await expect(page.locator('body')).not.toHaveClass(/is-replay/);
+  await expect(page.locator('#hud .hud-live-pill').first()).toBeVisible();
+  expect(await page.evaluate(() => window.__sim.replay)).toBeNull();
+  expect(await page.evaluate(() => window.__sim.world.tick)).toBeGreaterThanOrEqual(liveTick);
+  expect(errors).toEqual([]);
+});
+
+test('replay: an unavailable recording shows a notice and stays live', async ({ page }) => {
+  await page.route('**/api/live/jezioro/replay', (route) => route.fulfill({ status: 503, json: { error: 'starting' } }));
+  await openLive(page, '/jezioro');
+  await page.locator('#hud .hud-replay-btn').click();
+  await expect(page.locator('.ui-toast, [role="status"]').filter({ hasText: 'Powtórka jest niedostępna' }).first()).toBeVisible();
+  await expect(page.locator('.ui-replay')).toBeHidden();
+  await expect(page.locator('#hud .hud-replay-btn')).toHaveAttribute('aria-pressed', 'false');
 });
