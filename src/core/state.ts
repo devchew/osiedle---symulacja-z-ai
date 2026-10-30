@@ -44,7 +44,7 @@ export interface SnapshotOptions {
   diaryFactDays?: number;
 }
 
-/** compact snapshot for sending a world to the browser (sandbox) */
+/** compact snapshot for sending a world to the browser (live frames) */
 export const NETWORK_SNAPSHOT: SnapshotOptions = { includeTrace: false, diaryFactDays: 2 };
 /** full snapshot for persisting a live world (server volume) */
 export const DISK_SNAPSHOT: SnapshotOptions = { includeTrace: true };

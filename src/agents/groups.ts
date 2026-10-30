@@ -3,7 +3,7 @@ import { timeFromTick } from '../core/time';
 import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
 import { pushEvent } from '../world/events';
 import { REL_TUNING, clash, recordFriction, statusOf, type RelationStatus } from '../social/relationships';
-import { isMealTime } from './brain';
+import { isMealTime } from './meals';
 import { goalObjectBias, type GoalBias } from './goals';
 
 // Group activities. A resident who heads for a "gathering" object at the right

@@ -9,6 +9,7 @@ import { goalObjectBias, goalTalkBias, type GoalBias } from './goals';
 import { socialObjectBias, talkStatusFactor } from './groups';
 import { statusOf } from '../social/relationships';
 import { jointBlocksChat, jointKindOf, jointMemberOf, jointObjectBias } from './joint';
+import { isMealTime } from './meals';
 
 import { availability } from '../world/incidents';
 import { projectAppeal } from '../world/projects';
@@ -47,12 +48,6 @@ const TALK_COOLDOWN = 240;
 const TALK_COOLDOWN_ROMANCE = 150;
 /** need costs (negative effects) are weighed less than gains when choosing */
 const COST_WEIGHT = 0.5;
-/** meal windows (fractional hours); food looks more attractive inside them */
-export const MEAL_WINDOWS: readonly [number, number][] = [
-  [7, 9],
-  [12, 14],
-  [17.5, 19.5],
-];
 /** at meal time agents feel this much hungrier when scoring food */
 const MEAL_HUNGER_BONUS = 25;
 /** food between meals is less attractive unless hunger is below this */
@@ -88,11 +83,6 @@ export function isSleepingObject(def: ObjectDef | undefined): boolean {
 
 export function averageDuration(def: ObjectDef): number {
   return (def.duration[0] + def.duration[1]) / 2;
-}
-
-export function isMealTime(time: GameTime): boolean {
-  const h = time.hour + time.minute / 60;
-  return MEAL_WINDOWS.some(([a, b]) => h >= a && h < b);
 }
 
 /** recently used object types per agent, newest last */

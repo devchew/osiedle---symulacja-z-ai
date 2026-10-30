@@ -353,7 +353,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
         walk.set(a.id, w);
       }
       const moving = m.moving;
-      // legs: about 2.4 steps per tile, but never a frantic shuffle in the fast sandbox
+      // legs: about 2.4 steps per tile, but never a frantic shuffle in the fast lab
       if (moving) w.phase += Math.min(m.moved * Math.PI * 2.4, dt * Math.PI * 2 * 3.2);
       const facing = moving && m.facing !== 0 ? m.facing : undefined;
       const s = moving ? null : sleepingInfo(a, x, y);

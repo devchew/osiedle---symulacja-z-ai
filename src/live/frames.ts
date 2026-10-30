@@ -1,5 +1,5 @@
 import type { World } from '../types';
-import { restoreWorld, applySnapshot, type WorldSnapshot } from '../core/state';
+import { restoreWorld, applySnapshot } from '../core/state';
 import '../world/world'; // registers the world base and every module's state codec (restoreWorld needs them)
 import { setWeatherOverride, type WeatherKind, type WeatherSample } from '../world/incidents';
 import { markRealtime } from '../realtime/state';
@@ -70,18 +70,4 @@ export function attachLive(world: World, frame: LiveFrame): void {
     temperature: w?.temperature ?? null,
     weatherUpdatedAt: w?.updatedAt ?? null,
   });
-}
-
-/**
- * sandbox fork: a world that runs on its own in the browser, never marked real-time. The live
- * weather `sample` stays for the first game hour after `forkTick`, then the place's seeded plan
- * takes over.
- */
-export function forkWorld(snapshot: WorldSnapshot, sample: WeatherSample | null, forkTick = snapshot.tick): World {
-  const world = restoreWorld(snapshot);
-  if (sample) {
-    const until = forkTick + 60;
-    setWeatherOverride(world, (tick) => (tick < until ? sample : null));
-  }
-  return world;
 }
