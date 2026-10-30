@@ -165,6 +165,37 @@ test('stats panel: network, mood history and table are drawn', async ({ page }) 
   expect(errors).toEqual([]);
 });
 
+test('stats and diary panels stay clear of the open inspector (720–1300 px)', async ({ page }) => {
+  const errors = trackErrors(page);
+  await open(page, '?seed=7&tick=1000&paused');
+  const id = await page.evaluate(() => window.__sim.world.agents[0].id);
+  await page.evaluate((i) => window.__sim.select(i), id);
+  const inspector = page.locator('#inspector');
+  await expect(inspector).toBeVisible();
+
+  for (const width of [740, 800, 1000, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const [panelId, open] of [
+      ['#stats-panel', () => page.keyboard.press('t')],
+      ['#diary-panel', () => page.locator('#inspector .insp-diary-btn').click()],
+    ] as const) {
+      await open();
+      const panel = page.locator(panelId);
+      await expect(panel).toBeVisible();
+      await page.waitForTimeout(250);
+      const p = (await panel.boundingBox())!;
+      const i = (await inspector.boundingBox())!;
+      expect(p.x, `${panelId} left edge at ${width}px`).toBeGreaterThanOrEqual(0);
+      expect(p.x + p.width, `${panelId} clears the inspector at ${width}px`).toBeLessThanOrEqual(i.x);
+      if (width === 740 || width === 1000) await page.screenshot({ path: `${SHOTS}/ui-panel-${panelId.slice(1, 6)}-${width}.png` });
+      await page.keyboard.press('Escape');
+      await expect(panel).toBeHidden();
+      await expect(inspector).toBeVisible();
+    }
+  }
+  expect(errors).toEqual([]);
+});
+
 test('inspector shows memories (collapsible)', async ({ page }) => {
   const errors = trackErrors(page);
   await open(page, '?seed=7&tick=2400&paused');

@@ -624,6 +624,25 @@
   }
 }
 
+/* centred panels (stats, diary, projects, chronicle) fit into the space left of the open inspector (300px + gaps) */
+@media (min-width: 721px) and (max-width: 1420px) {
+  body:has(#inspector:not([hidden])) :is(.ui-stats, .ui-diary, .ui-projects, .ui-chronicle) {
+    left: calc((100vw - 312px) / 2);
+    width: min(var(--panel-w, 780px), calc(100vw - 336px));
+  }
+  body:has(#inspector:not([hidden])) .ui-diary {
+    --panel-w: 760px;
+  }
+  body:has(#inspector:not([hidden])) :is(.ui-projects, .ui-chronicle) {
+    --panel-w: 560px;
+  }
+}
+@media (min-width: 721px) and (max-width: 960px) {
+  body:has(#inspector:not([hidden])) .stats-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 720px) {
   .ui-hud {
     top: 8px;
