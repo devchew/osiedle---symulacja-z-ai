@@ -37,7 +37,7 @@ export function placeById(id: string | null | undefined): PlaceDef | undefined {
 
 /** GET → PlaceSummary[] */
 export const LIVE_PLACES_URL = '/api/live/places';
-/** GET → LiveFrame (one-off, e.g. to fork the sandbox) */
+/** GET → LiveFrame (one-off snapshot of a place) */
 export const liveSnapshotUrl = (place: PlaceId): string => `/api/live/${place}/snapshot`;
 /**
  * GET, Server-Sent Events. `event: frame` with `data: LiveFrame` (JSON) right after connecting

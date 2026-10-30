@@ -1,4 +1,4 @@
-/* Live view chrome: place switcher, fork button, connection banner, sandbox banner, HUD place box. */
+/* Live view chrome: place switcher, connection banner, HUD place box. */
 
 /* ------------------------------------------------------------ HUD: place + live badge */
 .hud-lv {
@@ -136,30 +136,6 @@
 .place-hl[hidden] {
   display: none;
 }
-.places-fork {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin-top: 10px;
-  padding: 9px 10px;
-  border-radius: 11px;
-  background: linear-gradient(135deg, #7a5cff, #4aa3ff);
-  color: #fff;
-  font-weight: 750;
-  text-decoration: none;
-  box-shadow: 0 4px 14px rgba(90, 110, 255, 0.35);
-  transition: transform 0.12s, filter 0.12s;
-}
-.places-fork:hover {
-  filter: brightness(1.08);
-  transform: translateY(-1px);
-}
-.places-fork:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 2px;
-}
-
 /* ------------------------------------------------------------ connection banner */
 .ui-conn {
   top: 64px;
@@ -203,63 +179,6 @@
   margin-right: 8px;
 }
 
-/* ------------------------------------------------------------ sandbox banner */
-.ui-sandbox {
-  top: 12px;
-  left: 12px;
-  width: 256px;
-  padding: 12px;
-  border-color: rgba(186, 140, 255, 0.45);
-  background: rgba(36, 22, 64, 0.82);
-}
-.sbx-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 14px;
-}
-.sbx-icon {
-  font-size: 18px;
-}
-.sbx-text {
-  margin: 6px 0 4px;
-  line-height: 1.35;
-}
-.sbx-from {
-  margin: 0 0 10px;
-  font-size: 11.5px;
-  color: var(--ui-muted);
-}
-.sbx-actions {
-  display: flex;
-  gap: 6px;
-}
-.sbx-back,
-.sbx-refork {
-  flex: 1;
-  padding: 7px 8px;
-  border-radius: 9px;
-  border: 1px solid var(--ui-border);
-  background: rgba(255, 255, 255, 0.08);
-  color: inherit;
-  font-weight: 700;
-  text-align: center;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.sbx-back {
-  background: #ff5c6c;
-  border-color: transparent;
-  color: #fff;
-}
-.sbx-back:hover,
-.sbx-refork:hover {
-  filter: brightness(1.1);
-}
-.ui-hud.is-sandbox {
-  border-color: rgba(186, 140, 255, 0.45);
-}
-
 /* ------------------------------------------------------------ narrower screens: places become tabs */
 @media (max-width: 1100px) {
   .ui-places {
@@ -279,7 +198,7 @@
   .places-title {
     display: none;
   }
-  /* the tabs scroll, the fork button stays at the end */
+  /* the tabs scroll */
   .places-list {
     display: flex;
     gap: 4px;
@@ -310,58 +229,14 @@
   .place-name {
     font-size: 12.5px;
   }
-  .places-fork {
-    flex: none;
-    margin: 0;
-    padding: 6px 10px;
-    font-size: 12.5px;
-    box-shadow: none;
-  }
   .ui-conn {
     top: 112px;
-  }
-  .ui-sandbox {
-    top: 60px;
-    left: 8px;
-    right: 8px;
-    width: auto;
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: 4px 10px;
-    padding: 7px 8px 7px 10px;
-  }
-  .sbx-head .sbx-title {
-    display: none;
-  }
-  .sbx-text {
-    margin: 0;
-    font-size: 12px;
-  }
-  .sbx-from {
-    display: none;
-  }
-  .sbx-actions {
-    flex-direction: column;
-    gap: 4px;
-  }
-  .sbx-back,
-  .sbx-refork {
-    padding: 4px 8px;
-    font-size: 12px;
   }
 }
 
 @media (max-width: 720px) {
   .ui-places {
     top: 52px;
-  }
-  .places-fork-text {
-    display: none;
-  }
-  .places-fork {
-    padding: 6px 9px;
-    font-size: 15px;
   }
   .place-temp {
     font-size: 11.5px;
@@ -378,12 +253,6 @@
     max-width: calc(100vw - 16px);
     font-size: 12px;
   }
-  .ui-sandbox {
-    top: 52px;
-  }
-  .sbx-refork {
-    display: none;
-  }
 }
 
 @media (max-width: 420px) {
@@ -399,8 +268,7 @@
   .conn-spinner {
     animation: none;
   }
-  .place-card,
-  .places-fork {
+  .place-card {
     transition: none;
   }
 }

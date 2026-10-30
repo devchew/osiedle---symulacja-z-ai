@@ -11,13 +11,13 @@ import type { projectsOf } from '../world/projects';
 // window.__sim: handles for e2e tests and debugging in every mode.
 
 export interface SimDebug {
-  mode: 'lab' | 'live' | 'sandbox';
+  mode: 'lab' | 'live';
   /** the world on screen (live view: replaced or updated by every frame) */
   readonly world: World;
   controls: SimControls;
   renderer: Renderer;
   select(id: number | null): void;
-  /** advances the simulation (lab, sandbox; no-op in the live view) */
+  /** advances the simulation (lab; no-op in the live view) */
   tick(n: number): void;
   stats: StatsPanel;
   diary: DiaryPanel;

@@ -257,7 +257,7 @@ function drawThought(ctx: Ctx, p: Placed): void {
 
 // ---------------------------------------------------------------- real-time presentation
 
-// The simulation keeps a bubble for `ttl` ticks, but a tick lasts 0.2 s in the sandbox and a whole
+// The simulation keeps a bubble for `ttl` ticks, but a tick lasts 0.2 s in the lab and a whole
 // minute in the live view. The presenter decides in wall-clock time what is on screen: a bubble shows
 // from `at` (fraction of the tick it was said in), stays for its reading time and fades out; at fast
 // speeds each bubble is held at least MIN_SHOW_MS before a newer one replaces it or it disappears.
