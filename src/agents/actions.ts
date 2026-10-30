@@ -11,7 +11,7 @@ import { pushEvent } from '../world/events';
 import { trace } from '../world/trace';
 import { newsFor } from '../world/news';
 import { availability, isOutdoorTile, weatherOf } from '../world/incidents';
-import { chatAcceptanceChance, conversationDelta, describeConversation, startConversation, type ConversationMood } from '../social/conversation';
+import { EXCHANGE_GAP, LINE_TTL, chatAcceptanceChance, conversationDelta, describeConversation, startConversation, type ConversationMood } from '../social/conversation';
 import { feltSympathy, recordConversation, recordFriction, statusOf } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 import { onConversationEnd, recallFor } from '../social/memory';
@@ -19,20 +19,26 @@ import { goalConversation, goalUseEnd, goalUseTick, updateGoal } from './goals';
 import { gatheringOf as gatheringOfAgent, noticeCompetition, onHeadingTo } from './groups';
 import { JOINT_CHATTINESS, JOINT_QUIET_BOOST, JOINT_TOPIC, jointGroups, jointMemberOf, noteFishingCast, onJointArrive, onJointHeadingTo, tickJoint } from './joint';
 
-const TALK_EFFECTS = { social: 0.7, fun: 0.12 };
+/** per minute of a walk-over chat; chats are short exchanges (minutes, not hours), hence the strong effect */
+const TALK_EFFECTS = { social: 5, fun: 0.8 };
 /** walking is quick (src/agents/movement.ts): a partner in the house is reached within a tick or two */
 const APPROACH_TIMEOUT = 10;
 const MIN_USE_BEFORE_INTERRUPT = 10;
 /** "needs satisfied" may end an activity only after this long (no sit-down, stand-up flicker) */
 const MIN_USE_BEFORE_SATISFIED = 20;
 /** a chat keeps people seated a bit longer so it can finish; past WRAP_UP it heads for a goodbye */
-const MAX_CHAT_EXTENSION = 60;
-const CHAT_WRAP_UP = 20;
+const MAX_CHAT_EXTENSION = 20;
+const CHAT_WRAP_UP = 8;
 /** don't start an ambient chat with someone about to leave */
-const MIN_TICKS_LEFT_FOR_CHAT = 15;
+const MIN_TICKS_LEFT_FOR_CHAT = 8;
 const REPATH_EVERY = 2;
-const LINE_TICKS: [number, number] = [11, 15];
-const AMBIENT_CHAT_CHANCE = 0.008;
+// A conversation is a series of exchanges: an opening line and the partner's reply within the same
+// minute, then a short pause. In the live view (1 game minute = 1 real minute) the reply appears a few
+// seconds after the opener (Bubble.at), and the renderer shows each line only for its reading time.
+/** when within the minute the opener and the reply are said (fraction of the tick) */
+const OPENER_AT: [number, number] = [0.02, 0.08];
+const REPLY_AT: [number, number] = [0.16, 0.26];
+const AMBIENT_CHAT_CHANCE = 0.004;
 /** ambient chats are this much likelier during a gathering, and per extra free person at the object */
 const AMBIENT_GATHERING_FACTOR = 2;
 const AMBIENT_PER_EXTRA = 0.5;
@@ -514,11 +520,11 @@ function inThisConversation(world: World, agent: Agent, conv: Conversation): boo
   return false;
 }
 
-function say(world: World, conv: Conversation, line: DialogueLine): void {
+function say(world: World, conv: Conversation, line: DialogueLine, at?: number): void {
   conv.lines.push(line);
   conv.pending = false;
   const speaker = agentById(world, line.speakerId);
-  if (speaker) speaker.bubble = { kind: 'speech', text: line.text, ttl: LINE_TICKS[1] + 3, tone: line.tone };
+  if (speaker) speaker.bubble = { kind: 'speech', text: line.text, ttl: LINE_TTL, tone: line.tone, ...(at ? { at } : {}) };
 }
 
 function endConversation(world: World, conv: Conversation, reason = 'koniec tematu'): void {
@@ -581,34 +587,59 @@ export function tickConversations(world: World, time: GameTime): void {
       endConversation(world, conv);
       continue;
     }
-    const turn = conv.lines.length;
-    const speaker = turn % 2 === 0 ? a : b;
-    const listener = speaker === a ? b : a;
-    const ctx: ConversationContext = {
-      speaker,
-      listener,
-      // couples speak warmer, rivals colder (see feltSympathy)
-      relationship: feltSympathy(world, speaker.id, listener.id),
-      topic: conv.topic,
-      history: conv.lines,
-      turn,
-      isLast: turn === conv.maxLines - 1,
-      time,
-      gossip: recallFor(world, speaker, listener),
-      news: newsFor(world, speaker),
-    };
-    conv.nextLineIn = world.rng.int(LINE_TICKS[0], LINE_TICKS[1]);
-    const result = world.dialogue.nextLine(ctx, world.rng);
-    if (result instanceof Promise) {
-      conv.pending = true;
-      speaker.bubble = { kind: 'thought', text: '…', ttl: 200 };
-      result
-        .then((line) => say(world, conv, line))
-        .catch(() => say(world, conv, fallbackDialogue.nextLine(ctx, world.rng) as DialogueLine));
-    } else {
-      say(world, conv, result);
-    }
+    // one exchange: the opener and, when the provider answers right away, the reply
+    const opener = conv.lines.length % 2 === 0;
+    const spoken = speakLine(world, conv, a, b, time, opener ? world.rng.range(OPENER_AT[0], OPENER_AT[1]) : undefined);
+    if (spoken && opener && conv.lines.length < conv.maxLines) speakLine(world, conv, a, b, time, world.rng.range(REPLY_AT[0], REPLY_AT[1]));
+    if (!conv.pending) conv.nextLineIn = nextLineDelay(world, conv);
   }
+}
+
+/** ticks until the next line: a reply still owed comes next minute, a new exchange after a short pause */
+function nextLineDelay(world: World, conv: Conversation): number {
+  return conv.lines.length % 2 === 1 && conv.lines.length < conv.maxLines ? 1 : world.rng.int(EXCHANGE_GAP[0], EXCHANGE_GAP[1]);
+}
+
+/** asks the provider for the next line; false while an async provider is still thinking */
+function speakLine(world: World, conv: Conversation, a: Agent, b: Agent, time: GameTime, at?: number): boolean {
+  const turn = conv.lines.length;
+  const speaker = turn % 2 === 0 ? a : b;
+  const listener = speaker === a ? b : a;
+  const ctx: ConversationContext = {
+    speaker,
+    listener,
+    // couples speak warmer, rivals colder (see feltSympathy)
+    relationship: feltSympathy(world, speaker.id, listener.id),
+    topic: conv.topic,
+    history: conv.lines,
+    turn,
+    isLast: turn === conv.maxLines - 1,
+    time,
+    gossip: recallFor(world, speaker, listener),
+    news: newsFor(world, speaker),
+  };
+  const result = world.dialogue.nextLine(ctx, world.rng);
+  if (!(result instanceof Promise)) {
+    say(world, conv, result, at);
+    return true;
+  }
+  conv.pending = true;
+  speaker.bubble = { kind: 'thought', text: '…', ttl: 200 };
+  const done = (line: DialogueLine): void => {
+    // the conversation may have ended while waiting: drop the line and the "…"
+    if (!world.conversations.includes(conv)) {
+      if (speaker.bubble?.text === '…') speaker.bubble = null;
+      return;
+    }
+    // async lines land between ticks and show with the next frame: the opener first, the reply a bit later
+    const opener = turn % 2 === 0;
+    say(world, conv, line, opener ? OPENER_AT[0] : REPLY_AT[0]);
+    // ask for the reply right away, so both make it into the same minute
+    if (opener && conv.lines.length < conv.maxLines && !speakLine(world, conv, a, b, time, REPLY_AT[0])) return;
+    conv.nextLineIn = EXCHANGE_GAP[1];
+  };
+  result.then(done).catch(() => done(fallbackDialogue.nextLine(ctx, world.rng) as DialogueLine));
+  return false;
 }
 
 /**

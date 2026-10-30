@@ -8,6 +8,7 @@ import { availability } from '../world/incidents';
 import { findPath } from './pathfinding';
 import { applyEffects } from './needs';
 import { clash, noteRelation, recordFriction, statusOf } from '../social/relationships';
+import { LINE_TTL } from '../social/conversation';
 import { JOINT_LINES } from '../social/dialogueProvider';
 import type { GoalBias } from './goals';
 import { callGathering, gatheringOf, invitationsOf } from './groups';
@@ -104,7 +105,7 @@ export const JOINT_TUNING = {
   /** alone: a console session is a bit less fun, a card table is solitaire (rare) */
   SOLO_FACTOR: { fishing: 1, console: 0.75, boardgame: 0.2 } as Record<JointKind, number>,
   /** conversations of members wrap up this many minutes before the shared end */
-  WRAP: 36,
+  WRAP: 6,
   /** no new chats with members later than this before the end */
   NO_NEW_CHAT: 50,
   /** sympathy per pair at the end: base + compatibility (1.2 - 0.6 * temperament gap) */
@@ -824,8 +825,8 @@ function moment(world: World, session: Session, here: Agent[]): void {
   const L = JOINT_LINES;
   const memberOf = (a: Agent): Member => session.members.find((m) => m.id === a.id)!;
   const say = (a: Agent, text: string, tone: 'positive' | 'neutral' | 'negative' = 'positive'): void => {
-    // don't talk over a conversation line
-    if (a.bubble?.kind === 'speech' && a.bubble.ttl > 6) return;
+    // don't talk over a conversation line said this or last minute
+    if (a.bubble?.kind === 'speech' && a.bubble.ttl >= LINE_TTL - 1) return;
     a.bubble = { kind: 'speech', text, ttl: 18, tone };
   };
   if (rng.chance(0.15)) {

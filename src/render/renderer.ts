@@ -1,11 +1,11 @@
 // Canvas 2D renderer: camera, static layer cache, agents, bubbles, lighting.
 // Reads the World only; never mutates simulation state.
 
-import type { Agent, World } from '../types';
+import type { Agent, Bubble, World } from '../types';
 import { Ambient } from './ambient';
 import { Camera, type Insets } from './camera';
 import { UI_FONT, EMOJI_FONT, rr } from './colors';
-import { drawBubbles, type BubbleItem, type Obstacle } from './bubbles';
+import { createBubblePresenter, drawBubbles, type BubbleItem, type Obstacle } from './bubbles';
 import { Lighting, lightStateAt } from './lighting';
 import { AGENT_SCALE, drawAgent, drawSelection, headTop, type AgentPose, type PoseMode } from './sprites';
 import { buildStaticLayer, staticSignature, type StaticLayer } from './tiles';
@@ -77,6 +77,11 @@ interface Pose extends AgentPose {
 
 export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): Renderer {
   let world = initialWorld;
+  // bubbles run on a presentation clock: wall time that stops while the picture stands still (pause)
+  const presenter = createBubblePresenter();
+  let bubbleClock = 0;
+  let bubbleTick = -1;
+  let bubbleAlpha = -1;
   let fitInsets = FIT_INSETS;
   let fitInsetsNarrow = FIT_INSETS_NARROW;
   const ctx = canvas.getContext('2d', { alpha: false }) ?? canvas.getContext('2d');
@@ -449,6 +454,9 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     const c = ctx!;
 
     poses = computePoses(alpha, now, dt);
+    if (world.tick !== bubbleTick || alpha !== bubbleAlpha) bubbleClock += dt * 1000;
+    bubbleTick = world.tick;
+    bubbleAlpha = alpha;
 
     // camera: keyboard pan, zoom animation, follow
     if (keys.size) {
@@ -524,6 +532,11 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     const convOf = new Map<number, number>();
     for (const cv of world.conversations) for (const id of cv.participants) convOf.set(id, cv.id);
     const bubbles: BubbleItem[] = [];
+    const shown = new Map<number, { bubble: Bubble; fade: number }>();
+    for (const a of world.agents) {
+      const b = presenter.present(a.id, a.bubble, world.tick, alpha, bubbleClock);
+      if (b) shown.set(a.id, b);
+    }
     // speech bubbles steer clear of the TV news panel
     const obstacles: Obstacle[] = tvPanels.map((r) => ({ agentId: -1, ...r }));
     interface Overlay {
@@ -548,7 +561,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
       let head: Overlay['head'] = null;
       if (p.sleeping) head = p.bedHorizontal ? cam.toScreen(p.x - 0.36, p.y) : cam.toScreen(p.x, p.y - 0.36);
       else {
-        const speaking = a.bubble?.kind === 'speech' && !!a.bubble.text;
+        const speaking = shown.get(a.id)?.bubble.kind === 'speech';
         if (a.action?.icon && z >= 10 && (!speaking || isSel)) {
           icon = { x: top.x, y: top.y - 17 * ui };
           obstacles.push({ agentId: a.id, x: icon.x - iconR, y: icon.y - iconR, w: iconR * 2, h: iconR * 2 + 5 * ui });
@@ -591,10 +604,12 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
         drawIcon(a.action.icon, it.icon.x, it.icon.y, ui);
         anchorY = it.icon.y - 13 * ui;
       }
-      if (a.bubble && a.bubble.text)
+      const sb = shown.get(a.id);
+      if (sb)
         bubbles.push({
           agentId: a.id,
-          bubble: a.bubble,
+          bubble: sb.bubble,
+          fade: sb.fade,
           ax: anchorX,
           ay: anchorY,
           priority: it.isSel ? 2 : a.id === followId ? 1 : 0,
@@ -648,7 +663,9 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     setWorld: (w, sameScene) => {
       if (w === world) return;
       world = w;
+      presenter.retain(new Set(w.agents.map((a) => a.id)));
       if (!sameScene) {
+        presenter.clear();
         motion = new MotionTracker(trailOf);
         walk.clear();
         poses = [];
