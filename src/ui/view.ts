@@ -14,7 +14,7 @@ import { relationOf } from '../social/relationships';
 import { weatherOf } from '../world/incidents';
 import { projectsOf } from '../world/projects';
 
-// The common screen of every mode (live view, sandbox, /lab): canvas renderer, HUD, inspector,
+// The common screen of every mode (live view, /lab): canvas renderer, HUD, inspector,
 // event log and the read-only panels (stats, diaries, projects), with selection, panel
 // exclusivity and the 5 Hz UI refresh. The world it shows can be swapped (setWorld): the next
 // live frame restored as a new object, or another place.
@@ -37,7 +37,7 @@ export interface ExtraPanel {
 export interface ViewOptions {
   world: World;
   controls: SimControls;
-  /** mood history fed by the owner (lab/sandbox: after each tick; live: after each frame) */
+  /** mood history fed by the owner (lab: after each tick; live: after each frame) */
   history?: MoodHistory;
   /** extra HUD buttons placed after stats / diaries / projects */
   buttons?: HudButton[];

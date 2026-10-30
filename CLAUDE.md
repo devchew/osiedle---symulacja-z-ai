@@ -1,7 +1,7 @@
 # Osiedle
 
 Autonomiczna symulacja życia (w stylu The Sims, bez sterowania): 4 stałe światy działające na żywo na
-serwerze + sandbox w przeglądarce. **Zasady pracy: `CONTRIBUTING.md`. Zadania: GitHub Issues**
+serwerze, tylko podgląd. **Zasady pracy: `CONTRIBUTING.md`. Zadania: GitHub Issues**
 (`gh issue list`). Decyzje: `plan/DECISIONS.md`. Historia fal 0–10: `plan/TASKS.md` (archiwum).
 
 - Praca w osobnym `git worktree` (`.claude/worktrees/<nr>-opis`), nie w głównym katalogu; na gałęzi `feat|fix|chore/<nr-issue>-opis`, PR do `master` z `Closes #<nr>`; `master` = produkcja (Coolify).

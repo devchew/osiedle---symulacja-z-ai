@@ -8,8 +8,6 @@ kłócą i co wieczór piszą pamiętnik. Nikt nimi nie steruje.
 Światy działają **24/7 na serwerze w czasie rzeczywistym**: zegar to czas polski, pogoda jest
 prawdziwa (Open-Meteo dla miasta danego miejsca), w telewizorze lecą prawdziwe nagłówki, a dialogi
 i pamiętniki może pisać AI (OpenRouter, darmowe modele). Odwiedzający oglądają i przełączają miejsca.
-**🔮 Co będzie dalej?** kopiuje bieżący świat do przeglądarki — tam można przyspieszać i pauzować;
-świat na żywo toczy się dalej bez zmian.
 
 Produkcja: https://osiedle.devchew.com
 
