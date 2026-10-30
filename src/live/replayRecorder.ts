@@ -159,9 +159,10 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
     const w = weatherOf(world);
     const intensity = r2(w.intensity);
     const temp = temperature === null ? null : Math.round(temperature);
-    const key = `${w.kind}|${intensity}|${w.label}|${w.icon}|${temp}`;
+    const snow = w.snow ? 1 : 0;
+    const key = `${w.kind}|${intensity}|${w.label}|${w.icon}|${temp}|${snow}`;
     if (key === weatherKey) return;
-    weather.push([tick, w.kind, intensity, w.label, w.icon, temp]);
+    weather.push(snow ? [tick, w.kind, intensity, w.label, w.icon, temp, 1] : [tick, w.kind, intensity, w.label, w.icon, temp]);
     weatherKey = key;
   }
 
@@ -200,7 +201,7 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
     }
     objectsKey = objects.length ? JSON.stringify(objects[objects.length - 1][1]) : '';
     const w = weather[weather.length - 1];
-    weatherKey = w ? `${w[1]}|${w[2]}|${w[3]}|${w[4]}|${w[5]}` : '';
+    weatherKey = w ? `${w[1]}|${w[2]}|${w[3]}|${w[4]}|${w[5]}|${w[6] ?? 0}` : '';
     projectsKey = projects.length ? JSON.stringify(projects[projects.length - 1][1]) : '';
   }
 

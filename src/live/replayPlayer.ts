@@ -206,7 +206,7 @@ export function createReplayPlayer(live: World, data: ReplayResponse): ReplayPla
     conversations();
     const w = rowAt(data.weather, t);
     if (w) {
-      sample = { kind: w[1], intensity: w[2], ...(w[3] ? { label: w[3] } : {}), ...(w[4] ? { icon: w[4] } : {}) };
+      sample = { kind: w[1], intensity: w[2], ...(w[3] ? { label: w[3] } : {}), ...(w[4] ? { icon: w[4] } : {}), ...(w[6] ? { snow: true } : {}) };
       temperature = w[5];
       updateRealtimeStatus(world, { temperature });
     }

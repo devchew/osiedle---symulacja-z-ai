@@ -156,8 +156,8 @@ export interface ReplayResponse {
   pets: ReplayPetTrack[];
   /** [tick, [[uid, type, x, y], …]] whenever the set of objects changed (breakdowns, building stages) */
   objects: [number, [number, string, number, number][]][];
-  /** [tick, kind, intensity, label|null, icon|null, temperature|null] */
-  weather: [number, WeatherKind, number, string | null, string | null, number | null][];
+  /** [tick, kind, intensity, label|null, icon|null, temperature|null, 1 when the precipitation is snow (optional)] */
+  weather: ([number, WeatherKind, number, string | null, string | null, number | null] | [number, WeatherKind, number, string | null, string | null, number | null, 1])[];
   /** [tick, kind, text, agentIds]: the world's events in the window (the same log as live) */
   events: [number, SimEventKind, string, number[]][];
   /** [tick, projects of the projects module (JSON)], sampled every 30 ticks when changed */
