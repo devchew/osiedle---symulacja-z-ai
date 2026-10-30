@@ -152,6 +152,18 @@ TOPIC_LINES['planszówki'] = {
   negative: ['Ktoś tu chyba oszukuje…', 'Ech, ta kostka mnie nie lubi.', 'Nie znoszę przegrywać.'],
 };
 
+// topics of chats with visitors (agents/guests.ts sets them)
+TOPIC_LINES['wizyta'] = {
+  positive: ['Miło, że wpadasz!', 'Napijemy się kawy?', 'Jak dobrze znów się zobaczyć!'],
+  neutral: ['Wpadam tylko na chwilkę.', 'Dawno nie było okazji pogadać.', 'Co słychać na osiedlu?'],
+  negative: ['Tylko na moment, mam sporo na głowie.', 'Hałas jak zwykle, co?', 'Zaraz muszę wracać.'],
+};
+TOPIC_LINES['przesyłka'] = {
+  positive: ['Paczka już jest, super!', 'O, ta długo wyczekiwana paczka!', 'Wszystko w komplecie, dziękuję!'],
+  neutral: ['Podpis tutaj, proszę.', 'Przesyłka za potwierdzeniem odbioru.', 'Czy to na pewno ten adres?'],
+  negative: ['Znowu spóźniona dostawa…', 'Paczka lekko wgnieciona, ech.', 'Kolejna paczka, kolejny podpis…'],
+};
+
 type JointKindKey = 'fishing' | 'console' | 'boardgame';
 /** topics of chats during joint activities (see agents/joint.ts JOINT_TOPIC) */
 const JOINT_TOPICS = new Set(['wędkowanie', 'gry na konsoli', 'planszówki']);

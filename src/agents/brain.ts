@@ -11,10 +11,12 @@ import { statusOf } from '../social/relationships';
 import { jointBlocksChat, jointKindOf, jointMemberOf, jointObjectBias } from './joint';
 import { isMealTime } from './meals';
 import { petObjectBias } from './pets';
+import { guestKeepsOnlyTalk, guestMayUse, guestObjectFactor, isLeavingGuest } from './guests';
+import { isGuest } from './role';
 import { bedtimeHour, outdoorDaylightFactor, outdoorEveningEnd, outdoorSeasonFactor, SEASON_TUNING, wakeHour } from './seasons';
 import { isFreeEvening, isWeekend } from '../core/time';
 
-import { availability } from '../world/incidents';
+import { availability, RAIN_OUTDOOR } from '../world/incidents';
 import { projectAppeal } from '../world/projects';
 
 // Utility AI: every candidate activity advertises how much it would reduce the
@@ -248,7 +250,7 @@ export function hasCriticalNeed(agent: Agent): boolean {
 
 export function canChat(other: Agent, world: World): boolean {
   const a = other.action;
-  if (hasCriticalNeed(other)) return false;
+  if (hasCriticalNeed(other) || isLeavingGuest(world, other)) return false;
   // already chatting (also a chat "on the side" at a table or bench)
   if (world.conversations.some((c) => c.participants.includes(other.id))) return false;
   // on the way to a joint session, or one about to end: no new chats with its players
@@ -317,6 +319,7 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
   for (const obj of world.objects) {
     const def = world.objectDefs[obj.type];
     if (!def || def.slots.length === 0) continue;
+    if (isGuest(agent) && !guestMayUse(def)) continue;
     const slot = freeSlot(obj);
     if (slot < 0) continue;
     if (justLeft(agent, obj.uid, world.tick)) continue;
@@ -329,9 +332,12 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
       if (jointKindOf(obj.type)) base = withGoal(base, jointObjectBias(world, agent, obj, time), calm);
       // a hungry / bored pet, a dog waiting for its walk (nothing while the pet is fine)
       base = withGoal(base, petObjectBias(world, obj), calm);
+      base *= guestObjectFactor(agent, def, time);
     }
-    // broken objects, rain outside: caps every bonus too
-    base *= availability(world, obj, def) * projectAppeal(world, obj, def, agent);
+    // broken objects, rain outside: caps every bonus too (nobody starts an outdoor activity in the rain)
+    const avail = availability(world, obj, def);
+    if (avail <= RAIN_OUTDOOR) continue;
+    base *= avail * projectAppeal(world, obj, def, agent);
     // people have time for building on weekends
     if (isWeekend(time) && def.tags?.includes('project')) base *= SEASON_TUNING.WEEKEND_PROJECT;
     if (base <= 0) continue;
@@ -350,6 +356,7 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
   const talkReach = DISTANCE_SCALE * (1 + 2 * urgency(agent.needs.social));
   for (const other of world.agents) {
     if (other.id === agent.id || !canChat(other, world) || talkedRecently(world, agent.id, other.id)) continue;
+    if (guestKeepsOnlyTalk(agent) && isGuest(other)) continue;
     const rel = world.relationships.get(agent.id, other.id);
     const dist = Math.hypot(other.pos.x - agent.pos.x, other.pos.y - agent.pos.y);
     const busy = other.action?.kind === 'wander' || other.path.length > 0 ? 0.5 : 1;
@@ -364,6 +371,8 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
   // standing around once is fine; again and again looks broken
   const recent = recentUses.get(agent) ?? [];
   const idled = recent.filter((r) => r === 'idle').length;
+  // the courier only wants someone to hand the parcel to
+  if (guestKeepsOnlyTalk(agent) && out.some((d) => d.kind === 'talk')) return out;
   out.push({ kind: 'wander', score: 4 + 3 * agent.traits.activity });
   out.push({ kind: 'idle', score: (2 - agent.traits.activity) * Math.pow(0.35, idled) });
   return out;

@@ -7,6 +7,7 @@ import { isAgentSleeping } from '../src/agents/actions';
 import { isMealTime } from '../src/agents/meals';
 import { jointLog } from '../src/agents/joint';
 import { snowCoverOf, weatherOf } from '../src/world/incidents';
+import { residentsOf } from '../src/agents/role';
 
 // Seasons and weekends (issue #10): the calendar of a world follows from the local date its day 1 falls on.
 
@@ -116,7 +117,7 @@ describe('weekends', () => {
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
       const w = run(seed, FRIDAY, 7, (x) => {
         const k = isFree(timeOf(x).weekday);
-        for (const a of x.agents) if (!isAgentSleeping(x, a)) awake[k]++;
+        for (const a of residentsOf(x)) if (!isAgentSleeping(x, a)) awake[k]++;
       });
       for (const r of jointLog(w)) if (r.happened) sessions[isFree(timeAt(w, r.start).weekday)]++;
     }

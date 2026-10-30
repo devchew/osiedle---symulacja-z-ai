@@ -2,6 +2,7 @@ import './a11y.css';
 import type { World } from '../types';
 import { el, isTypingTarget, setText } from './dom';
 import { actionInfo } from './inspector';
+import { isGuest } from '../agents/role';
 
 // Accessibility layer shared by every mode: a keyboard- and screen-reader-friendly list of the
 // residents and what they are doing (the canvas itself cannot be read), a calm live digest,
@@ -30,7 +31,7 @@ export interface A11y {
 
 function describe(world: World, a: World['agents'][number]): string {
   const info = actionInfo(a.action, world);
-  return `${a.name} — ${info.text}${info.state ? ` (${info.state})` : ''}`;
+  return `${a.name}${isGuest(a) ? ' (gość)' : ''} — ${info.text}${info.state ? ` (${info.state})` : ''}`;
 }
 
 export function createA11y(opts: A11yOptions): A11y {
@@ -44,7 +45,7 @@ export function createA11y(opts: A11yOptions): A11y {
   region.id = 'a11y-residents';
   region.tabIndex = -1;
   region.setAttribute('aria-label', 'Mieszkańcy osiedla');
-  const intro = el('p', 'a11y-intro', ['Mieszkańcy i ich bieżące zajęcia. Enter pokazuje postać na mapie. Klawisze [ i ] przełączają postacie.']);
+  const intro = el('p', 'a11y-intro', ['Mieszkańcy (i goście) oraz ich bieżące zajęcia. Enter pokazuje postać na mapie. Klawisze [ i ] przełączają postacie.']);
   const list = el('ul', 'a11y-list');
   region.append(intro, list);
 

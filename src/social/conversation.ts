@@ -37,6 +37,8 @@ const EXTRA_ABOUT: Record<string, string> = {
   wędkowanie: 'o wędkowaniu',
   'gry na konsoli': 'o grach na konsoli',
   planszówki: 'o planszówkach',
+  wizyta: 'o odwiedzinach',
+  przesyłka: 'o przesyłce',
 };
 
 /** "o muzyce"; falls back to "o: <topic>" for unknown topics (e.g. LLM-chosen) */

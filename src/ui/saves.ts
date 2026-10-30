@@ -2,6 +2,7 @@ import type { World } from '../types';
 import { DEFAULT_MAP_ID, getMap, mapIdOf } from '../world/maps';
 import { isRealtime } from '../realtime/state';
 import { storageGet, storageSet } from './dom';
+import { residentsOf } from '../agents/role';
 
 // Saves. The simulation is deterministic per seed (procedural dialogue), so a
 // save is just "which world, how far": { seed, agentCount, map, tick }. Loading
@@ -98,7 +99,7 @@ export function saveFromWorld(world: World, ai = false): SaveData {
   return {
     version: SAVE_VERSION,
     seed: world.seed,
-    agentCount: world.agents.length,
+    agentCount: residentsOf(world).length,
     tick: world.tick,
     check: worldCheck(world),
     ai: ai || undefined,

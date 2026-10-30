@@ -77,8 +77,9 @@ function reachable(g: Grid, starts: Vec2[]): Set<string> {
   return seen;
 }
 
+// no visitors: these tests measure the building pace itself, which is seed-sensitive enough on its own
 function newWorld(map: string, seed: number): World {
-  return createWorld(seed, { mapId: map, agentCount: Math.min(6, bedCount(getMap(map))) });
+  return createWorld(seed, { mapId: map, agentCount: Math.min(6, bedCount(getMap(map))), guests: false });
 }
 
 function siteOf(world: World, p: ProjectView) {

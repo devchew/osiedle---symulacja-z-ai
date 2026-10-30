@@ -14,6 +14,7 @@ import { JOINT_LINES } from '../social/dialogueProvider';
 import type { GoalBias } from './goals';
 import { callGathering, gatheringOf, invitationsOf } from './groups';
 import { fishingOpen, SEASON_TUNING } from './seasons';
+import { residentsOf } from './role';
 
 // Joint activities: long sessions that two to four residents do together on one object
 // (console, card table) or on neighbouring objects (fishing spots side by side).
@@ -495,7 +496,7 @@ function availablePartners(world: World, agent: Agent, kind: JointKind): number 
   if (hit !== undefined) return hit;
   const h = hourOf(timeOf(world));
   let n = 0;
-  for (const o of world.agents) if (!cannotCome(world, agent, o) && !needsFirst(o, h) && !recentlyPlayed(world, o.id)) n++;
+  for (const o of residentsOf(world)) if (!cannotCome(world, agent, o) && !needsFirst(o, h) && !recentlyPlayed(world, o.id)) n++;
   c.byKey.set(key, n);
   return n;
 }
@@ -627,7 +628,7 @@ export function onJointHeadingTo(world: World, agent: Agent, obj: ObjectInstance
   const size = Math.min(preferredSize(kind, agent.traits, world.rng), seats.length + 1);
 
   // who to ask: friends first, then those who like this kind of thing
-  const candidates = world.agents
+  const candidates = residentsOf(world)
     .filter((o) => !cannotCome(world, agent, o))
     .map((o) => ({ o, w: world.relationships.get(o.id, agent.id) + 30 * jointTaste(kind, o.traits) + world.rng.range(0, 20) }))
     .sort((x, y) => y.w - x.w)

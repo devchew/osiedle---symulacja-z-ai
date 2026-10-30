@@ -113,15 +113,17 @@ const SUB = 16;
 /** runs a world and replays every agent's walk the way the renderer does, sampling densely */
 function replay(seed: number, ticks: number, view: MotionView, frames: number): Replay {
   const w = createWorld(seed);
-  const cursors = w.agents.map((a) => new AgentMotion(a.pos.x, a.pos.y));
+  // guests come and go, so cursors are made on first sight (like the renderer does)
+  const cursors = new Map<number, AgentMotion>();
   const out: Replay = { walls: [], maxLag: 0, movingSeconds: 0 };
-  const behind = w.agents.map(() => 0);
-  const lastPos = w.agents.map((a) => ({ ...a.pos }));
+  const behind = new Map<number, number>();
+  const lastPos = new Map<number, { x: number; y: number }>();
   const frameDt = view.tickSeconds / frames;
   for (let i = 0; i < ticks; i++) {
     tickWorld(w);
-    w.agents.forEach((a, k) => {
-      const m = cursors[k];
+    for (const a of w.agents) {
+      let m = cursors.get(a.id);
+      if (!m) cursors.set(a.id, (m = new AgentMotion(a.pos.x, a.pos.y)));
       m.ingest(a.pos, w.tick, trailOf(a));
       // the renderer's cursor, sampled in sub-steps finer than a frame (positions, not chords)
       for (let f = 0; f < frames * SUB; f++) {
@@ -129,12 +131,13 @@ function replay(seed: number, ticks: number, view: MotionView, frames: number): 
         if (m.moving) out.movingSeconds += frameDt / SUB;
         if (isWall(w, m.x, m.y) && out.walls.length < 10) out.walls.push(`seed ${seed} t${w.tick} ${a.name} (${m.x.toFixed(2)}, ${m.y.toFixed(2)})`);
       }
-      const still = a.pos.x === lastPos[k].x && a.pos.y === lastPos[k].y;
-      lastPos[k] = { ...a.pos };
-      if (still && (m.x !== a.pos.x || m.y !== a.pos.y)) behind[k] += view.tickSeconds;
-      else behind[k] = 0;
-      out.maxLag = Math.max(out.maxLag, behind[k]);
-    });
+      const prev = lastPos.get(a.id) ?? a.pos;
+      const still = a.pos.x === prev.x && a.pos.y === prev.y;
+      lastPos.set(a.id, { ...a.pos });
+      const lag = still && (m.x !== a.pos.x || m.y !== a.pos.y) ? (behind.get(a.id) ?? 0) + view.tickSeconds : 0;
+      behind.set(a.id, lag);
+      out.maxLag = Math.max(out.maxLag, lag);
+    }
   }
   return out;
 }

@@ -5,6 +5,7 @@ import { createWorld, tickWorld } from '../src/world/world';
 import { MAPS, bedCount, mapIdOf } from '../src/world/maps';
 import { mapToAscii } from '../src/world/maps/build';
 import { timeFromTick } from '../src/core/time';
+import { residentsOf } from '../src/agents/role';
 
 // A few game days in every house (src/world/maps), headless. Layout problems show up as
 // people who cannot reach things, starve, sleep in the afternoon or stand around.
@@ -41,7 +42,8 @@ interface MapRun {
 function run(mapId: string, seed: number): MapRun {
   const map = MAPS.find((m) => m.id === mapId)!;
   const world = createWorld(seed, { mapId, agentCount: Math.min(6, bedCount(map)) });
-  const agents: AgentRun[] = world.agents.map((a) => ({
+  const residents = residentsOf(world);
+  const agents: AgentRun[] = residents.map((a) => ({
     name: a.name, maxLowStreak: 0, lowNeed: null, maxStuck: 0, sleepTicks: 0, sleepNightTicks: 0, eatTicks: 0, conversations: 0, activities: {},
   }));
   const low = agents.map(() => 0);
@@ -52,7 +54,7 @@ function run(mapId: string, seed: number): MapRun {
     const hour = timeFromTick(world.tick).hour;
     const holders = world.objects.flatMap((o) => o.reservedBy.filter((r) => r !== null));
     if (new Set(holders).size !== holders.length) doubleBookings++;
-    world.agents.forEach((agent, i) => {
+    residents.forEach((agent, i) => {
       const m = agents[i];
       const a = agent.action;
       let active = a?.kind === 'talk' && a.phase === 'talking';
@@ -78,7 +80,7 @@ function run(mapId: string, seed: number): MapRun {
       m.maxStuck = Math.max(m.maxStuck, stuck[i]);
     });
   }
-  world.agents.forEach((a, i) => (agents[i].conversations = a.stats.conversations));
+  residents.forEach((a, i) => (agents[i].conversations = a.stats.conversations));
   if (process.env.MAPS_REPORT)
     writeFileSync(
       `test-results/maps-${mapId}-${seed}.txt`,
@@ -99,7 +101,7 @@ describe.each(NEW_MAPS.map((m) => [m.id]))('house %s: a few days of life', (mapI
   it('builds the chosen house', () => {
     for (const r of runs) {
       expect(mapIdOf(r.world)).toBe(mapId);
-      expect(r.world.agents.length).toBe(Math.min(6, bedCount(MAPS.find((m) => m.id === mapId)!)));
+      expect(residentsOf(r.world).length).toBe(Math.min(6, bedCount(MAPS.find((m) => m.id === mapId)!)));
     }
   });
 
