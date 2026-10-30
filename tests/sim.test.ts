@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createWorld, tickWorld } from '../src/world/world';
-import { NEED_KEYS } from '../src/types';
+import { NEED_KEYS, type World } from '../src/types';
 import { bedOf } from '../src/agents/home';
 import { updateAgent } from '../src/agents/actions';
 import { findPath } from '../src/agents/pathfinding';
@@ -60,8 +60,9 @@ describe('beds', () => {
 });
 
 describe('walking around each other', () => {
-  function setup(standAt: { x: number; y: number }, from: { x: number; y: number }, to: { x: number; y: number }) {
-    const world = createWorld(1, { agentCount: 2 });
+  type P = { x: number; y: number };
+
+  function place(world: World, standAt: P, from: P, to: P) {
     const [walker, stander] = world.agents;
     stander.pos = { ...standAt };
     stander.path = [];
@@ -72,26 +73,50 @@ describe('walking around each other', () => {
     return { world, walker, stander };
   }
 
+  const free = (world: World, x: number, y: number) => !world.grid.solid[y * world.grid.width + x];
+  const room = (world: World, id: string) => world.grid.rooms.find((r) => r.id === id)!.rect;
+
   it('steps around someone standing in the hall', () => {
-    // hall is two tiles high (y 9..10)
-    const { world, walker } = setup({ x: 10, y: 9 }, { x: 6, y: 9 }, { x: 14, y: 9 });
+    // the hub spans the living room and the kitchen; walk along a free row, the stander is in the way
+    const world = createWorld(1, { agentCount: 2 });
+    const living = room(world, 'living');
+    const kitchen = room(world, 'kitchen');
+    const x0 = living.x;
+    const x1 = kitchen.x + kitchen.w - 1;
+    const mid = Math.floor((x0 + x1) / 2);
+    let y = -1;
+    for (let r = living.y; r < living.y + living.h; r++) {
+      let clear = free(world, mid, r - 1) || free(world, mid, r + 1); // room to step aside
+      for (let x = x0; x <= x1; x++) clear = clear && free(world, x, r);
+      if (clear) { y = r; break; }
+    }
+    expect(y).toBeGreaterThanOrEqual(0);
+    const { walker } = place(world, { x: mid, y }, { x: x0, y }, { x: x1, y });
+    expect(walker.path.some((p) => p.x === mid && p.y === y)).toBe(true);
     let ticks = 0;
     while (walker.action && ticks < 60) {
       updateAgent(world, walker, timeFromTick(world.tick));
-      expect(Math.round(walker.pos.x) === 10 && Math.round(walker.pos.y) === 9).toBe(false);
+      expect(Math.round(walker.pos.x) === mid && Math.round(walker.pos.y) === y).toBe(false);
       ticks++;
     }
-    expect(walker.pos).toEqual({ x: 14, y: 9 });
+    expect(walker.pos).toEqual({ x: x1, y });
   });
 
   it('never deadlocks in a doorway', () => {
-    // bedroom 1 door (5,8) is the only way in: after a short wait the walker squeezes past
-    const { world, walker } = setup({ x: 5, y: 8 }, { x: 5, y: 10 }, { x: 5, y: 5 });
+    // walk from the hub into a bedroom; someone stands in the door the path goes through
+    const world = createWorld(1, { agentCount: 2 });
+    const bed = room(world, 'bedroom1');
+    const from = { x: room(world, 'living').x + 3, y: room(world, 'living').y + 2 };
+    const to = { x: bed.x + 1, y: bed.y + 1 };
+    const path = findPath(world.grid, from, to)!;
+    const door = path.find((p) => world.grid.tiles[p.y * world.grid.width + p.x] === 'door');
+    expect(door).toBeDefined();
+    const { walker } = place(world, door!, from, to);
     let ticks = 0;
     while (walker.action && ticks < 100) {
       updateAgent(world, walker, timeFromTick(world.tick));
       ticks++;
     }
-    expect(walker.pos).toEqual({ x: 5, y: 5 });
+    expect(walker.pos).toEqual(to);
   });
 });
