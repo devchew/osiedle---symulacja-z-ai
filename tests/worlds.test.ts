@@ -8,7 +8,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { snapshotWorld, DISK_SNAPSHOT, NETWORK_SNAPSHOT } from '../src/core/state';
 import { createProceduralProvider } from '../src/social/dialogueProvider';
 import { createWorld } from '../src/world/world';
-import { findGenderedForms } from '../src/social/diaryAi';
+import { weatherOf } from '../src/world/incidents';
+import { parseForecast } from '../src/realtime/weather';import { findGenderedForms } from '../src/social/diaryAi';
 import {
   MAX_CATCH_UP_TICKS,
   baseDayFor,
@@ -159,12 +160,29 @@ describe('live host', () => {
       const f = JSON.parse(lw.frame!.json) as LiveFrame;
       expect(f.meta).toMatchObject({ place: p.id, tick: 150, ai: false, news: false });
       expect(f.meta.weather).toMatchObject({ city: p.city, source: 'plan', temperature: null });
+      const w = weatherOf(lw.world);
+      expect(f.meta.weather.sample).toEqual({ kind: w.kind, intensity: w.intensity, label: w.label, icon: w.icon });
       expect(f.snapshot.tick).toBe(150);
     }
     // before 07:00 the world starts yesterday 07:00 ("Dzień 2" early hours)
     const early = host({ fixedTime: lt('2026-10-29T03:00'), places: [PLACES[2]] });
     await early.ready;
     expect(early.get('jezioro')!.world.tick).toBe(20 * 60);
+  });
+
+  it('sends the exact real weather sample in the frame (rain intensity, label, icon)', async () => {
+    const forecast = parseForecast({
+      current: { time: '2026-10-29T09:15', weather_code: 61, cloud_cover: 100, temperature_2m: 8.5 },
+      hourly: { time: ['2026-10-29T09:00'], weather_code: [61], cloud_cover: [100], temperature_2m: [8.5] },
+    });
+    const h = host({ fixedTime: lt('2026-10-29T09:30'), places: [PLACES[0]], weather: async () => forecast });
+    await h.ready;
+    const lw = h.get('dom')!;
+    const f = JSON.parse(lw.frame!.json) as LiveFrame;
+    const w = weatherOf(lw.world);
+    expect(w.raining).toBe(true);
+    expect(f.meta.weather).toMatchObject({ source: 'open-meteo', temperature: 8.5 });
+    expect(f.meta.weather.sample).toEqual({ kind: w.kind, intensity: w.intensity, label: w.label, icon: w.icon });
   });
 
   it('ticks once per wall-clock minute on the boundary and catches up after a stall', async () => {

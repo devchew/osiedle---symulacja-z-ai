@@ -280,6 +280,7 @@ export function sseMessage(event: string, data: string): string {
 }
 
 function makeFrame(lw: LiveWorld, serverTime: number, newsOn: boolean): LiveFrameData {
+  const { kind, intensity, label, icon } = weatherOf(lw.world);
   const frame: LiveFrame = {
     meta: {
       place: lw.place.id,
@@ -290,6 +291,7 @@ function makeFrame(lw: LiveWorld, serverTime: number, newsOn: boolean): LiveFram
         temperature: lw.weather?.current?.temperature ?? null,
         source: lw.weather ? 'open-meteo' : 'plan',
         updatedAt: lw.weatherUpdatedAt,
+        sample: { kind, intensity, label, icon },
       },
       ai: lw.ai,
       news: newsOn && hasRealNews(lw.world),
