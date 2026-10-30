@@ -119,6 +119,8 @@ export interface ReplayActionLite {
   l: string;
   /** icon */
   i: string;
+  /** away (work / classes / shop) with the tick it ends: the resident is off the map (idle only; optional) */
+  aw?: { k: 'work' | 'classes' | 'shop'; u: number };
 }
 
 export interface ReplayBubbleLite {

@@ -57,7 +57,7 @@ export interface ReplayRecorder {
 const r1 = (n: number): number => Math.round(n * 10) / 10;
 const r2 = (n: number): number => Math.round(n * 20) / 20;
 
-function actionLite(a: Agent['action']): ReplayActionLite | null {
+function actionLite(a: Agent['action'], away: Agent['away']): ReplayActionLite | null {
   if (!a) return null;
   switch (a.kind) {
     case 'use':
@@ -67,7 +67,7 @@ function actionLite(a: Agent['action']): ReplayActionLite | null {
     case 'wander':
       return { k: 'wander', p: a.phase, l: a.label, i: a.icon };
     default:
-      return { k: 'idle', l: a.label, i: a.icon };
+      return away ? { k: 'idle', l: a.label, i: a.icon, aw: { k: away.kind, u: away.until } } : { k: 'idle', l: a.label, i: a.icon };
   }
 }
 
@@ -111,7 +111,7 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
         rec.pos.push([tick, x, y, a.facing]);
         rec.posKey = posKey;
       }
-      const act = actionLite(a.action);
+      const act = actionLite(a.action, a.away);
       const actKey = JSON.stringify(act);
       if (actKey !== rec.actKey) {
         rec.act.push([tick, act]);

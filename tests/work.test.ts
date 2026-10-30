@@ -5,6 +5,9 @@ import { timeFromTick } from '../src/core/time';
 import { MAPS } from '../src/world/maps';
 import { commuteKindOf, WORK_EVENT_RE } from '../src/agents/work';
 import { householdOf, pantryCapacity } from '../src/agents/household';
+import { NETWORK_SNAPSHOT } from '../src/core/state';
+import { createReplayRecorder } from '../src/live/replayRecorder';
+import { createReplayPlayer } from '../src/live/replayPlayer';
 import { findGenderedForms } from '../src/social/diaryAi';
 
 // Issue #8: some residents leave for work / classes on workdays, somebody does the shopping,
@@ -144,5 +147,28 @@ describe('work and shopping', () => {
       expect(texts.length).toBeGreaterThan(0);
       for (const t of texts) expect(findGenderedForms(t), t).toEqual([]);
     }
+  });
+
+  it('replays an absence: away residents are away (off the map) exactly when they were live', () => {
+    const world = createWorld(3, { mapId: 'kamienica' });
+    const rec = createReplayRecorder('kamienica');
+    const seen = new Map<number, string>();
+    for (let t = 0; t < DAY; t++) {
+      tickWorld(world);
+      rec.record(world, null);
+      if (world.tick % 20 === 0) seen.set(world.tick, world.agents.map((a) => (a.away ? `${a.id}:${a.away.kind}:${a.away.label}` : '')).join('|'));
+    }
+    const data = rec.data(0);
+    expect(data.agents.some((t) => t.act.some((r) => r[1]?.aw))).toBe(true);
+    const player = createReplayPlayer(restoreWorld(snapshotWorld(world, NETWORK_SNAPSHOT)), data);
+    let withAway = 0;
+    for (const [tick, expected] of seen) {
+      if (tick < data.fromTick) continue;
+      player.seek(tick);
+      const got = player.world.agents.map((a) => (a.away ? `${a.id}:${a.away.kind}:${a.away.label}` : '')).join('|');
+      expect(got, `tick ${tick}`).toBe(expected);
+      if (got.replace(/\|/g, '')) withAway++;
+    }
+    expect(withAway).toBeGreaterThan(5);
   });
 });

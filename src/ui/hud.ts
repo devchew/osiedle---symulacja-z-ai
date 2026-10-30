@@ -44,6 +44,8 @@ export interface HudLive {
   ai(): boolean;
   /** tooltip of the live badge */
   tooltip(): string;
+  /** a replay is shown: the household budget is only known for "now", so its indicator is hidden */
+  replay?(): boolean;
 }
 
 export interface Hud {
@@ -269,6 +271,7 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
       mood.title = 'Średni nastrój';
     } else setText(mood, '');
     const home = householdSummary(world);
+    budget.hidden = !!opts.live?.replay?.();
     setText(budget, `💰 ${home.money} zł · 🧺 ${home.stock}`);
     budget.title = `Budżet domu i porcje w lodówce (z ${home.capacity})${home.away ? `; poza domem: ${home.away}` : ''}`;
   }
