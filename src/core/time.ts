@@ -8,7 +8,7 @@ const DAY_MS = 86_400_000;
 
 /**
  * local calendar date (days since 1970-01-01) of game day 0 for worlds nobody anchored to a real
- * date (headless runs, the lab): a Monday in mid-April, so the season is neutral and the first
+ * date (headless runs): a Monday in mid-April, so the season is neutral and the first
  * weekend comes on day 6
  */
 export const DEFAULT_BASE_DAY = Math.round(Date.UTC(2026, 3, 13) / DAY_MS);

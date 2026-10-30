@@ -140,7 +140,7 @@ function replay(seed: number, ticks: number, view: MotionView, frames: number): 
 }
 
 describe('replayed walks (render/motion.ts)', () => {
-  it('never pass through walls — fast lab 1× and 8×', () => {
+  it('never pass through walls — fast mode 1× and 8×', () => {
     for (const seed of [1, 7]) {
       expect(replay(seed, 900, FAST_1X, 12).walls).toEqual([]);
       expect(replay(seed, 600, FAST_8X, 2).walls).toEqual([]);
@@ -155,7 +155,7 @@ describe('replayed walks (render/motion.ts)', () => {
     expect(r.movingSeconds).toBeLessThan(0.25 * 6 * 600 * 60);
   });
 
-  it('the lab cursor keeps close to the simulation', () => {
+  it('the fast-mode cursor keeps close to the simulation', () => {
     expect(replay(3, 900, FAST_1X, 12).maxLag).toBeLessThanOrEqual(MOTION.LAG_MAX + 1);
     expect(replay(3, 600, FAST_8X, 2).maxLag).toBeLessThanOrEqual(MOTION.LAG_MIN + 0.5);
   });

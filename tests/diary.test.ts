@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { timeFromTick } from '../src/core/time';
 import { createWorld, tickWorld } from '../src/world/world';
 import { traceOf } from '../src/world/trace';
-import { worldCheck } from '../src/ui/saves';
+import { worldCheck } from './tools/worldCheck';
 import {
   DIARY_MAX_WORDS,
   DIARY_MIN_WORDS,

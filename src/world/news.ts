@@ -10,7 +10,7 @@ import { forecastOf, isBroken, weatherOf, type WeatherKind } from './incidents';
 //
 // Determinism: with in-sim news only, everything here is a pure function of the world
 // (no RNG, no clock, no network), so a seed replays exactly. Real headlines are pushed in
-// from outside the tick (setNewsFeed / startNewsFeed) and make a run non-reproducible.
+// from outside the tick (setNewsFeed) and make a run non-reproducible.
 // State lives in a WeakMap keyed by the world (no contract changes).
 
 export interface NewsItem {
@@ -406,8 +406,6 @@ export function localBulletins(world: World): NewsItem[] {
 
 // ---------------------------------------------------------------- real headlines
 
-export const NEWS_API_URL = '/api/news';
-export const NEWS_REFRESH_MS = 15 * 60_000;
 const MAX_FEED_ITEMS = 30;
 
 /** validates untrusted headlines (proxy response): trimmed, sane length, deduped, ≤ 30 */
@@ -446,35 +444,4 @@ export function setNewsFeed(world: World, items: readonly { title: string; sourc
 
 export function hasRealNews(world: World): boolean {
   return !!stateOf(world).feed;
-}
-
-/** fetches /api/news once and applies it; resolves true when real headlines are on. Never throws. */
-export async function loadRealNews(
-  world: World,
-  opts: { fetch?: typeof fetch; url?: string; timeoutMs?: number } = {},
-): Promise<boolean> {
-  const doFetch = opts.fetch ?? (typeof fetch === 'function' ? (...a: Parameters<typeof fetch>) => fetch(...a) : null);
-  if (!doFetch) return false;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 20_000);
-  try {
-    const res = await doFetch(opts.url ?? NEWS_API_URL, { signal: controller.signal });
-    if (!res.ok) return false;
-    const body = (await res.json()) as { items?: unknown };
-    const items = sanitizeFeed(body?.items);
-    // an empty answer keeps whatever was there (in-sim news or the previous list)
-    if (items.length) setNewsFeed(world, items);
-    return hasRealNews(world);
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** loads real headlines now and every 15 minutes (wall clock); returns a stop function */
-export function startNewsFeed(world: World, opts: { fetch?: typeof fetch; url?: string; intervalMs?: number } = {}): () => void {
-  void loadRealNews(world, opts);
-  const id = setInterval(() => void loadRealNews(world, opts), opts.intervalMs ?? NEWS_REFRESH_MS);
-  return () => clearInterval(id);
 }

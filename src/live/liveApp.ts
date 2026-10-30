@@ -289,9 +289,7 @@ export function startLive(initialPlace: PlaceId): void {
   }
 
   window.addEventListener('popstate', () => {
-    const r = parseRoute(location.pathname);
-    if (r.kind === 'live') switchPlace(r.place, false);
-    else location.reload();
+    switchPlace(parseRoute(location.pathname).place, false);
   });
 
   async function refreshPlaces(): Promise<void> {

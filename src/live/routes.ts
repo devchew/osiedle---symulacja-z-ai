@@ -3,17 +3,16 @@ import { DEFAULT_PLACE, PLACES, placeById, type PlaceId } from './protocol';
 // Client routes (pure, no DOM):
 //   /                      live view of the default place
 //   /dom, /kamienica, …    live view of that place (PlaceDef.id = path)
-//   /lab?seed=…            developer/test route: the standalone simulation (not linked in the UI)
 // The hash selects a resident: /kamienica#Ola or #3 (name or id).
 
-export type Route =
-  | { kind: 'live'; place: PlaceId }
-  | { kind: 'lab' };
+export interface Route {
+  kind: 'live';
+  place: PlaceId;
+}
 
 /** route of a location (unknown paths fall back to the default place's live view) */
 export function parseRoute(pathname: string): Route {
   const seg = pathname.replace(/\/+$/, '').split('/').filter(Boolean)[0]?.toLowerCase() ?? '';
-  if (seg === 'lab') return { kind: 'lab' };
   return { kind: 'live', place: placeById(seg)?.id ?? DEFAULT_PLACE };
 }
 

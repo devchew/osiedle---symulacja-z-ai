@@ -4,7 +4,6 @@ import type { DayPhase, Season, SimControls, World } from '../types';
 import { el, isTypingTarget, moodEmoji, setText } from './dom';
 import type { WeatherOfFn } from './extras';
 import '../realtime/realtime.css';
-import { isRealtime, realtimeStatus } from '../realtime/state';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
 
@@ -21,7 +20,7 @@ export interface HudButton {
 }
 
 export interface HudOptions {
-  /** extra toggle buttons (stats, save…) placed before the help button */
+  /** extra toggle buttons (stats, diaries…) placed before the help button */
   buttons?: HudButton[];
   /** current weather, when the simulation provides it */
   weatherOf?: WeatherOfFn;
@@ -29,7 +28,7 @@ export interface HudOptions {
   live?: HudLive;
   /** resident count next to the mood (default true; the public views hide it) */
   showPopulation?: boolean;
-  /** help popover rows and note (default: the standalone simulation's keys) */
+  /** help popover rows and note (default: HELP_KEYS) */
   help?: { keys: [string, string][]; note?: string };
 }
 
@@ -60,11 +59,8 @@ export const HELP_KEYS: [string, string][] = [
   ['Spacja', 'pauza / wznów'],
   ['1–4', 'prędkość 1× · 2× · 4× · 8×'],
   ['T', 'statystyki: relacje, nastrój'],
-  ['Z', 'zapis, wczytanie, link'],
   ['P', 'pamiętniki mieszkańców (← → dni)'],
   ['B', 'projekty budowlane (altana, warzywnik)'],
-  ['N', 'nowy świat'],
-  ['L', 'pobierz log aktywności (.txt)'],
   ['przeciągnij', 'przesuń widok'],
   ['WASD / strzałki', 'przesuń widok'],
   ['kółko / szczypnięcie', 'przybliż i oddal'],
@@ -109,17 +105,6 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
   const controlsBox = el('div', 'hud-controls', [pauseBtn, ...speedBtns]);
   const liveView = opts.live;
   controlsBox.hidden = !!liveView;
-
-  // real-time mode (/lab?mode=real): live badge with real temperature and place; speed is locked at 1×
-  const realtime = !liveView && isRealtime(world);
-  const liveTemp = el('span', 'hud-live-temp');
-  const livePlace = el('span', 'hud-live-place');
-  const live = el('div', 'hud-live', [el('span', 'hud-live-pill', ['⏱ NA ŻYWO']), el('div', 'hud-live-info', [liveTemp, livePlace])]);
-  live.hidden = !realtime;
-  if (realtime) {
-    for (const b of speedBtns) b.hidden = true;
-    timeBox.after(live);
-  }
 
   // live view of a server world: place, real temperature + city, AI indicator
   const lvPlace = el('span', 'hud-lv-place');
@@ -191,14 +176,8 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
   });
   const toolsBox = el('div', 'hud-tools', [...extras, helpBtn]);
 
-  root.append(timeBox, ...(realtime ? [live] : []), ...(liveView ? [lvBox] : []), controlsBox, statsBox, toolsBox, help);
+  root.append(timeBox, ...(liveView ? [lvBox] : []), controlsBox, statsBox, toolsBox, help);
   root.classList.toggle('is-live-view', !!liveView);
-  if (realtime) {
-    // keys 1–4 do nothing here
-    const speedRow = help.querySelectorAll('dd')[HELP.findIndex(([k]) => k === '1–4')];
-    if (speedRow) speedRow.textContent = 'prędkość — zablokowana w trybie na żywo';
-  }
-
   let lastKey = '';
   function update(): void {
     const t = controls.time();
@@ -215,18 +194,6 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
       weather.setAttribute('aria-label', `Pogoda: ${w.label}`);
     }
 
-    if (realtime) {
-      const rs = realtimeStatus(world);
-      setText(liveTemp, rs?.temperature != null ? `${Math.round(rs.temperature)}°C` : '–°C');
-      setText(livePlace, rs?.place ?? '');
-      const where = rs?.place ?? '';
-      const upd = rs?.weatherUpdatedAt ? new Date(rs.weatherUpdatedAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) : null;
-      live.title =
-        'Tryb na żywo: zegar gry to Twój czas lokalny (1 minuta gry = 1 minuta).\n' +
-        (upd ? `Pogoda prawdziwa: ${where} · Open-Meteo, aktualizacja ${upd}.\n` : `Brak danych pogodowych (${where}) — pogoda symulowana.\n`) +
-        'Przyspieszanie jest wyłączone; po pauzie symulacja dogania aktualny czas. Zapis i linki są niedostępne.';
-    }
-
     if (liveView) {
       setText(lvPlace, liveView.place());
       const temp = liveView.temperature();
@@ -241,13 +208,7 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
     if (key !== lastKey) {
       lastKey = key;
       setText(pauseBtn, controls.paused ? '▶' : '⏸');
-      pauseBtn.title = realtime
-        ? controls.paused
-          ? 'Wznów (spacja) — symulacja dogoni aktualny czas'
-          : 'Pauza (spacja) — po wznowieniu symulacja dogoni aktualny czas'
-        : controls.paused
-          ? 'Wznów (spacja)'
-          : 'Pauza (spacja)';
+      pauseBtn.title = controls.paused ? 'Wznów (spacja)' : 'Pauza (spacja)';
       pauseBtn.setAttribute('aria-pressed', String(controls.paused));
       pauseBtn.classList.toggle('is-active', controls.paused);
       speedBtns.forEach((b, i) => {
@@ -286,7 +247,7 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
       return;
     }
     const idx = ['1', '2', '3', '4'].indexOf(e.key);
-    if (idx >= 0 && !realtime) {
+    if (idx >= 0) {
       controls.setSpeed(SPEEDS[idx]);
       update();
     }

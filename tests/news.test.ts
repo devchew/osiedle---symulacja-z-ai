@@ -27,7 +27,6 @@ import {
   fitHeadline,
   forecastBulletin,
   hasRealNews,
-  loadRealNews,
   localBulletins,
   newsFor,
   quotedHeadline,
@@ -385,13 +384,7 @@ describe('in-sim news (Wiadomości z osiedla)', () => {
     expect(hasRealNews(world)).toBe(false);
   });
 
-  it('loadRealNews validates the proxy answer and never throws', async () => {
-    const world = createWorld(8);
-    const ok = await loadRealNews(world, { fetch: async () => new Response(JSON.stringify({ items: [{ title: 'Sejm przyjął budżet na przyszły rok', source: 'PAP' }, { nope: 1 }] })) });
-    expect(ok).toBe(true);
-    expect(await loadRealNews(createWorld(8), { fetch: async () => new Response('<html>', { status: 200 }) })).toBe(false);
-    expect(await loadRealNews(createWorld(8), { fetch: async () => Promise.reject(new Error('offline')) })).toBe(false);
-    expect(await loadRealNews(createWorld(8), { fetch: async () => new Response('{}', { status: 503 }) })).toBe(false);
+  it('sanitizeFeed trims, dedupes and drops invalid headlines', () => {
     expect(sanitizeFeed([{ title: 'A\nB  C długi tytuł', source: 5 }, null, 'x'])).toEqual([{ title: 'A B C długi tytuł', source: 'RSS', real: true }]);
   });
 

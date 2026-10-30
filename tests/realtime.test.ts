@@ -2,14 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { World } from '../src/types';
 import { createWorld, tickWorld } from '../src/world/world';
 import { availability, forecastOf, hasWeatherOverride, isOutdoorTile, setWeatherOverride, weatherOf } from '../src/world/incidents';
-import { worldCheck } from '../src/ui/saves';
+import { worldCheck } from './tools/worldCheck';
 import {
-  FAST_FORWARD_AFTER,
-  LIVE_STEP_MAX,
   baseDayFor,
-  catchUp,
   localTimeOf,
-  minuteFraction,
   targetTick,
   tickToLocal,
 } from '../src/realtime/clock';
@@ -61,21 +57,6 @@ describe('real-time clock', () => {
       expect(after - before).toBe(1440);
       expect(timeFromTick(after)).toMatchObject({ day: 2, hour: 12, minute: 0 });
     }
-  });
-
-  it('interpolation alpha follows the seconds within the minute', () => {
-    expect(minuteFraction(at(2026, 1, 1, 10, 0, 0))).toBe(0);
-    expect(minuteFraction(at(2026, 1, 1, 10, 0, 30))).toBeCloseTo(0.5);
-  });
-
-  it('catch-up: idle when in sync or ahead, live slices, fast-forward beyond the cap', () => {
-    expect(catchUp(0)).toEqual({ mode: 'idle' });
-    expect(catchUp(-5)).toEqual({ mode: 'idle' });
-    expect(catchUp(1)).toEqual({ mode: 'step', ticks: 1 });
-    expect(catchUp(LIVE_STEP_MAX + 10)).toEqual({ mode: 'step', ticks: LIVE_STEP_MAX });
-    expect(catchUp(FAST_FORWARD_AFTER)).toEqual({ mode: 'step', ticks: LIVE_STEP_MAX });
-    expect(catchUp(FAST_FORWARD_AFTER + 1)).toEqual({ mode: 'fastForward', ticks: FAST_FORWARD_AFTER + 1 });
-    expect(FAST_FORWARD_AFTER).toBe(180);
   });
 });
 

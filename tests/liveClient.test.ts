@@ -16,7 +16,7 @@ describe('live routes', () => {
     expect(parseRoute('/Akademik/')).toEqual({ kind: 'live', place: 'akademik' });
     expect(parseRoute('/nieznane')).toEqual({ kind: 'live', place: 'dom' });
     expect(parseRoute('/sandbox')).toEqual({ kind: 'live', place: 'dom' });
-    expect(parseRoute('/lab')).toEqual({ kind: 'lab' });
+    expect(parseRoute('/lab')).toEqual({ kind: 'live', place: 'dom' });
   });
 
   it('finds residents by hash name (any case, diacritics) or id', () => {
