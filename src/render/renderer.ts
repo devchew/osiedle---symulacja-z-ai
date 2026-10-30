@@ -76,7 +76,7 @@ function poseModeFor(type: string): PoseMode {
   if (/bath|tub|wann/.test(t)) return 'bath';
   if (/bike|rower/.test(t)) return 'pedal';
   if (/treadmill|bie[zż]ni/.test(t)) return 'run';
-  if (/sofa|couch|kanap|\btv\b|^tv|telewiz|bench|[lł]awk|table|st[oó][lł]|computer|desk|komput|piano|pianin|toilet|toalet|chair|krzes|fotel|altan/.test(t)) return 'sit';
+  if (/sofa|couch|kanap|\btv\b|^tv|telewiz|bench|[lł]awk|table|st[oó][lł]|computer|desk|komput|piano|pianin|toilet|toalet|chair|krzes|fotel|altan|^domek_na_drzewie$/.test(t)) return 'sit';
   return 'stand';
 }
 

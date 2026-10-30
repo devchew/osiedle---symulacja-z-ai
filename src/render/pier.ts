@@ -9,6 +9,8 @@ const DIRS: [number, number][] = [
   [1, 0],
 ];
 
+export const PLANK_TONES = ['#b98a57', '#a97b4a', '#c39563', '#b08052'];
+
 /** indices (y * width + x) of path tiles that form a pier over water */
 export function pierTiles(g: Grid): Set<number> {
   const at = (x: number, y: number) => (x < 0 || y < 0 || x >= g.width || y >= g.height ? null : g.tiles[y * g.width + x]);
