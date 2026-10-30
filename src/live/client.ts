@@ -1,4 +1,4 @@
-import { LIVE_PLACES_URL, liveChronicleUrl, liveSnapshotUrl, liveStreamUrl, type ChronicleResponse, type LiveFrame, type PlaceId, type PlaceSummary } from './protocol';
+import { LIVE_PLACES_URL, liveChronicleUrl, liveReplayUrl, liveSnapshotUrl, liveStreamUrl, type ChronicleResponse, type LiveFrame, type PlaceId, type PlaceSummary, type ReplayResponse } from './protocol';
 
 // Network side of the live view: the place list, one-off snapshots and the
 // Server-Sent Events stream of one place with reconnects. No simulation, no DOM besides
@@ -165,4 +165,30 @@ export async function fetchChronicle(place: PlaceId, timeoutMs = 10_000): Promis
   const c = await getJson<ChronicleResponse>(liveChronicleUrl(place), timeoutMs);
   if (!c || !Array.isArray(c.days)) throw new Error('Invalid chronicle');
   return c;
+}
+
+/** a recording that can be played: at least one tick long, with residents */
+function usableReplay(data: unknown): data is ReplayResponse {
+  const d = data as Partial<ReplayResponse> | null;
+  return (
+    !!d &&
+    d.format === 1 &&
+    typeof d.fromTick === 'number' &&
+    typeof d.toTick === 'number' &&
+    d.toTick > d.fromTick &&
+    Array.isArray(d.agents) &&
+    d.agents.length > 0 &&
+    Array.isArray(d.pets) &&
+    Array.isArray(d.objects) &&
+    Array.isArray(d.weather) &&
+    Array.isArray(d.events) &&
+    Array.isArray(d.projects)
+  );
+}
+
+/** the recording of the place's last 24 h (can be a few hundred KB of JSON, gzipped on the wire) */
+export async function fetchReplay(place: PlaceId, timeoutMs = 30_000): Promise<ReplayResponse> {
+  const r = await getJson<ReplayResponse>(liveReplayUrl(place), timeoutMs);
+  if (!usableReplay(r)) throw new Error('Invalid replay');
+  return r;
 }

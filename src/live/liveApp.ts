@@ -7,12 +7,15 @@ import { formatTrace } from '../world/trace';
 import { projectsOf } from '../world/projects';
 import { createChroniclePanel } from '../ui/chronicle';
 import { createView, type View } from '../ui/view';
+import { createReplayBar, type ReplayBar } from '../ui/replayBar';
+import { toast } from '../ui/toast';
 import { createConnBanner, createPlaceBar, placeIcon } from '../ui/places';
 import { el } from '../ui/dom';
 import { createDirectorMode, directorPreference } from '../ui/director';
 import '../ui/debug';
 import { PLACES, placeById, LIVE_TIME_ZONE, type LiveFrame, type LiveMeta, type PlaceId } from './protocol';
-import { connectLive, fetchChronicle, fetchPlaces, type LiveStream } from './client';
+import { connectLive, fetchChronicle, fetchPlaces, fetchReplay, type LiveStream } from './client';
+import { createReplayPlayer, REPLAY_SPEEDS, type ReplayPlayer } from './replayPlayer';
 import { applyFrame } from './frames';
 import { livePath, parseRoute } from './routes';
 import { bindHashSelection } from './hashSelect';
@@ -29,6 +32,7 @@ export const LIVE_HELP: [string, string][] = [
   ['B', 'projekty budowlane'],
   ['K', 'kronika miejsca z ostatnich dni'],
   ['R', 'tryb reżysera: kamera sama pokazuje ciekawe momenty'],
+  ['⏪', 'powtórka ostatnich 24 godzin w przyspieszeniu'],
   ['przeciągnij', 'przesuń widok'],
   ['WASD / strzałki', 'przesuń widok'],
   ['kółko / szczypnięcie', 'przybliż i oddal'],
@@ -40,6 +44,7 @@ export const LIVE_HELP: [string, string][] = [
 ];
 const LIVE_NOTE =
   'Każde miejsce żyje na serwerze bez przerwy, w czasie rzeczywistym — wszyscy widzą ten sam świat. ' +
+  '„⏪” odtwarza ostatnie 24 godziny w przyspieszeniu (tylko podgląd). ' +
   '„🔮 Co będzie dalej?” kopiuje go do Twojej przeglądarki, gdzie możesz przyspieszyć czas.';
 
 const PLACES_REFRESH_MS = 60_000;
@@ -56,6 +61,12 @@ export function startLive(initialPlace: PlaceId): void {
   let place = initialPlace;
   let meta: LiveMeta | null = null;
   let view: View | null = null;
+  /** the server's world as of the last frame; `view.world` is a replay copy while `replay` is set */
+  let liveWorld: World | null = null;
+  let replay: ReplayPlayer | null = null;
+  let replayLoading = false;
+  let replayDriveAt = 0;
+  let replayShown = '';
   let frames = 0;
   /** place whose world `view` shows (frames of another place restore a new world) */
   let shownPlace: PlaceId | null = null;
@@ -106,6 +117,20 @@ export function startLive(initialPlace: PlaceId): void {
   });
 
   const director = createDirectorMode({ view: () => view });
+  const replayBar: ReplayBar = createReplayBar({
+    speeds: [
+      [REPLAY_SPEEDS[0], '1 h / 6 s', 'Wolno: godzina w 6 sekund'],
+      [REPLAY_SPEEDS[1], '1 h / 3 s', 'Normalnie: godzina w 3 sekundy'],
+      [REPLAY_SPEEDS[2], '1 h / 1,5 s', 'Szybko: godzina w 1,5 sekundy'],
+    ],
+    onPlayPause: () => replay?.setPlaying(!replay.playing),
+    onSpeed: (tps) => {
+      if (replay) replay.speed = tps;
+    },
+    onSeek: (tick) => replay?.seek(tick),
+    onExit: () => exitReplay(),
+  });
+  document.body.append(replayBar.root);
 
   function createLiveView(world: World): View {
     const v = createView({
@@ -117,6 +142,7 @@ export function startLive(initialPlace: PlaceId): void {
       buttons: [
         { id: 'chronicle', icon: '📜', title: 'Kronika miejsca (K)', onClick: () => chronicle.setOpen(!chronicle.isOpen) },
         { id: 'director', icon: '🎬', title: 'Tryb reżysera: kamera sama pokazuje ciekawe momenty (R)', onClick: () => director.toggle() },
+        { id: 'replay', icon: '⏪', title: 'Powtórka ostatnich 24 godzin', onClick: () => (replay ? exitReplay() : void enterReplay()) },
       ],
       panels: [{ id: 'chronicle', setOpen: (o) => chronicle.setOpen(o) }],
       onSelect: (id) => hash.onSelect(id),
@@ -126,9 +152,10 @@ export function startLive(initialPlace: PlaceId): void {
           return def ? `${placeIcon(def.id)} ${def.name}` : '';
         },
         city: () => meta?.weather.city ?? placeById(place)?.city ?? '',
-        temperature: () => meta?.weather.temperature ?? null,
+        temperature: () => (replay ? replay.temperature : (meta?.weather.temperature ?? null)),
         ai: () => !!meta?.ai,
         tooltip: () => {
+          if (replay) return 'Powtórka: to już się wydarzyło (nagranie z serwera), nie dzieje się teraz. „Wróć na żywo” kończy powtórkę.';
           const w = meta?.weather;
           const upd = w?.updatedAt ? clockIn(w.updatedAt) : null;
           return (
@@ -142,11 +169,60 @@ export function startLive(initialPlace: PlaceId): void {
     });
     const loop = createLoop({ ticksPerSecond: 1, tick: () => {}, render: (alpha) => v.renderer.render(alpha) });
     // no ticking in the browser: render only, the light glides through the minute until the next frame
-    loop.setDriver(() => (lastFrameAt ? Math.min(1, (performance.now() - lastFrameAt) / frameGap) : 1));
+    loop.setDriver((now) => {
+      if (replay) return driveReplay(replay, now);
+      return lastFrameAt ? Math.min(1, (performance.now() - lastFrameAt) / frameGap) : 1;
+    });
     loop.start();
     v.hud.setActive('chronicle', chronicle.isOpen);
     v.hud.setActive('director', director.enabled);
     return v;
+  }
+
+  function driveReplay(r: ReplayPlayer, now: number): number {
+    const dt = replayDriveAt ? Math.min(0.25, (now - replayDriveAt) / 1000) : 0;
+    replayDriveAt = now;
+    const alpha = r.advance(dt);
+    const key = `${r.tick}|${r.playing}|${r.speed}`;
+    if (key !== replayShown) {
+      replayShown = key;
+      replayBar.update({ tick: r.tick, fromTick: r.data.fromTick, toTick: r.data.toTick, playing: r.playing, speed: r.speed });
+    }
+    return alpha;
+  }
+
+  async function enterReplay(): Promise<void> {
+    if (replay || replayLoading || !view || !liveWorld) return;
+    const forPlace = place;
+    replayLoading = true;
+    view.hud.setActive('replay', true);
+    try {
+      const data = await fetchReplay(forPlace);
+      if (forPlace !== place || replay || !view || !liveWorld || shownPlace !== place) return;
+      replay = createReplayPlayer(liveWorld, data);
+      replayDriveAt = 0;
+      replayShown = '';
+      view.setWorld(replay.world, true);
+      replayBar.setOpen(true);
+      view.update();
+    } catch (err) {
+      console.error(err);
+      toast('Powtórka jest niedostępna — spróbuj za chwilę.', 'warn');
+    } finally {
+      replayLoading = false;
+      view?.hud.setActive('replay', !!replay);
+    }
+  }
+
+  function exitReplay(): void {
+    if (!replay) return;
+    replay = null;
+    replayBar.setOpen(false);
+    view?.hud.setActive('replay', false);
+    if (view && liveWorld) {
+      view.setWorld(liveWorld, true);
+      view.update();
+    }
   }
 
   function onFrame(frame: LiveFrame): void {
@@ -160,7 +236,7 @@ export function startLive(initialPlace: PlaceId): void {
     meta = frame.meta;
     let res;
     try {
-      res = applyFrame(view?.world ?? null, shownPlace, frame);
+      res = applyFrame(liveWorld, shownPlace, frame);
     } catch (err) {
       // incompatible snapshot (server and client from different builds): ask for a reload
       console.error(err);
@@ -170,11 +246,15 @@ export function startLive(initialPlace: PlaceId): void {
       return;
     }
     const samePlace = shownPlace === place;
+    liveWorld = res.world;
     if (!view) {
       view = createLiveView(res.world);
       exposeDebug();
       if (directorPreference()) director.setEnabled(true);
-    } else if (res.swapped) view.setWorld(res.world, samePlace);
+    } else if (res.swapped) {
+      if (replay) exitReplay();
+      view.setWorld(res.world, samePlace);
+    }
     if (!samePlace) {
       shownPlace = place;
       frameGap = 60_000;
@@ -182,9 +262,10 @@ export function startLive(initialPlace: PlaceId): void {
       director.reset();
       hash.apply();
     }
-    view.history.record(res.world);
     frames++;
     loading.hidden = true;
+    if (replay) return; // the live world keeps up in the background; the view shows the recording
+    view.history.record(res.world);
     view.update();
   }
 
@@ -201,6 +282,7 @@ export function startLive(initialPlace: PlaceId): void {
 
   function switchPlace(id: PlaceId, push: boolean): void {
     if (id === place) return;
+    exitReplay();
     place = id;
     if (push) history.pushState(null, '', livePath(id));
     bar.setCurrent(id);
@@ -246,6 +328,9 @@ export function startLive(initialPlace: PlaceId): void {
       snapshot: () => snapshotWorld(v.world, NETWORK_SNAPSHOT),
       get place() {
         return place;
+      },
+      get replay() {
+        return replay ? { tick: replay.tick, fromTick: replay.data.fromTick, toTick: replay.data.toTick, playing: replay.playing } : null;
       },
       get frames() {
         return frames;

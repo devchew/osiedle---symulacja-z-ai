@@ -39,6 +39,13 @@ describe('simulation', () => {
       for (const k of NEED_KEYS) expect(a.needs[k]).toBeGreaterThan(0);
     }
   });
+
+  it('has conversations in the log by the evening of day 1', () => {
+    for (const seed of [7, 2026]) {
+      const world = run(seed, (18 - 7) * 60);
+      expect(world.events.filter((e) => e.kind === 'conversation').length).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('beds', () => {

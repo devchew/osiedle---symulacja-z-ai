@@ -46,7 +46,7 @@ LIVE_SPEED=60 npm run dev   # świat przyspieszony: 1 minuta gry na sekundę (te
 | Adres | Co to jest |
 |---|---|
 | `/`, `/dom`, `/kamienica`, `/jezioro`, `/akademik` | widok na żywo (`#Ola` zaznacza mieszkańca) |
-| `/lab?seed=7&tick=2000&map=akademik&agents=6` | ukryte laboratorium: lokalna symulacja z seeda, zapisy, log aktywności (L), dialogi AI — do debugowania i testów e2e |
+| `/lab?seed=7&tick=2000&map=akademik&agents=6` | ukryte laboratorium: lokalna symulacja z seeda, zapisy, log aktywności (L), dialogi AI — do debugowania (testy e2e już z niego nie korzystają) |
 
 Zmienne środowiskowe (serwer / dev): `OPENROUTER_API_KEY`, `OPENROUTER_MODELS`, `OPENROUTER_DAILY_LIMIT`,
 `NEWS_FEEDS` (`off`), `LIVE_WORLDS` (`off`), `LIVE_AI` (`off`/`on`), `LIVE_WEATHER` (`off`),
@@ -59,6 +59,11 @@ npm run typecheck
 npm test                    # Vitest: logika, soak (7 dni × kilka seedów), determinizm, serwer
 npm run test:e2e            # Playwright (buduje i serwuje aplikację; świat na żywo zamrożony LIVE_FIXED_TIME na :4173; osobny projekt live-ticking na :4174 z LIVE_SPEED=60 sprawdza realne tykanie)
 ```
+
+Testy e2e (`e2e/`) sprawdzają widok na żywo, nie `/lab`. Stan świata dostarczają fixtures: `e2e/support/worldFixtures.ts`
+generuje w Node ramkę (`LiveFrame`) prawdziwej symulacji dla miejsca / seeda / ticku (`frameFor({ place: 'dom' }, tickAt(23))`),
+a `e2e/support/live.ts` podstawia ją pod `/api/live/*` (`mockLive`, `live.push(następnaRamka)`, `openLive`).
+Logika symulacji (projekty, pamiętniki, relacje) ma testy w Vitest, w e2e zostaje to, co widać w przeglądarce.
 
 Przy zmianach zachowań mieszkańców dodatkowo:
 
@@ -113,7 +118,9 @@ publikuje obraz `runtime` do GHCR (`ghcr.io/<repo>`).
 
 - Obraz wieloetapowy (`Dockerfile`: build → test → runtime), `compose.yaml` dla Coolify.
 - **Trwały wolumen na `/app/data`** — tam światy na żywo zapisują stan co 5 min i przy zatrzymaniu
-  (`<miejsce>.json` snapshot, `<miejsce>.chronicle.json` kronika z 14 dni — `GET /api/live/:miejsce/chronicle`).
+  (`<miejsce>.json` snapshot, `<miejsce>.chronicle.json` kronika z 14 dni — `GET /api/live/:miejsce/chronicle`, `<miejsce>.replay.json` nagranie
+  ostatnich 24 h do „⏪ Powtórki” — `GET /api/live/:miejsce/replay`; bez wolumenu nagranie jest tylko
+  w pamięci i po restarcie zaczyna się od nowa).
   Bez wolumenu każdy deploy zaczyna światy od nowa.
 - Zmiana formatu snapshotu ⇒ podbij `SNAPSHOT_VERSION`; niezgodny plik serwer odkłada jako `.bak`
   i zaczyna świat od nowa (opisz to w PR — to „reset” osiedli na produkcji).
