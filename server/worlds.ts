@@ -5,6 +5,7 @@ import { gzipSync, deflateRawSync, constants as zc } from 'node:zlib';
 import type { Agent, World } from '../src/types';
 import { createWorld, restoreWorld, tickWorld } from '../src/world/world';
 import { NETWORK_SNAPSHOT, DISK_SNAPSHOT, SnapshotVersionError, snapshotWorld, type WorldSnapshot } from '../src/core/state';
+import { setCalendar } from '../src/core/calendar';
 import { setWeatherOverride, weatherOf } from '../src/world/incidents';
 import { hasRealNews, setNewsFeed } from '../src/world/news';
 import { setDiaryAiEnabled } from '../src/social/diary';
@@ -280,7 +281,7 @@ export function sseMessage(event: string, data: string): string {
 }
 
 function makeFrame(lw: LiveWorld, serverTime: number, newsOn: boolean): LiveFrameData {
-  const { kind, intensity, label, icon } = weatherOf(lw.world);
+  const { kind, intensity, label, icon, snow } = weatherOf(lw.world);
   const frame: LiveFrame = {
     meta: {
       place: lw.place.id,
@@ -291,7 +292,7 @@ function makeFrame(lw: LiveWorld, serverTime: number, newsOn: boolean): LiveFram
         temperature: lw.weather?.current?.temperature ?? null,
         source: lw.weather ? 'open-meteo' : 'plan',
         updatedAt: lw.weatherUpdatedAt,
-        sample: { kind, intensity, label, icon },
+        sample: { kind, intensity, label, icon, ...(snow ? { snow } : {}) },
       },
       ai: lw.ai,
       news: newsOn && hasRealNews(lw.world),
@@ -397,6 +398,7 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
   }
 
   function attachHooks(lw: LiveWorld): void {
+    setCalendar(lw.world, lw.baseDay);
     // weather: hourly real readings keyed by Warsaw local hour of each tick
     if (opts.weather)
       setWeatherOverride(
@@ -514,6 +516,7 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
     if (anchored !== lw.baseDay) {
       log(`${lw.place.id}: clock re-anchored by ${anchored - lw.baseDay} day(s)`);
       lw.baseDay = anchored;
+      setCalendar(lw.world, anchored);
     }
     let stepped = 0;
     for (;;) {

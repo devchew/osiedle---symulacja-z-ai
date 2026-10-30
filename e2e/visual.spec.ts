@@ -74,6 +74,26 @@ test.describe('desktop 1400×900', () => {
     expect(errors).toEqual([]);
   });
 
+  test('winter: snow on the ground, early dusk', async ({ page }) => {
+    const errors = trackErrors(page);
+    // seed 3 snows on the first winter day (tick 480 = 15:00, an hour before the sunset)
+    await open(page, '?seed=3&date=2026-12-21&tick=480&paused');
+    await expect(page.locator('.hud-day')).toContainText('poniedziałek');
+    await page.screenshot({ path: `${SHOTS}/visual-winter-snow.png` });
+    await page.evaluate(() => window.__sim.tick(75));
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: `${SHOTS}/visual-winter-dusk.png` });
+    expect(errors).toEqual([]);
+  });
+
+  test('summer: long light evening', async ({ page }) => {
+    const errors = trackErrors(page);
+    await open(page, '?seed=7&date=2026-06-20&hour=20.5&paused');
+    await expect(page.locator('.hud-day')).toContainText('sobota');
+    await page.screenshot({ path: `${SHOTS}/visual-summer-evening.png` });
+    expect(errors).toEqual([]);
+  });
+
   test('inspector open + help popover', async ({ page }) => {
     const errors = trackErrors(page);
     await open(page, '?seed=7&hour=12&paused');
