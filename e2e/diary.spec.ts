@@ -20,7 +20,7 @@ async function open(page: Page, tick: number): Promise<LiveMock> {
 async function writer(page: Page): Promise<{ id: number; name: string; count: number }> {
   return page.evaluate(() => {
     const s = window.__sim;
-    const rows = s.world.agents.map((a) => ({ id: a.id, name: a.name, count: s.diary.entryCount(a.id) }));
+    const rows = s.world.agents.filter((a) => a.role !== 'guest').map((a) => ({ id: a.id, name: a.name, count: s.diary.entryCount(a.id) }));
     rows.sort((x, y) => y.count - x.count || x.id - y.id);
     return rows[0];
   });
@@ -66,7 +66,7 @@ test('day 1 evening: inspector opens the diary with a written entry; download an
 
   // overview: every resident listed, latest entries shown, the read one has no unread dot
   await panel.locator('.diary-back').click();
-  const n = await page.evaluate(() => window.__sim.world.agents.length);
+  const n = await page.evaluate(() => window.__sim.world.agents.filter((a) => a.role !== 'guest').length);
   const items = panel.locator('.diary-ov-item');
   await expect(items).toHaveCount(n);
   const mine = panel.locator(`.diary-ov-item[data-agent="${w.id}"]`);

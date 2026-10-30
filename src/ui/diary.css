@@ -368,6 +368,9 @@
   background: linear-gradient(135deg, rgba(251, 245, 228, 0.13), rgba(251, 245, 228, 0.04));
   text-align: left;
 }
+.insp-diary-btn[hidden] {
+  display: none;
+}
 .insp-diary-btn:hover {
   background: linear-gradient(135deg, rgba(251, 245, 228, 0.2), rgba(251, 245, 228, 0.08));
 }

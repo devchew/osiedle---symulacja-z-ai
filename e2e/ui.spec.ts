@@ -35,7 +35,7 @@ test('stats panel: network, mood history and table are drawn', async ({ page }) 
   expect(await canvasColours(page, '.stats-net')).toBeGreaterThan(10);
   expect(await canvasColours(page, '.stats-chart')).toBeGreaterThan(10);
   await expect(panel.locator('.stats-empty')).toBeHidden();
-  const n = await page.evaluate(() => window.__sim.world.agents.length);
+  const n = await page.evaluate(() => window.__sim.world.agents.filter((a) => a.role !== 'guest').length);
   await expect(panel.locator('.stats-table tbody tr')).toHaveCount(n);
 
   // hover an edge between the first two residents (midpoint of the chord)
