@@ -1,4 +1,4 @@
-// Summarises a trace.txt (from the app's L key or scripts/observe.mjs).
+// Summarises a trace.txt (from tests/tools/tracedump.test.ts, test-results/trace-<seed>.txt or scripts/observe.mjs).
 // usage: node scripts/analyze-trace.mjs <trace.txt>
 import { readFileSync } from 'node:fs';
 const lines = readFileSync(process.argv[2], 'utf8').split('\n').filter((l) => /^D\d/.test(l));

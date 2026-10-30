@@ -1,11 +1,17 @@
-// Watches the running app in a real browser for N minutes at 1× speed and saves
-// the activity trace, event log, periodic screenshots and console errors.
+// Watches the LIVE view of a server world in a real browser for N real minutes and saves
+// the event log, periodic screenshots, per-minute samples and console errors.
 // usage: node scripts/observe.mjs <url> <minutes> <outDir>
+//   e.g. LIVE_SPEED=60 npm run dev     (one sim minute per second: 15 real minutes ≈ 15 game hours)
+//        node scripts/observe.mjs http://localhost:5173/kamienica 15 test-results/observe
+// The world ticks on the server (LIVE_SPEED / LIVE_FIXED_TIME / DATA_DIR env); the browser only renders frames,
+// so trace.txt is empty (frames carry no activity trace; events.txt, samples.json and the screenshots show what the
+// client saw). For decisions / activity traces and to reproduce a world from a seed headlessly (and much faster) use
+// tests/tools/tracedump.test.ts (see CONTRIBUTING.md).
 import { chromium } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const [url, minutesArg = '15', outDir = 'test-results/observe'] = process.argv.slice(2);
+const [url = 'http://localhost:5173/kamienica', minutesArg = '15', outDir = 'test-results/observe'] = process.argv.slice(2);
 const minutes = Number(minutesArg);
 mkdirSync(outDir, { recursive: true });
 
@@ -16,7 +22,7 @@ page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`));
 page.on('console', (m) => m.type() === 'error' && errors.push(`[console] ${m.text()}`));
 
 await page.goto(url);
-await page.waitForFunction(() => !!window.__sim);
+await page.waitForFunction(() => window.__sim?.mode === 'live' && (window.__sim.frames ?? 0) >= 1, undefined, { timeout: 60_000 });
 const started = Date.now();
 const samples = [];
 

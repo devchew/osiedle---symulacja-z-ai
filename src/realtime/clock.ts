@@ -48,30 +48,6 @@ export function tickToLocal(tick: number, baseDay: number): { date: string; hour
   return { date, hour: Math.floor(ofDay / 60), minute: ofDay % 60 };
 }
 
-/** progress through the current wall-clock minute, 0..1 — the render interpolation alpha */
-export function minuteFraction(date: Date): number {
-  return (date.getSeconds() * 1000 + date.getMilliseconds()) / 60_000;
-}
-
-/** behind by at most this many ticks: caught up live, a slice per frame */
-export const FAST_FORWARD_AFTER = 180;
-/** at most this many ticks per animation frame while catching up live */
-export const LIVE_STEP_MAX = 30;
-
-export type CatchUp =
-  | { mode: 'idle' }
-  /** step this many ticks now (more next frame) */
-  | { mode: 'step'; ticks: number }
-  /** too far behind (sleeping tab, long pause): fast-forward in chunks with the progress overlay */
-  | { mode: 'fastForward'; ticks: number };
-
-/** what to do when the simulation is `behind` ticks behind the wall clock (≤ 0: ahead or in sync) */
-export function catchUp(behind: number): CatchUp {
-  if (behind <= 0) return { mode: 'idle' };
-  if (behind > FAST_FORWARD_AFTER) return { mode: 'fastForward', ticks: behind };
-  return { mode: 'step', ticks: Math.min(behind, LIVE_STEP_MAX) };
-}
-
 // ---------------------------------------------------------------- time zones (server)
 
 const zoneFormats = new Map<string, Intl.DateTimeFormat>();

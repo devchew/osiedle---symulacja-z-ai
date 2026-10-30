@@ -5,7 +5,7 @@ import type { Agent, Vec2, World } from '../types';
 // house (10–25 tiles) takes 7–20 game *seconds*: it starts and ends within one tick.
 // The simulation therefore treats walking as (almost) free, while the renderer
 // replays the recorded trail (see `trailOf` and src/render/motion.ts) at a speed that
-// suits the view: real seconds in real-time mode, a short visible walk in the lab.
+// suits the view: real seconds in real-time mode, a short visible walk in fast (non-real-time) mode.
 
 /** game seconds per tick */
 export const TICK_SECONDS = 60;

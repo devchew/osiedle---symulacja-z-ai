@@ -16,7 +16,7 @@ import { relationOf } from '../social/relationships';
 import { weatherOf } from '../world/incidents';
 import { projectsOf } from '../world/projects';
 
-// The common screen of every mode (live view, /lab): canvas renderer, HUD, inspector,
+// The screen of the live view: canvas renderer, HUD, inspector,
 // event log and the read-only panels (stats, diaries, projects), with selection, panel
 // exclusivity and the 5 Hz UI refresh. The world it shows can be swapped (setWorld): the next
 // live frame restored as a new object, or another place.
@@ -30,7 +30,7 @@ export const relationKind: RelationOfFn = (w, a, b) => {
 };
 const weather: WeatherOfFn = (w) => weatherOf(w);
 
-/** a panel outside the view (e.g. /lab's save panel) taking part in "one panel at a time" */
+/** a panel outside the view (e.g. the chronicle) taking part in "one panel at a time" */
 export interface ExtraPanel {
   id: string;
   setOpen(open: boolean): void;
@@ -39,7 +39,7 @@ export interface ExtraPanel {
 export interface ViewOptions {
   world: World;
   controls: SimControls;
-  /** mood history fed by the owner (lab: after each tick; live: after each frame) */
+  /** mood history fed by the owner (live: after each frame) */
   history?: MoodHistory;
   /** extra HUD buttons placed after stats / diaries / projects */
   buttons?: HudButton[];

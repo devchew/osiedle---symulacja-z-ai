@@ -6,7 +6,7 @@
 // Instead each agent has a visual cursor that follows a queue of recorded points:
 //  - real-time mode: 1 game second of walking = 1 real second (walks take seconds,
 //    like in life; the walk starts when the tick arrives, at the start of the minute);
-//  - lab (5 ticks/s × speed): a brisk, still readable pace (MOTION.FAST_RATE),
+//  - fast mode (5 ticks/s × speed): a brisk, still readable pace (MOTION.FAST_RATE),
 //    sped up when the cursor lags too far behind the simulation (MOTION lag limits),
 //    so the resident arrives at most ~1 s (1×) / 0.3 s (8×) after the simulation did.
 // After the queue is drained the agent stands at its simulated position. Pure (no DOM),
@@ -15,9 +15,9 @@
 import { WALK_TILES_PER_SECOND, type TrailPoint } from '../agents/movement';
 
 export const MOTION = {
-  /** lab: game seconds of walking replayed per real second (≈ 6 tiles/s) */
+  /** fast mode: game seconds of walking replayed per real second (≈ 6 tiles/s) */
   FAST_RATE: 4.5,
-  /** lab: the cursor may lag the simulation by this many ticks… */
+  /** fast mode: the cursor may lag the simulation by this many ticks… */
   LAG_TICKS: 6,
   /** …clamped to [min, max] real seconds */
   LAG_MIN: 0.3,
@@ -33,7 +33,7 @@ export const MOTION = {
 export interface MotionView {
   /** true in real-time mode (1 tick = 1 real minute) */
   realtime: boolean;
-  /** real seconds per tick in the lab (measured), e.g. 0.2 at 1× */
+  /** real seconds per tick in fast mode (measured), e.g. 0.2 at 1× */
   tickSeconds: number;
 }
 
@@ -178,7 +178,7 @@ export class MotionTracker<T extends Mover = Mover> {
   private readonly cursors = new Map<number, AgentMotion>();
   private lastTick = -1;
   private lastTickAt = 0;
-  /** measured real seconds per tick (lab) */
+  /** measured real seconds per tick (fast mode) */
   tickSeconds = 0.2;
 
   constructor(private readonly trailOf: (a: T) => readonly TrailPoint[]) {}

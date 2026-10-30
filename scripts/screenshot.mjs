@@ -1,4 +1,6 @@
 // Usage: node scripts/screenshot.mjs <url> <out.png> [waitMs=1500] [width=1440] [height=900]
+// <url> is a live view of the dev server, e.g. http://localhost:5173/kamienica (start it with `npm run dev`;
+// LIVE_SPEED=60 / LIVE_FIXED_TIME=2026-10-29T12:00 pick the pace / the moment of the worlds).
 // Prints console errors and page errors; exits 1 if any page error occurred.
 import { chromium } from '@playwright/test';
 

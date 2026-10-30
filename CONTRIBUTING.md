@@ -8,8 +8,9 @@ Krótka ściąga dla agentów jest w `CLAUDE.md`.
 Strona pokazuje **cztery stałe miejsca** (Dom z ogrodem, Kamienica, Domek nad jeziorem, Akademik). Każde
 to jeden wspólny świat, który działa **24/7 na serwerze w czasie rzeczywistym** (zegar Europe/Warsaw,
 prawdziwa pogoda z przypisanego miasta). Odwiedzający tylko oglądają i przełączają miejsca — nie tworzą
-ani nie modyfikują światów. Nie ma trybu zabawy na własnej kopii — istnieje wyłącznie tryb na żywo
-(ukryte `/lab` służy tylko do rozwoju i testów).
+ani nie modyfikują światów. Nie ma trybu zabawy na własnej kopii ani ukrytej trasy deweloperskiej —
+istnieje wyłącznie widok na żywo. Do rozwoju służą skrypty headless w Node i serwer deweloperski
+(sekcja „Odtwarzanie i obserwacja świata”).
 
 ## Zadania: GitHub Issues
 
@@ -46,9 +47,8 @@ LIVE_SPEED=60 npm run dev   # świat przyspieszony: 1 minuta gry na sekundę (te
 | Adres | Co to jest |
 |---|---|
 | `/`, `/dom`, `/kamienica`, `/jezioro`, `/akademik` | widok na żywo (`#Ola` zaznacza mieszkańca) |
-| `/lab?seed=7&tick=2000&map=akademik&agents=6` | ukryte laboratorium: lokalna symulacja z seeda, zapisy, log aktywności (L), dialogi AI — do debugowania (testy e2e już z niego nie korzystają) |
 
-Zmienne środowiskowe (serwer / dev): `OPENROUTER_API_KEY`, `OPENROUTER_MODELS`, `OPENROUTER_DAILY_LIMIT`,
+Zmienne środowiskowe (serwer / dev; `LIVE_SPEED`, `LIVE_FIXED_TIME` i `DATA_DIR` wystarczą do ustawienia tempa i momentu światów na żywo — nie ma osobnego sterowania światem): `OPENROUTER_API_KEY`, `OPENROUTER_MODELS`, `OPENROUTER_DAILY_LIMIT`,
 `NEWS_FEEDS` (`off`), `LIVE_WORLDS` (`off`), `LIVE_AI` (`off`/`on`), `LIVE_WEATHER` (`off`),
 `LIVE_SPEED`, `LIVE_FIXED_TIME` (np. `2026-10-29T12:00`), `DATA_DIR` (`./data`, w Dockerze `/app/data`, `off`).
 
@@ -60,7 +60,7 @@ npm test                    # Vitest: logika, soak (7 dni × kilka seedów), det
 npm run test:e2e            # Playwright (buduje i serwuje aplikację; świat na żywo zamrożony LIVE_FIXED_TIME na :4173; osobny projekt live-ticking na :4174 z LIVE_SPEED=60 sprawdza realne tykanie)
 ```
 
-Testy e2e (`e2e/`) sprawdzają widok na żywo, nie `/lab`. Stan świata dostarczają fixtures: `e2e/support/worldFixtures.ts`
+Testy e2e (`e2e/`) sprawdzają widok na żywo. Stan świata dostarczają fixtures: `e2e/support/worldFixtures.ts`
 generuje w Node ramkę (`LiveFrame`) prawdziwej symulacji dla miejsca / seeda / ticku (`frameFor({ place: 'dom' }, tickAt(23))`),
 a `e2e/support/live.ts` podstawia ją pod `/api/live/*` (`mockLive`, `live.push(następnaRamka)`, `openLive`).
 Logika symulacji (projekty, pamiętniki, relacje) ma testy w Vitest, w e2e zostaje to, co widać w przeglądarce.
@@ -70,8 +70,28 @@ Przy zmianach zachowań mieszkańców dodatkowo:
 ```bash
 SEED=42 TICKS=4500 npx vitest run tests/tools/trace.test.ts   # analiza „chaosu” → test-results/trace-analysis-42.txt
 DAYS=7 SEED=1,2,3 npx vitest run tests/tools/diag.test.ts     # metryki dnia → test-results/diag.txt
-node scripts/observe.mjs "http://localhost:5173/lab?seed=42" 15 test-results/observe   # 15 min w Chromium
 ```
+
+### Odtwarzanie i obserwacja świata
+
+Nie ma już trasy `/lab` (#36, decyzja w `plan/DECISIONS.md`). Zamiast niej:
+
+- **Odtworzenie świata z seeda / ticku (headless, bez przeglądarki)** — `tests/tools/tracedump.test.ts`:
+  ```bash
+  SEED=1912 MAP=kamienica AGENTS=8 UNTIL=3000 npx vitest run tests/tools/tracedump.test.ts
+  # opcje: FROM=<tick> GREP=<regexp> AGENT=<id mieszkańca> DATE=2026-12-20 (pora roku, dzień tygodnia) SAMPLE=<co ile ticków>
+  ```
+  Zapisuje `test-results/tracedump.txt` (nagłówek z seedem, mapą, tickiem i odciskiem stanu `check`, potem log aktywności)
+  oraz — przy `SAMPLE` — `test-results/tracedump-samples.txt` (zegar, nastroje i rozmowy co N ticków). Świat jest deterministyczny
+  (bez AI i prawdziwych wiadomości/pogody): ten sam seed + tick ⇒ ten sam stan. Miejsca na żywo mają stałe seedy z `PLACES`
+  (`src/live/protocol.ts`: dom 2026, kamienica 1912, jezioro 1410, akademik 1702), więc takie wywołanie daje ten sam początek świata co na serwerze (bez AI, prawdziwej pogody i wiadomości; kalendarz ustaw `DATE`).
+  Własny skrypt: `createWorld(seed, { mapId, agentCount })` + `tickWorld(world)` w pętli (jak w `tests/tools/*.test.ts`).
+- **Obserwacja długiej symulacji** — w Node dni/tygodnie liczą się w sekundach (`UNTIL=10080 SAMPLE=240`, `DAYS=7 SEED=1,2,3 …diag.test.ts`,
+  `SEED=42 TICKS=4500 …trace.test.ts`); w przeglądarce: `LIVE_SPEED=60 npm run dev`, potem
+  `node scripts/observe.mjs http://localhost:5173/kamienica 15 test-results/observe` (zrzuty co minutę, `events.txt`, `samples.json`; ramki z serwera nie niosą logu aktywności, więc `trace.txt` jest pusty).
+  Zamrożony moment: `LIVE_FIXED_TIME=2026-10-29T12:00 npm run dev`; świeży świat: `DATA_DIR=off`.
+- **Podgląd trace** — w Node: `test-results/tracedump.txt` / `trace-<seed>.txt` (+ `node scripts/analyze-trace.mjs <plik>` — podsumowanie);
+  w widoku na żywo: konsola przeglądarki `__sim.world` (stan z ostatniej ramki), `__sim.snapshot()`, `__sim.trace()` (uwaga: ramki nie niosą logu aktywności — przy świecie z serwera zwraca tylko nagłówek).
 
 Przy zmianach UI: zrzuty ekranu z Playwright (`test-results/shots/`) obejrzyj przed PR.
 

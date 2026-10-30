@@ -4,8 +4,6 @@ import { tickToLocal } from './clock';
 // Real weather from Open-Meteo (https://open-meteo.com — no key, CORS enabled)
 // and the WMO weather-code mapping to the simulation's weather kinds.
 
-export const DEFAULT_LOCATION = { lat: 52.23, lon: 21.01, name: 'Warszawa' } as const;
-
 /**
  * WMO weather interpretation code (Open-Meteo `weather_code`) → simulation weather.
  * Snow and freezing precipitation count as 'rain' (keeps people indoors) with their own label; snow is flagged.
@@ -164,20 +162,4 @@ export async function fetchRealWeather(lat: number, lon: number, timeoutMs = 600
     `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}` +
     `&current=${vars}&hourly=${vars}&past_days=1&forecast_days=2&timezone=${encodeURIComponent(tz)}`;
   return parseForecast(await fetchJson(url, timeoutMs));
-}
-
-/**
- * place name (Polish) via BigDataCloud's keyless, CORS-enabled client-side reverse geocoding;
- * null on any failure
- */
-export async function reverseGeocode(lat: number, lon: number, timeoutMs = 5000): Promise<string | null> {
-  try {
-    const j = (await fetchJson(
-      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=pl`,
-      timeoutMs,
-    )) as { city?: string; locality?: string };
-    return j.city || j.locality || null;
-  } catch {
-    return null;
-  }
 }
