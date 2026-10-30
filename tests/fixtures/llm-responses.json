@@ -1,0 +1,79 @@
+{
+  "note": "Hand-written model answers (typical free-model slips from #17, none recorded from a live API) for requests in llm-requests.json. `content` is the raw message content; `expect` is 'ok' or the rejection reason (text before ':'). Input for tests/llmRejections.test.ts.",
+  "lines": [
+    { "id": "ok-greeting", "request": "line-01", "content": "{\"text\": \"Cześć, Kuba! Grasz dziś w coś?\", \"tone\": \"positive\", \"gossip\": null}", "expect": "ok" },
+    { "id": "ok-fenced-json", "request": "line-02", "content": "```json\n{\"text\": \"Cześć, Magda! Masz plany na weekend?\", \"tone\": \"positive\", \"gossip\": null}\n```", "expect": "ok" },
+    { "id": "ok-goodbye", "request": "line-03", "content": "{\"text\": \"Dzięki za gadkę, Bartek. Do zobaczenia!\", \"tone\": \"positive\", \"gossip\": null}", "expect": "ok" },
+    { "id": "ok-gossip-present", "request": "line-05", "content": "{\"text\": \"Słyszysz? Kuba ma świetny humor!\", \"tone\": \"positive\", \"gossip\": 0}", "expect": "ok" },
+    { "id": "ok-shared-memory", "request": "line-08", "content": "{\"text\": \"Pamiętasz, jak Staś tryska humorem? Uwielbiam to.\", \"tone\": \"positive\", \"gossip\": 1}", "expect": "ok" },
+    { "id": "ok-tactful-embarrassing", "request": "line-06", "content": "{\"text\": \"Podobno Piotr przypala obiad. Każdemu się zdarza, cicho sza.\", \"tone\": \"neutral\", \"gossip\": 0}", "expect": "ok" },
+    { "id": "ok-tv", "request": "line-10", "content": "{\"text\": \"Mówią, że będzie burza. Zostańmy w domu.\", \"tone\": \"neutral\", \"gossip\": null}", "expect": "ok" },
+    { "id": "ok-adjectives-and-nouns", "request": "line-17", "content": "{\"text\": \"Dobry pomysł! Wspaniała pogoda na spacer.\", \"tone\": \"positive\", \"gossip\": null}", "expect": "ok" },
+    { "id": "gendered-question", "request": "line-05", "content": "{\"text\": \"Słyszałeś? Kuba ma świetny humor!\", \"tone\": \"positive\", \"gossip\": 0}", "expect": "gendered forms" },
+    { "id": "gendered-gloating", "request": "line-06", "content": "{\"text\": \"Ha, Piotr znowu przypalił obiad!\", \"tone\": \"negative\", \"gossip\": 0}", "expect": "gendered forms" },
+    { "id": "gendered-first-person", "request": "line-04", "content": "{\"text\": \"Byłem rad z rozmowy, pa!\", \"tone\": \"positive\", \"gossip\": null}", "expect": "gendered forms" },
+    { "id": "gendered-adjective-about-listener", "request": "line-15", "content": "{\"text\": \"Jesteś zmęczony, Kuba? Ja też.\", \"tone\": \"neutral\", \"gossip\": null}", "expect": "gendered forms" },
+    { "id": "bad-tone", "request": "line-11", "content": "{\"text\": \"Daj mi spokój, Ula.\", \"tone\": \"angry\", \"gossip\": null}", "expect": "bad tone" },
+    { "id": "plain-text", "request": "line-12", "content": "Cześć Janek, czego chcesz?", "expect": "no JSON object" },
+    { "id": "empty-text", "request": "line-13", "content": "{\"text\": \"   \", \"tone\": \"neutral\", \"gossip\": null}", "expect": "no text" },
+    { "id": "cut-off", "request": "line-16", "content": "{\"text\": \"Burek to świetny pies, a ja", "finish": "length", "expect": "finish length" }
+  ],
+  "diaries": [
+    {
+      "id": "ok-present-tense",
+      "request": "diary-1",
+      "content": "{\"text\": \"Rano grill i gotowanie, potem pracuję przy altanie — idzie powoli, ale z satysfakcją. 🍖\\n\\nWspólne śniadanie: Bartek, Magda i ja. Później rozmowa o grach na konsoli: Magda to prawdziwa przyjaźń. Kuba: miła pogawędka o filmach, trochę serce mi bije.\\n\\nKasia nie ma ochoty na rozmowę, trudno. Po południu pada deszcz, więc kąpiel i konsola. Dobranoc!\"}",
+      "expect": "ok"
+    },
+    {
+      "id": "ok-adjectives-and-nouns",
+      "request": "diary-1",
+      "content": "{\"text\": \"Wspaniała pogoda na grill, a potem dobry pomysł: altana. Praca idzie powoli, ale z udziałem Bartek i Magda będzie szybciej.\\n\\nWieczorem ławka w ogrodzie, cisza i spokój. Czuła rozmowa z samym sobą też się przydaje. Dobranoc!\"}",
+      "expect": "ok"
+    },
+    {
+      "id": "gendered-past-tense",
+      "request": "diary-1",
+      "content": "{\"text\": \"Rano zrobiłem grilla, potem pracowałem przy altanie. Bartek, Magda i ja zjedliśmy wspólne śniadanie.\\n\\nKuba opowiadał o filmach, a Kasia nie miała ochoty na rozmowę. Wieczorem padał deszcz.\"}",
+      "expect": "gendered forms"
+    },
+    {
+      "id": "gendered-adjective",
+      "request": "diary-1",
+      "content": "{\"text\": \"Rano grill i gotowanie, potem praca przy altanie. Wspólne śniadanie: Bartek, Magda i ja.\\n\\nPo południu pada deszcz, więc kąpiel i konsola. Jestem zmęczony, ale zadowolony z dnia. Dobranoc!\"}",
+      "expect": "gendered forms"
+    },
+    {
+      "id": "preposition-nominative",
+      "request": "diary-1",
+      "content": "{\"text\": \"Rano grill i gotowanie, potem pracuję przy altanie i czuję satysfakcję.\\n\\nWspólne śniadanie ze Staś, Bartek i Magda. Później długa rozmowa o filmach i grach. Po południu pada deszcz. Dobranoc!\"}",
+      "expect": "preposition before a name"
+    },
+    {
+      "id": "preposition-declined",
+      "request": "diary-1",
+      "content": "{\"text\": \"Rano grill i gotowanie, potem pracuję przy altanie i czuję satysfakcję.\\n\\nDługa rozmowa z Magdą o grach na konsoli, a potem pogawędka z Kubą o filmach. Po południu pada deszcz. Dobranoc!\"}",
+      "expect": "preposition before a name"
+    },
+    {
+      "id": "preposition-declined-masculine",
+      "request": "diary-1",
+      "content": "{\"text\": \"Rano grill i gotowanie, potem pracuję przy altanie i czuję satysfakcję.\\n\\nDługa rozmowa o pracy, a potem śniadanie dla Bartka i Magda. Po południu pada deszcz. Dobranoc!\"}",
+      "expect": "preposition before a name"
+    },
+    {
+      "id": "invented-person",
+      "request": "diary-1",
+      "content": "{\"text\": \"Rano grill i gotowanie, potem pracuję przy altanie i czuję satysfakcję.\\n\\nWspólne śniadanie: Bartek, Magda i ja. Wpada też Ania i opowiada o swoich planach. Po południu pada deszcz. Dobranoc!\"}",
+      "expect": "person not in the facts"
+    },
+    {
+      "id": "invented-quote",
+      "request": "diary-1",
+      "content": "{\"text\": \"Rano grill i gotowanie, potem pracuję przy altanie i czuję satysfakcję.\\n\\nW telewizji podają: „Rząd ogłasza święto narodowe”. Po południu pada deszcz, więc kąpiel i konsola. Dobranoc!\"}",
+      "expect": "quote not among the given headlines"
+    },
+    { "id": "too-short", "request": "diary-1", "content": "{\"text\": \"Dziś grill. Dobranoc.\"}", "expect": "too short" },
+    { "id": "no-text-field", "request": "diary-1", "content": "{\"entry\": \"Rano grill i gotowanie.\"}", "expect": "no text" }
+  ]
+}

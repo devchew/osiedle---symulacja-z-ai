@@ -100,8 +100,14 @@ function evaluate(rec) {
   const rawText = data && typeof data === 'object' && typeof data.text === 'string' ? data.text : '';
   out.rawLen = rawText.length;
   if (item.kind === 'line') {
-    const parsed = llm.parseCompletion(b, item.request.speaker, item.request.gossip?.length ?? 0);
-    if (!parsed) return { ...out, reason: rawText ? `invalid (finish ${finish})` : 'no JSON' };
+    let why = '';
+    const { speaker, listener } = item.request;
+    const parsed = llm.parseCompletion(b, speaker, item.request.gossip?.length ?? 0, (r) => (why = r), [speaker, listener]);
+    if (!parsed) {
+      out.text = rawText;
+      out.gendered = rawText ? diaryAi.findGenderedForms(rawText, NAMES) : [];
+      return { ...out, reason: why || (rawText ? `invalid (finish ${finish})` : 'no JSON') };
+    }
     out.text = parsed.line.text;
     out.tone = parsed.line.tone;
     out.gossip = parsed.line.gossip;
@@ -110,7 +116,7 @@ function evaluate(rec) {
     return out;
   }
   let why = '';
-  const parsed = llm.parseDiaryCompletion(b, item.request, (r) => (why = r));
+  const parsed = llm.parseDiaryCompletion(b, { ...item.request, names: NAMES }, (r) => (why = r));
   if (!parsed) {
     out.text = rawText;
     out.gendered = rawText ? diaryAi.findGenderedForms(rawText, NAMES) : [];
@@ -179,7 +185,7 @@ for (const model of models) {
     model,
     lineOk: `${okLines.length}/${lines.length}`,
     diaryOk: `${diaries.filter((x) => x.e.ok).length}/${diaries.length}`,
-    gendered: okLines.filter((x) => x.e.gendered.length).length,
+    gendered: lines.filter((x) => x.e.gendered.length).length,
     tooLong: okLines.filter((x) => x.e.rawLen > LINE_MAX).length,
     avgLen: okLines.length ? Math.round(okLines.reduce((s, x) => s + x.e.text.length, 0) / okLines.length) : 0,
     gossip: okLines.filter((x) => x.e.gossip !== null && x.e.gossip !== undefined).length,

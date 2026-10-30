@@ -14,6 +14,7 @@ export const DIARY_MAX_FACTS = 24;
 export const DIARY_FACT_CHARS = 160;
 export const DIARY_MAX_NEWS = 2;
 export const DIARY_NEWS_CHARS = 160;
+export const DIARY_MAX_NAMES = 24;
 
 /** compact, JSON-serialisable request (names only, no ids) */
 export interface LlmDiaryRequest {
@@ -31,6 +32,8 @@ export interface LlmDiaryRequest {
   facts: string[];
   /** TV headlines the writer saw (verbatim, may be quoted only as given) */
   news: string[];
+  /** residents' names (nominative): lets the proxy reject broken declension and invented people like the client does */
+  names?: string[];
 }
 
 export interface LlmDiaryResponse {
@@ -58,7 +61,13 @@ const NOT_PAST = new Set([
   'gała', 'pała', 'zgniły', 'zgniła', 'zwykły', 'zwykła', 'zwykłe', 'spleśniały', 'zapał', 'upał', 'kanał', 'materiał',
   'ideał', 'szał', 'pedał', 'pedały', 'sandał', 'sandały', 'kryształ', 'generał', 'kapitał', 'rytuał', 'potencjał', 'sygnał',
   'sygnały', 'kanały', 'materiały', 'ideały', 'upały', 'zapały', 'działa', 'mydła', 'koła', 'koły', 'stoły', 'doły', 'kościoły',
+  'wspaniała', 'wspaniały', 'czuła', 'czuły', 'przemiła', 'przemiły', 'pomysł', 'pomysły', 'udział', 'pył', 'tył', 'skrzydła', 'wiosła',
+  'cegła', 'stodoła',
+  // instrumental of -ł nouns looks like a first person past tense ("-łem")
+  'udziałem', 'pomysłem', 'stołem', 'kościołem', 'aniołem', 'materiałem', 'kanałem', 'upałem', 'zapałem', 'szałem', 'ideałem', 'sygnałem', 'kapitałem', 'rytuałem',
 ]);
+/** negated adjectives ("niemiła", "nieśmiała", "niezwykły") are as harmless as the base word */
+const isNotPast = (w: string): boolean => NOT_PAST.has(w) || (w.startsWith('nie') && NOT_PAST.has(w.slice(3)));
 /** after "jestem / czuję się / będę" these are fine (prepositions, adverbs handled by the ending check) */
 const AFTER_BE_OK = new Set(['na', 'za', 'do', 'po', 'przy', 'bez', 'od', 'pod', 'nad', 'przed', 'tu', 'tam', 'w', 'we', 'z', 'ze', 'u', 'jak', 'taka']);
 
@@ -78,10 +87,10 @@ export function findGenderedForms(text: string, allow: Iterable<string> = []): s
   const plain = stripQuotes(text);
   const words = plain.toLowerCase().match(/\p{L}+/gu) ?? [];
   for (const w of words) {
-    if (ok.has(w) || NOT_PAST.has(w)) continue;
+    if (ok.has(w) || isNotPast(w)) continue;
     if (PAST_PERSONAL.test(w) || PAST_LI.has(w) || (w.length > 2 && PAST_THIRD.test(w))) out.push(w);
   }
-  const be = /(?:^|[^\p{L}])(jestem|czuję się|będę|zostaję)\s+(\p{L}+)/giu;
+  const be = /(?:^|[^\p{L}])(jestem|jesteś|czuję się|czujesz się|będę|będziesz|zostaję)\s+(\p{L}+)/giu;
   for (let m = be.exec(plain); m; m = be.exec(plain)) {
     const next = m[2].toLowerCase();
     if (AFTER_BE_OK.has(next) || ok.has(next)) continue;
@@ -125,7 +134,16 @@ export function validateDiaryRequest(body: unknown): LlmDiaryRequest | null {
       news.push(t);
     }
   }
-  return { name, traits, mood, moodArc, day, facts, news };
+  const names: string[] = [];
+  if (b.names !== undefined) {
+    if (!Array.isArray(b.names) || b.names.length > DIARY_MAX_NAMES) return null;
+    for (const n of b.names) {
+      const t = str(n, 24);
+      if (!t) return null;
+      names.push(t);
+    }
+  }
+  return { name, traits, mood, moodArc, day, facts, news, ...(names.length ? { names } : {}) };
 }
 
 /** cuts text to ≤ maxWords at the last sentence end (or word) */
@@ -145,6 +163,22 @@ function limitWords(text: string, maxWords: number): string {
   return (end > out.length * 0.5 ? out.slice(0, end + 1) : `${out.trim().replace(/[,;:–-]+$/, '')}…`).trim();
 }
 
+const PREPOSITIONS = 'ze?|dla|od|do|przy|u|o|na|po|za|bez|przez|obok|wobec|między|pod|nad|przed|koło|dzięki|wśród|w|we';
+
+/** the name and its likely inflected forms ("Magda" → "Magdą", "Bartek" → "Bartka"): after a preposition none of them is acceptable */
+export function nameForms(name: string): string[] {
+  if (name.endsWith('ia')) {
+    const b = name.slice(0, -1);
+    return [name, b, `${b}ę`, `${b}ą`];
+  }
+  if (name.endsWith('a')) {
+    const b = name.slice(0, -1);
+    return [name, ...['y', 'i', 'ę', 'ą', 'ie', 'zie'].map((e) => b + e)];
+  }
+  const b = name.endsWith('ek') ? `${name.slice(0, -2)}k` : name.endsWith('ś') ? `${name.slice(0, -1)}si` : name;
+  return [name, ...['a', 'iem', 'owi', 'u', 'em'].map((e) => b + e)];
+}
+
 export interface DiarySanitizeOptions {
   /** writer's name (a "Name:" prefix or a signature is dropped) */
   name?: string;
@@ -154,6 +188,8 @@ export interface DiarySanitizeOptions {
   allow?: Iterable<string>;
   /** residents' names: a preposition right before one ("ze Staś", "z Ola") is rejected as broken grammar */
   names?: readonly string[];
+  /** the facts given to the model: with `names`, a resident who is mentioned but absent from the facts is an invented person */
+  facts?: readonly string[];
 }
 
 /**
@@ -193,9 +229,20 @@ export function checkDiaryText(raw: unknown, opts: DiarySanitizeOptions = {}): {
   const gendered = findGenderedForms(text, opts.allow ?? []);
   if (gendered.length > 0) return { reason: `gendered forms: ${gendered.slice(0, 3).join(', ')}` };
   const esc = (n: string): string => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const names = (opts.names ?? []).filter((n) => n.length > 1).map(esc);
-  if (names.length && new RegExp(`(^|[^\\p{L}])(ze?|dla|od|do|przy|u)\\s+(${names.join('|')})(?![\\p{L}])`, 'iu').test(stripQuotes(text)))
-    return { reason: 'preposition before a name' };
+  const names = (opts.names ?? []).filter((n) => n.length > 1);
+  if (names.length) {
+    const forms = names.flatMap(nameForms).map(esc);
+    if (new RegExp(`(^|[^\\p{L}])(${PREPOSITIONS})\\s+(${forms.join('|')})(?![\\p{L}])`, 'iu').test(stripQuotes(text))) return { reason: 'preposition before a name' };
+  }
+  if (opts.facts) {
+    const given = [...opts.facts, ...(opts.news ?? [])].join(' ').toLowerCase();
+    const inGiven = (n: string): boolean => new RegExp(`(^|[^\\p{L}])${esc(n.toLowerCase())}(?![\\p{L}])`, 'u').test(given);
+    const plain = stripQuotes(text);
+    const invented = (opts.names ?? []).filter(
+      (n) => n.length > 1 && n.toLowerCase() !== opts.name?.toLowerCase() && !inGiven(n) && new RegExp(`(^|[^\\p{L}])${esc(n)}(?![\\p{L}])`, 'iu').test(plain),
+    );
+    if (invented.length) return { reason: `person not in the facts: ${invented[0]}` };
+  }
   const news = (opts.news ?? []).map((n) => n.replace(/\s+/g, ' ').trim());
   for (const m of text.matchAll(/„([^”]*)”/g)) {
     const q = m[1].replace(/…$/, '').trim();
@@ -238,6 +285,7 @@ export function createDiaryAiClient(opts: DiaryAiClientOptions = {}): DiaryAiCli
   const timeoutMs = opts.timeoutMs ?? 20_000;
   return {
     async write(req, allow = []) {
+      const names = [...new Set([req.name, ...allow])].slice(0, DIARY_MAX_NAMES);
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_, reject) => {
@@ -248,7 +296,7 @@ export function createDiaryAiClient(opts: DiaryAiClientOptions = {}): DiaryAiCli
       });
       try {
         const res = await Promise.race([
-          doFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req), signal: controller.signal }),
+          doFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...req, names }), signal: controller.signal }),
           timeout,
         ]);
         if (!res.ok) {
@@ -262,8 +310,7 @@ export function createDiaryAiClient(opts: DiaryAiClientOptions = {}): DiaryAiCli
           throw new DiaryAiError(`diary ai http ${res.status}`, res.status, reason);
         }
         const body = (await Promise.race([res.json(), timeout])) as Record<string, unknown> | null;
-        const names = [req.name, ...allow];
-        const text = sanitizeDiaryText(body?.text, { name: req.name, news: req.news, allow: names, names });
+        const text = sanitizeDiaryText(body?.text, { name: req.name, news: req.news, allow: names, names, facts: req.facts });
         if (!text) throw new DiaryAiError('diary ai malformed response', 0, 'malformed');
         return text;
       } catch (err) {
