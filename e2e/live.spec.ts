@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 
 // Wave 10: live view of the server worlds, place switcher, resident links (#name), read-only
 // diaries, phone layout, offline banner.
-// Needs the live worlds on the preview server (server/worldsProxy.ts); a second frame arrives
-// quickly with LIVE_SPEED (e.g. 30 → a tick every 2 s), at speed 1 it takes up to a minute.
+// Needs the live worlds on the preview server (server/worldsProxy.ts), pinned to a fixed time here;
+// real ticking is covered by live-ticking.spec.ts (LIVE_SPEED=60 server).
 // Shots land in test-results/shots/live-*.png.
 
 const SHOTS = 'test-results/shots';
@@ -57,23 +57,6 @@ test('live view: place, clock, real-time HUD, no simulation controls', async ({ 
   await expect(page.locator('#hud-help')).toContainText('na serwerze');
   await expect(page.locator('#hud-help')).not.toContainText('nowy świat');
   await page.keyboard.press('Escape');
-  expect(errors).toEqual([]);
-});
-
-test('live view: next frames arrive from the server (LIVE_SPEED)', async ({ page, request }) => {
-  test.setTimeout(150_000);
-  // with LIVE_FIXED_TIME (the default e2e server) the worlds never tick: covered by the next test
-  const tickOf = async () => ((await (await request.get('/api/live/dom/snapshot')).json()) as { meta: { tick: number } }).meta.tick;
-  const a = await tickOf();
-  await new Promise((r) => setTimeout(r, 5000));
-  test.skip((await tickOf()) === a, 'live worlds do not tick on this server (LIVE_FIXED_TIME or speed 1)');
-  const errors = trackErrors(page);
-  await openLive(page, '/dom');
-  const t0 = await page.evaluate(() => window.__sim.world.tick);
-  await page.waitForFunction(() => (window.__sim.frames ?? 0) >= 2, undefined, { timeout: 130_000 });
-  const t1 = await page.evaluate(() => window.__sim.world.tick);
-  expect(t1).toBeGreaterThan(t0);
-  await expect(page.locator('.ui-conn')).toBeHidden();
   expect(errors).toEqual([]);
 });
 

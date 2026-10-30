@@ -57,7 +57,7 @@ Zmienne środowiskowe (serwer / dev): `OPENROUTER_API_KEY`, `OPENROUTER_MODELS`,
 ```bash
 npm run typecheck
 npm test                    # Vitest: logika, soak (7 dni × kilka seedów), determinizm, serwer
-npm run test:e2e            # Playwright (buduje i serwuje aplikację; świat na żywo zamrożony LIVE_FIXED_TIME)
+npm run test:e2e            # Playwright (buduje i serwuje aplikację; świat na żywo zamrożony LIVE_FIXED_TIME na :4173; osobny projekt live-ticking na :4174 z LIVE_SPEED=60 sprawdza realne tykanie)
 ```
 
 Przy zmianach zachowań mieszkańców dodatkowo:
