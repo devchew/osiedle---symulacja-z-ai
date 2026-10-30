@@ -5,6 +5,7 @@ import type { Grid, Room, TileKind, World } from '../types';
 import { UI_FONT, circle, hash2, rr, shade } from './colors';
 import { drawObject, isFlatObject, isTallObject } from './objects';
 import { baseTypeOf } from '../world/incidents';
+import { pierTiles } from './pier';
 
 export interface StaticLayer {
   canvas: HTMLCanvasElement;
@@ -193,6 +194,54 @@ function drawPath(ctx: Ctx, x: number, y: number, seed: number): void {
     circle(ctx, x - 0.45 + hash2(x, y, seed + 30 + i) * 0.9, y - 0.45 + hash2(y, x, seed + 40 + i) * 0.9, 0.025);
     ctx.fillStyle = 'rgba(130,110,80,0.45)';
     ctx.fill();
+  }
+}
+
+const PLANK_TONES = ['#b98a57', '#a97b4a', '#c39563', '#b08052'];
+
+/** boards across the walking direction, a shadow on the water and side beams */
+function drawPier(ctx: Ctx, g: Grid, pier: Set<number>, seed: number): void {
+  if (pier.size === 0) return;
+  const has = (x: number, y: number) => x >= 0 && y >= 0 && x < g.width && y < g.height && pier.has(y * g.width + x);
+  const wet = (x: number, y: number) => kindAt(g, x, y) === 'water';
+  for (const i of pier) {
+    const x = i % g.width;
+    const y = Math.floor(i / g.width);
+    ctx.fillStyle = 'rgba(20,55,85,0.28)';
+    ctx.fillRect(x - 0.5 + 0.04, y - 0.5 + 0.1, 1, 1);
+  }
+  for (const i of pier) {
+    const x = i % g.width;
+    const y = Math.floor(i / g.width);
+    const along = has(x - 1, y) || has(x + 1, y) || !(has(x, y - 1) || has(x, y + 1)); // walking along x
+    const boards = 4;
+    for (let b = 0; b < boards; b++) {
+      const tone = PLANK_TONES[Math.floor(hash2(x * 4 + b, y, seed + 5) * PLANK_TONES.length)];
+      ctx.fillStyle = shade(tone, (hash2(y, x * 4 + b, seed + 6) - 0.5) * 0.1);
+      if (along) ctx.fillRect(x - 0.5 + b / boards, y - 0.5, 1 / boards + 0.002, 1.002);
+      else ctx.fillRect(x - 0.5, y - 0.5 + b / boards, 1.002, 1 / boards + 0.002);
+    }
+    // gaps between boards and nails
+    ctx.fillStyle = 'rgba(70,45,20,0.5)';
+    for (let b = 0; b < boards; b++) {
+      if (along) ctx.fillRect(x - 0.5 + b / boards, y - 0.5, 0.025, 1);
+      else ctx.fillRect(x - 0.5, y - 0.5 + b / boards, 1, 0.025);
+    }
+    ctx.fillStyle = 'rgba(60,40,20,0.55)';
+    for (let b = 0; b < boards; b++) {
+      for (const e of [-0.4, 0.4]) {
+        const bx = along ? x - 0.5 + (b + 0.5) / boards : x + e;
+        const by = along ? y + e : y - 0.5 + (b + 0.5) / boards;
+        circle(ctx, bx, by, 0.018);
+        ctx.fill();
+      }
+    }
+    // edge beams where the pier meets open water
+    ctx.fillStyle = '#7a5530';
+    if (wet(x, y - 1)) ctx.fillRect(x - 0.5, y - 0.5, 1, 0.07);
+    if (wet(x, y + 1)) ctx.fillRect(x - 0.5, y + 0.43, 1, 0.07);
+    if (wet(x - 1, y)) ctx.fillRect(x - 0.5, y - 0.5, 0.07, 1);
+    if (wet(x + 1, y)) ctx.fillRect(x + 0.43, y - 0.5, 0.07, 1);
   }
 }
 
@@ -480,10 +529,12 @@ export function buildStaticLayer(world: World, prev?: StaticLayer): StaticLayer 
   ctx.clearRect(-1, -1, g.width + 2, g.height + 2);
 
   drawGrass(ctx, g, world.seed | 0);
+  const pier = pierTiles(g);
   for (let y = 0; y < g.height; y++) {
     for (let x = 0; x < g.width; x++) {
       let k = g.tiles[y * g.width + x];
       if (k === 'door') k = doorFloor(g, x, y);
+      if (k === 'path' && pier.has(y * g.width + x)) continue;
       if (k === 'path') drawPath(ctx, x, y, world.seed | 0);
       else if (k === 'floor') drawFloor(ctx, g, x, y);
       else if (k === 'tile') drawTileFloor(ctx, g, x, y);
@@ -501,6 +552,7 @@ export function buildStaticLayer(world: World, prev?: StaticLayer): StaticLayer 
     }
   }
   drawWater(ctx, g, T);
+  drawPier(ctx, g, pier, world.seed | 0);
   drawWallFronts(ctx, g);
   drawRoomLabels(ctx, world, T);
 
