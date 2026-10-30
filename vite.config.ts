@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
-import { llmProxy } from './server/llmProxy';
-import { newsProxy } from './server/newsProxy';
-import { worldsProxy } from './server/worldsProxy';
+import { llmProxy } from './server/llmProxy.ts';
+import { newsProxy } from './server/newsProxy.ts';
+import { worldsProxy } from './server/worldsProxy.ts';
 
 export default defineConfig({
   // optional LLM dialogue proxy (/api/llm/*); the API key stays server-side

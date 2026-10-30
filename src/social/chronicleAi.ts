@@ -1,4 +1,4 @@
-import { DiaryAiError, checkDiaryText, countWords } from './diaryAi';
+import { DiaryAiError, checkDiaryText, countWords } from './diaryAi.ts';
 
 // AI summary of one finished day of a place's chronicle (optional, server-side only, budgeted).
 // Shared by the server (client below, request validation in server/llm.ts) and tests. Same rules
