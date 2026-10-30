@@ -25,6 +25,10 @@ bieżącego świata w przeglądarce, z pauzą i przyspieszaniem, żyjąca tylko 
 ## Gałęzie, commity, PR
 
 1. Gałąź od `master`: `feat/<nr-issue>-krotki-opis`, `fix/<nr>-…`, `chore/<nr>-…`.
+   **Pracujemy na osobnym `git worktree` per zadanie** (nie przełączamy gałęzi w głównym katalogu —
+   kilka zadań/agentów może działać równolegle bez wzajemnego psucia plików), np.:
+   `git worktree add .claude/worktrees/<nr>-opis -b feat/<nr>-opis master`, a po merge sprzątamy:
+   `git worktree remove .claude/worktrees/<nr>-opis`. W nowym worktree zrób `npm install`.
 2. Małe, spójne commity; wiadomość po angielsku w trybie rozkazującym, np. `Fix pier tiles drawn as path`.
 3. PR do `master` z `Closes #<nr>`, opisem zmian i sposobem weryfikacji (wyniki testów, zrzuty ekranu dla UI).
 4. **`master` jest wdrażany** (Coolify buduje obraz z `Dockerfile`) — nie pushujemy na `master`
