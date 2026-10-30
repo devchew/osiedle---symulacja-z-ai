@@ -37,7 +37,12 @@ import {
   buildDiaryPrompt,
   diaryReserve,
   parseDiaryCompletion,
+  CHRONICLE_SYSTEM_PROMPT,
+  buildChronicleChatRequest,
+  buildChroniclePrompt,
+  parseChronicleCompletion,
 } from '../server/llmProxy';
+import { LLM_CHRONICLE_URL, checkChronicleText, createChronicleAiClient, validateChronicleRequest, type LlmChronicleRequest } from '../src/social/chronicleAi';
 import {
   DiaryAiError,
   LLM_DIARY_URL,
@@ -626,6 +631,75 @@ describe('diary AI: request validation, prompt and output parsing', () => {
       await expect(client.write({ ...diaryReq(), day: 2 })).rejects.toMatchObject({ status: 429, reason: 'daily budget low' });
       await expect(client.write({ ...diaryReq(), day: 3 })).rejects.toBeInstanceOf(DiaryAiError);
       expect(String(f.mock.calls[0][0])).toBe(LLM_DIARY_URL);
+    });
+  });
+});
+
+describe('chronicle AI: request validation, prompt, output parsing and proxy', () => {
+  const req = (): LlmChronicleRequest => ({
+    place: 'Kamienica',
+    date: '2026-10-29',
+    facts: ['Ola i Kuba są parą', 'Ewa naprawia lodówkę', 'Wspólny grill: Ola, Kuba, Ewa'],
+    names: ['Ola', 'Kuba', 'Ewa'],
+  });
+  const okText = 'Ola i Kuba zostają parą, a wieczorem wspólny grill zbiera Olę, Kubę i Ewę w ogrodzie. Ewa po południu naprawia lodówkę i wszystko wraca do normy.';
+
+  it('validates and clamps requests, rejects junk', () => {
+    expect(validateChronicleRequest(req())).toEqual(req());
+    expect(validateChronicleRequest({ ...req(), facts: ['x'.repeat(500)] })!.facts[0].length).toBe(160);
+    expect(validateChronicleRequest({ junk: true })).toBeNull();
+    expect(validateChronicleRequest({ ...req(), facts: [] })).toBeNull();
+    expect(validateChronicleRequest({ ...req(), facts: Array.from({ length: 30 }, () => 'x') })).toBeNull();
+    expect(validateChronicleRequest({ ...req(), date: 'wczoraj' })).toBeNull();
+  });
+
+  it('builds a Polish prompt with the facts and rejects gendered forms, long or too short text', () => {
+    expect(buildChroniclePrompt(req())).toContain('- Ewa naprawia lodówkę');
+    expect(CHRONICLE_SYSTEM_PROMPT).toMatch(/WYŁĄCZNIE podane fakty/);
+    expect(buildChronicleChatRequest(req(), ['a/b:free']).models).toEqual(['a/b:free']);
+    expect(checkChronicleText(`Dzień 3\n\n${okText}`, req())).toEqual({ text: okText });
+    expect(checkChronicleText(okText.replace('naprawia', 'naprawiła'), req())).toHaveProperty('reason');
+    expect(checkChronicleText('Krótko.', req())).toEqual({ reason: 'too short' });
+    expect(checkChronicleText(Array.from({ length: 100 }, (_, i) => `słowo${i}`).join(' '), req())).toEqual({ reason: 'too long' });
+    const c = (content: string) => ({ model: 'm/x:free', choices: [{ finish_reason: 'stop', message: { content } }] });
+    expect(parseChronicleCompletion(c(JSON.stringify({ text: okText })), req())).toEqual({ text: okText, model: 'm/x:free' });
+    expect(parseChronicleCompletion(c('no json'), req())).toBeNull();
+  });
+
+  describe('handler', () => {
+    let server: Server | null = null;
+    afterEach(() => {
+      server?.close();
+      server = null;
+    });
+    async function serve(handler: ReturnType<typeof createLlmHandler>): Promise<string> {
+      server = createServer((r, res) => handler(r, res, () => res.writeHead(404).end()));
+      await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+      return `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
+    }
+    const post = (base: string, body: unknown) =>
+      fetch(`${base}${LLM_CHRONICLE_URL}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+    it('proxies a summary, validates input and output, keeps the dialogue reserve; the client maps errors to DiaryAiError', async () => {
+      let content = JSON.stringify({ text: okText });
+      const upstream = vi.fn(async () => jsonResponse({ model: 'm/x:free', choices: [{ finish_reason: 'stop', message: { content } }] }));
+      const base = await serve(createLlmHandler({ apiKey: 'k', fetch: upstream as unknown as typeof fetch, daily: createDailyBudget(22), log: () => {} }));
+      const ok = await post(base, req());
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toEqual({ text: okText, model: 'm/x:free' });
+      const sent = JSON.parse(String((upstream.mock.calls[0] as unknown as [string, RequestInit])[1].body)) as ReturnType<typeof buildChronicleChatRequest>;
+      expect(sent.messages[0].content).toBe(CHRONICLE_SYSTEM_PROMPT);
+      expect((await post(base, { junk: 1 })).status).toBe(400);
+      content = JSON.stringify({ text: okText.replace('naprawia', 'naprawiła') });
+      expect((await post(base, req())).status).toBe(503);
+      // 22 - 2 used = 20 ≤ reserve 20 → refused before the upstream call
+      const low = await post(base, req());
+      expect(low.status).toBe(429);
+      expect(await low.json()).toEqual({ error: 'daily budget low' });
+      expect(upstream).toHaveBeenCalledTimes(2);
+
+      const client = createChronicleAiClient({ baseUrl: base });
+      await expect(client.write(req())).rejects.toBeInstanceOf(DiaryAiError);
     });
   });
 });
