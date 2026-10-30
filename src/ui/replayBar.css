@@ -1,0 +1,119 @@
+/* "Powtórka" bar (live view): the replay of the last 24 h with its controls and a clear "not live" frame. */
+
+.ui-replay {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 12px;
+  width: min(640px, calc(100vw - 16px));
+  padding: 10px 14px;
+  background: rgba(40, 28, 8, 0.92);
+  border-color: rgba(242, 184, 75, 0.55);
+  z-index: 16;
+}
+.ui-replay[hidden] {
+  display: none;
+}
+.rp-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #f2b84b;
+  color: #2b1d00;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.rp-btn {
+  min-width: 34px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--ui-border);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ui-text);
+  font: inherit;
+  cursor: pointer;
+}
+.rp-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.rp-btn.is-active {
+  background: #f2b84b;
+  border-color: #f2b84b;
+  color: #2b1d00;
+  font-weight: 700;
+}
+.rp-live {
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
+  color: #06233d;
+  font-weight: 700;
+}
+.rp-live:hover {
+  background: #a5d8ff;
+}
+.rp-speeds {
+  display: flex;
+  gap: 4px;
+}
+.rp-scrub {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  order: 5;
+}
+.rp-range {
+  flex: 1;
+  min-width: 0;
+  accent-color: #f2b84b;
+}
+.rp-time {
+  min-width: 150px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.rp-time b {
+  font-size: 15px;
+}
+.rp-note {
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+
+/* the frame around the picture: this is not the live world */
+body.is-replay::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 4px rgba(242, 184, 75, 0.85), inset 0 0 80px rgba(242, 184, 75, 0.18);
+  z-index: 15;
+}
+body.is-replay .ui-toasts {
+  bottom: 130px;
+}
+body.is-replay .hud-live-pill {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .ui-replay {
+    bottom: 8px;
+    padding: 8px 10px;
+  }
+  .rp-time {
+    min-width: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-replay {
+    animation: none;
+  }
+}

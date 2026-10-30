@@ -27,6 +27,8 @@ import { AI_IDLE_SHARE, aiAllowed, createAiGate, createGatedDialogue, inProcessF
 import { startLiveWorlds } from '../server/worldsSetup';
 import { createDailyBudget, createLlmHandler } from '../server/llm';
 import { chroniclePath } from '../server/chronicle';
+import { replayPath } from '../server/replay';
+import type { ReplayResponse } from '../src/live/protocol';
 import type { ChronicleResponse } from '../src/social/chronicle';
 import type { ConversationContext } from '../src/types';
 
@@ -618,5 +620,93 @@ describe('chronicle', () => {
     await refused.ready;
     expect(refused.chronicle('dom')).toBeDefined();
     expect(refused.get('dom')!.chronicle.days.every((d) => !d.ai)).toBe(true);
+  });
+});
+
+describe('replay of the last 24 h', () => {
+  const DAY = 86_400_000;
+  const dom = [PLACES[0]];
+
+  async function twoDays(dir?: string) {
+    let now = Date.UTC(2026, 9, 29, 9, 0);
+    const h = host({ dataDir: dir, now: () => now, places: dom });
+    await h.ready;
+    now += 2 * DAY;
+    await h.sync();
+    return { h, now: () => now };
+  }
+
+  it('records at most the last 24 h of the world and serves it read-only (plain, gzip, 304, HEAD, no writes)', async () => {
+    const { h } = await twoDays();
+    const world = h.get('dom')!.world;
+    const handler = createLiveHandler(h);
+    const r = call(handler, fakeReq('/api/live/dom/replay'));
+    expect(r.status).toBe(200);
+    expect(r.headers['Cache-Control']).toBe('no-cache');
+    const data = JSON.parse(r.body().toString()) as ReplayResponse;
+    expect(data.place).toBe('dom');
+    expect(data.toTick).toBe(world.tick);
+    expect(data.toTick - data.fromTick).toBeLessThanOrEqual(1440);
+    expect(data.toTick - data.fromTick).toBeGreaterThan(1400);
+    expect(data.agents).toHaveLength(world.agents.length);
+    expect(r.body().length).toBeLessThan(1_000_000);
+    const gz = call(handler, fakeReq('/api/live/dom/replay', { 'accept-encoding': 'gzip' }));
+    expect(gz.headers['Content-Encoding']).toBe('gzip');
+    expect(gunzipSync(gz.body()).toString()).toBe(r.body().toString());
+    expect(call(handler, fakeReq('/api/live/dom/replay', { 'if-none-match': r.headers.ETag })).status).toBe(304);
+    const head = call(handler, Object.assign(fakeReq('/api/live/dom/replay'), { method: 'HEAD' }));
+    expect(head.status).toBe(200);
+    expect(head.body().length).toBe(0);
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      expect(call(handler, Object.assign(fakeReq('/api/live/dom/replay'), { method })).status).toBe(405);
+    }
+    expect(call(handler, fakeReq('/api/live/mars/replay')).status).toBe(404);
+    handler.close();
+  });
+
+  it('survives a restart with DATA_DIR and keeps the recording in step with the restored world', async () => {
+    const dir = tmp();
+    const { h, now } = await twoDays(dir);
+    await h.saveAll();
+    expect(existsSync(replayPath(dir, 'dom'))).toBe(true);
+    expect(existsSync(`${replayPath(dir, 'dom')}.tmp`)).toBe(false);
+    const before = JSON.parse(h.replay('dom')!.json) as ReplayResponse;
+    const b = host({ dataDir: dir, now, places: dom });
+    await b.ready;
+    const restored = JSON.parse(b.replay('dom')!.json) as ReplayResponse;
+    expect(restored.fromTick).toBe(before.fromTick);
+    expect(restored.toTick).toBe(before.toTick);
+    expect(restored.agents).toEqual(before.agents);
+    expect(restored.events).toEqual(before.events);
+    // a file ahead of the snapshot (crash between the writes) is rewound to the world's tick
+    const world = h.get('dom')!.world;
+    const file = JSON.parse(readFileSync(replayPath(dir, 'dom'), 'utf8')) as ReplayResponse;
+    const ahead = { ...file, toTick: world.tick + 50, agents: file.agents.map((a) => ({ ...a, pos: [...a.pos, [world.tick + 50, 1, 1, 1]] })) };
+    writeFileSync(replayPath(dir, 'dom'), JSON.stringify(ahead));
+    const c = host({ dataDir: dir, now, places: dom });
+    await c.ready;
+    expect((JSON.parse(c.replay('dom')!.json) as ReplayResponse).toTick).toBe(world.tick);
+  });
+
+  it('keeps an unusable replay file as .bak and starts a new recording; a fresh world ignores an old file', async () => {
+    const dir = tmp();
+    const { h, now } = await twoDays(dir);
+    await h.saveAll();
+    const good = readFileSync(replayPath(dir, 'dom'), 'utf8');
+    writeFileSync(replayPath(dir, 'dom'), '{"format":1,"place":"dom"');
+    const logs: string[] = [];
+    const b = host({ dataDir: dir, now, places: dom, log: (m) => logs.push(m) });
+    await b.ready;
+    expect(readFileSync(`${replayPath(dir, 'dom')}.bak`, 'utf8')).toBe('{"format":1,"place":"dom"');
+    expect(logs.some((l) => /dom: cannot read .*replay/.test(l))).toBe(true);
+    expect((JSON.parse(b.replay('dom')!.json) as ReplayResponse).agents).toHaveLength(0);
+
+    const dir2 = tmp();
+    writeFileSync(replayPath(dir2, 'dom'), good);
+    const fresh = host({ dataDir: dir2, fixedTime: lt('2026-10-29T08:00'), places: dom });
+    await fresh.ready;
+    expect(fresh.get('dom')!.restored).toBe(false);
+    expect(existsSync(`${replayPath(dir2, 'dom')}.bak`)).toBe(false);
+    expect((JSON.parse(fresh.replay('dom')!.json) as ReplayResponse).fromTick).toBeGreaterThanOrEqual(0);
   });
 });

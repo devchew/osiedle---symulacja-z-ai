@@ -282,6 +282,11 @@ export function snapshotWorld(world: World, opts: SnapshotOptions = {}): WorldSn
   };
 }
 
+/** one registered module's state as plain JSON (null = none), without snapshotting the rest of the world */
+export function saveWorldModule(world: World, key: string, opts: SnapshotOptions = NETWORK_SNAPSHOT): Json {
+  return registry.get(key)?.save(world, opts) ?? null;
+}
+
 /** throws SnapshotVersionError when `snap` cannot be restored by this build */
 export function checkSnapshot(snap: unknown): asserts snap is WorldSnapshot {
   const s = snap as Partial<WorldSnapshot> | null;
