@@ -1,6 +1,6 @@
 import type { Agent, Relationships, World } from '../types';
 import { pushEvent } from '../world/events';
-import { fromJson, loadEventSet, registerWorldState, saveEventSet, toJson, type Json } from '../core/state';
+import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
 
 export const REL_MIN = -100;
 export const REL_MAX = 100;
@@ -183,8 +183,6 @@ interface Bond {
 interface BondStore {
   bonds: Map<string, Bond>;
   lastUpdate: number;
-  /** events already scanned for quarrels logged elsewhere (e.g. the TV remote) */
-  seen: WeakSet<object>;
 }
 
 const stores = new WeakMap<World, BondStore>();
@@ -194,19 +192,17 @@ registerWorldState('relationships', {
   save: (world) => {
     const s = stores.get(world);
     if (!s) return null;
-    return { bonds: toJson(s.bonds), lastUpdate: s.lastUpdate, seen: saveEventSet(world, s.seen) };
+    return { bonds: toJson(s.bonds), lastUpdate: s.lastUpdate };
   },
   load: (world, data) => {
-    const d = data as { bonds: Json; lastUpdate: number; seen: Json };
-    const seen = new WeakSet<object>();
-    loadEventSet(world, seen, d.seen);
-    stores.set(world, { bonds: fromJson<Map<string, Bond>>(d.bonds), lastUpdate: d.lastUpdate, seen });
+    const d = data as { bonds: Json; lastUpdate: number };
+    stores.set(world, { bonds: fromJson<Map<string, Bond>>(d.bonds), lastUpdate: d.lastUpdate });
   },
 });
 
 function bondStore(world: World): BondStore {
   let s = stores.get(world);
-  if (!s) stores.set(world, (s = { bonds: new Map(), lastUpdate: world.tick, seen: new WeakSet() }));
+  if (!s) stores.set(world, (s = { bonds: new Map(), lastUpdate: world.tick }));
   return s;
 }
 
@@ -432,7 +428,6 @@ export function updateRelations(world: World): void {
   if (elapsed < UPDATE_EVERY && s.bonds.size > 0) return;
   s.lastUpdate = world.tick;
   const days = Math.max(0, elapsed) / (24 * 60);
-  scanQuarrels(world, s);
   const seated = world.agents.filter((x) => seatedSocially(world, x));
   const ids = world.agents.map((x) => x.id);
   for (let i = 0; i < ids.length; i++)
@@ -465,19 +460,6 @@ function seatedSocially(world: World, agent: Agent): boolean {
   if (a?.kind !== 'use' || a.phase !== 'using') return false;
   const obj = world.objects.find((o) => o.uid === a.objectUid);
   return !!obj && !!world.objectDefs[obj.type]?.social;
-}
-
-/** quarrels narrated elsewhere ("Ola i Bartek kłócą się o pilota") count as quarrels here too */
-function scanQuarrels(world: World, s: BondStore): void {
-  for (let i = world.events.length - 1; i >= 0; i--) {
-    const e = world.events[i];
-    if (s.seen.has(e)) break;
-    s.seen.add(e);
-    const g = e.gossip;
-    if (g && g.aboutIds.length === 2 && g.valence < 0 && /kłócą się/.test(g.text)) {
-      recordQuarrel(world, g.aboutIds[0], g.aboutIds[1], 'Kłótnia o pilota 📺');
-    }
-  }
 }
 
 /** full view of a pair (the UI's inspector and the stats panel read this) */
