@@ -507,11 +507,12 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
       }
       cam.panBy(-kx * KEY_PAN_SPEED * dt, -ky * KEY_PAN_SPEED * dt);
     }
-    cam.update(dt);
+    const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    cam.update(dt, reduceMotion);
     if (followId !== null) {
       const p = poses.find((q) => q.agent.id === followId);
       if (p) {
-        const k = 1 - Math.exp(-dt * 5);
+        const k = reduceMotion ? 1 : 1 - Math.exp(-dt * 5);
         cam.cx += (p.x - cam.cx) * k;
         cam.cy += (p.y - cam.cy) * k;
         cam.clamp();

@@ -86,10 +86,10 @@ export class Camera {
     this.anchor = { x: sx, y: sy };
   }
 
-  /** advances the zoom animation; returns true while animating */
-  update(dt: number): boolean {
+  /** advances the zoom animation (instant when `instant`); returns true while animating */
+  update(dt: number, instant = false): boolean {
     if (this.targetZoom === null) return false;
-    const k = 1 - Math.exp(-dt * 14);
+    const k = instant ? 1 : 1 - Math.exp(-dt * 14);
     const next = this.zoom + (this.targetZoom - this.zoom) * k;
     if (Math.abs(next - this.targetZoom) < 0.01) {
       this.setZoomKeeping(this.anchor.x, this.anchor.y, this.targetZoom);

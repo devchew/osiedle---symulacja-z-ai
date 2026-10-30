@@ -8,7 +8,9 @@ import { createStatsPanel, type StatsPanel } from './statsPanel';
 import { createDiaryPanel, type DiaryPanel } from './diary';
 import { createProjectsPanel, type ProjectsPanel } from './projects';
 import { createMoodHistory, type MoodHistory } from './history';
+import { createA11y } from './a11y';
 import { toast } from './toast';
+import { formatClock } from '../core/time';
 import type { RelationOfFn, WeatherOfFn } from './extras';
 import { relationOf } from '../social/relationships';
 import { weatherOf } from '../world/incidents';
@@ -145,6 +147,15 @@ export function createView(opts: ViewOptions): View {
   });
   const log = createEventLog(document.getElementById('log')!, world, { onSelectAgent: (id) => select(id) });
 
+  const a11y = createA11y({
+    world,
+    onPick: (id) => {
+      select(id);
+      renderer.follow(id);
+    },
+    clock: () => formatClock(opts.controls.time()),
+  });
+
   let selected: number | null = null;
   let selectedPet: number | null = null;
   function select(id: number | null): void {
@@ -153,6 +164,7 @@ export function createView(opts: ViewOptions): View {
     selectedPet = null;
     renderer.setSelected(id);
     renderer.setSelectedPet(null);
+    a11y.setSelected(id);
     inspector.show(id);
     if (id === null) renderer.follow(null);
     opts.onSelect?.(id);
@@ -207,6 +219,7 @@ export function createView(opts: ViewOptions): View {
     diary.update();
     projects.update();
     projectToasts();
+    a11y.update();
     opts.onUpdate?.();
   }
   setInterval(update, 200);
@@ -236,6 +249,7 @@ export function createView(opts: ViewOptions): View {
       diary.setWorld(w, sameScene);
       projects.setWorld(w);
       inspector.setWorld(w);
+      a11y.setWorld(w, sameScene);
       if (!sameScene) {
         history.clear();
         seenMilestones = new Map(projectsOf(w).map((p) => [p.id, p.milestones.length] as const));

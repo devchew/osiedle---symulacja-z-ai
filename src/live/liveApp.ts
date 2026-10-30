@@ -31,6 +31,8 @@ export const LIVE_HELP: [string, string][] = [
   ['kółko / szczypnięcie', 'przybliż i oddal'],
   ['klik', 'szczegóły postaci'],
   ['dwuklik', 'śledź postać kamerą'],
+  ['[ / ]', 'poprzednia / następna postać'],
+  ['Tab', 'przejście po przyciskach i liście mieszkańców'],
   ['Esc', 'zamknij panel'],
 ];
 const LIVE_NOTE =
