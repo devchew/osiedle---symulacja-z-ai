@@ -178,6 +178,8 @@ interface AgentDiary {
   newsEver: Set<string>;
   /** templates used recently (avoids repeating yesterday's sentences) */
   recent: string[];
+  /** first sentence of the procedural entry per day (other residents avoid it the same day) */
+  openers?: Map<number, string>;
 }
 
 interface AiState {
@@ -580,8 +582,11 @@ function write(world: World, s: DiaryState, agent: Agent, late: boolean): void {
   if (!b) return;
   const facts = buildFacts(world, s, agent, b, late);
   const persona: DiaryPersona = { name: agent.name, traits: { ...agent.traits }, mood: agent.mood };
-  const { text, tags, used } = composeDiaryInternal(facts, persona, diarySeed(world.seed, agent.id, b.day), d.recent);
+  const avoid = [...s.agents.values()].flatMap((x) => x.openers?.get(b.day) ?? []);
+  const { text, tags, used, opener } = composeDiaryInternal(facts, persona, diarySeed(world.seed, agent.id, b.day), d.recent, avoid);
   d.recent = [...d.recent, ...used].slice(-60);
+  (d.openers ??= new Map()).set(b.day, opener);
+  for (const day of d.openers.keys()) if (day <= b.day - MAX_DAYS) d.openers.delete(day);
   const entry: DiaryEntry = { agentId: agent.id, day: b.day, tick: world.tick, text, mood: Math.round(agent.mood), tags, source: 'procedural' };
   d.entries.push(entry);
   d.facts.set(b.day, facts);
@@ -711,6 +716,7 @@ type Tone = 'pos' | 'neu' | 'neg';
 type Pools = Partial<Record<Tone, readonly string[]>>;
 
 const fill = (tpl: string, vars: Record<string, string>): string => tpl.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '');
+const firstSentence = (s: string): string => s.split(/(?<=[.!?…])\s+/)[0];
 const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 const ACT_NOUN: Record<string, string> = {
@@ -720,7 +726,7 @@ const ACT_NOUN: Record<string, string> = {
   warzywnik: 'praca w warzywniku', console: 'granie na konsoli', board_game_table: 'planszówki',
 };
 const ACT_VERB: Record<string, readonly string[]> = {
-  fishing_spot: ['Łowię ryby na pomoście', 'Siedzę z wędką nad wodą', 'Moczę kij w jeziorze'],
+  fishing_spot: ['Łowię ryby na pomoście', 'Siedzę z wędką nad wodą', 'Moczę wędkę w jeziorze'],
   bookshelf: ['Czytam książkę', 'Zaczytuję się w książce', 'Siedzę z nosem w książce'],
   computer: ['Gram na komputerze', 'Siedzę przy komputerze'],
   piano: ['Gram na pianinie', 'Ćwiczę na pianinie'],
@@ -800,9 +806,18 @@ const GOAL_ICON: Record<GoalKind, string> = {
 // ---- text pools (present tense, no gendered forms, names only in the nominative)
 
 const OPEN_DAY1: Pools = {
-  pos: ['Pierwszy dzień w nowym domu — zaczynamy!', 'Nowy dom, nowi sąsiedzi. Ale przygoda!'],
-  neu: ['Pierwszy dzień w tym domu.', 'Pierwszy dzień tutaj. Zapisuję, co się dzieje.'],
-  neg: ['Pierwszy dzień tutaj. Zobaczymy, co z tego wyjdzie.', 'Nowe miejsce, nowe twarze. Na razie bez zachwytów.'],
+  pos: [
+    'Pierwszy dzień w nowym domu — zaczynamy!', 'Nowy dom, nowi sąsiedzi. Ale przygoda!', 'Wprowadzka za mną, a ja już czuję się tu jak u siebie.',
+    'Nowy początek w nowym miejscu — ciekawe, co przyniesie.', 'Zaczynam zapisywać wspomnienia od pierwszego dnia. Będzie się działo!',
+  ],
+  neu: [
+    'Pierwszy dzień w tym domu.', 'Pierwszy dzień tutaj. Zapisuję, co się dzieje.', 'Wprowadzka za mną. Rozglądam się po okolicy.',
+    'Nowe miejsce, trzeba się przyzwyczaić.', 'Zaczynam pamiętnik od pierwszego dnia w osiedlu.',
+  ],
+  neg: [
+    'Pierwszy dzień tutaj. Zobaczymy, co z tego wyjdzie.', 'Nowe miejsce, nowe twarze. Na razie bez zachwytów.', 'Wprowadzka za mną. Wszystko jeszcze obce.',
+    'Nowy dom — ale do wszystkiego trzeba się dopiero przyzwyczaić.', 'Pierwszy dzień na osiedlu. Bez fajerwerków.',
+  ],
 };
 const OPEN_WAKE: Pools = {
   pos: ['Pobudka o {t} i od razu dobry humor.', 'Dzień dobry, świecie! Na nogach od {t}.', 'Wstaję o {t}, a za oknem nowy dzień do zagospodarowania.'],
@@ -1128,12 +1143,24 @@ function toneOf(p: DiaryPersona): Tone {
 const TALK_RANK: Record<TalkOutcome, number> = { quarrel: 5, great: 4, tense: 3, nice: 2, plain: 1 };
 
 /** pure: the entry text and tags for a day's facts (deterministic for a given seed and history) */
-export function composeDiary(facts: DiaryFacts, persona: DiaryPersona, seed: number, recent: readonly string[] = []): { text: string; tags: string[] } {
-  const { text, tags } = composeDiaryInternal(facts, persona, seed, recent);
+export function composeDiary(
+  facts: DiaryFacts,
+  persona: DiaryPersona,
+  seed: number,
+  recent: readonly string[] = [],
+  avoidOpeners: readonly string[] = [],
+): { text: string; tags: string[] } {
+  const { text, tags } = composeDiaryInternal(facts, persona, seed, recent, avoidOpeners);
   return { text, tags };
 }
 
-function composeDiaryInternal(facts: DiaryFacts, persona: DiaryPersona, seed: number, recent: readonly string[]): { text: string; tags: string[]; used: string[] } {
+function composeDiaryInternal(
+  facts: DiaryFacts,
+  persona: DiaryPersona,
+  seed: number,
+  recent: readonly string[],
+  avoidOpeners: readonly string[],
+): { text: string; tags: string[]; used: string[]; opener: string } {
   const w = new Writer(createRng(seed), recent, toneOf(persona));
   const t = persona.traits;
   const out: Sentence[] = [];
@@ -1146,38 +1173,63 @@ function composeDiaryInternal(facts: DiaryFacts, persona: DiaryPersona, seed: nu
   };
 
   // --- paragraph 0: morning, activities, meals, moments, weather
-  if (facts.day === 1 && !facts.wake) add(0, 100, w.toned(OPEN_DAY1));
-  else if (facts.wake) {
+  const opening = (tone: Tone): string => {
+    if (facts.day === 1 && !facts.wake) return w.toned(OPEN_DAY1, tone);
+    if (!facts.wake) return w.toned(OPEN_PLAIN, tone);
     const h = Number(facts.wake.slice(0, 2));
     let tpl: string;
     if (t.activity <= -0.35 && h >= 7) tpl = w.pick(OPEN_LATE_LAZY);
     else if (t.activity >= 0.35 && h < 7 && w.tone !== 'neg') tpl = w.pick(OPEN_EARLY_ACTIVE);
-    else tpl = w.toned(OPEN_WAKE);
-    add(0, 100, fill(tpl, { t: facts.wake }));
-  } else add(0, 100, w.toned(OPEN_PLAIN));
+    else tpl = w.toned(OPEN_WAKE, tone);
+    return fill(tpl, { t: facts.wake });
+  };
+  // the first sentence differs from the other residents' openers of the same day (when the pools allow it)
+  const tones: Tone[] = [w.tone, ...(['pos', 'neu', 'neg'] as const).filter((x) => x !== w.tone)];
+  let opener = '';
+  const usedBefore = w.used.length;
+  for (let i = 0; i < 9; i++) {
+    opener = cap(opening(tones[Math.floor(i / 3)]).trim());
+    if (!avoidOpeners.includes(firstSentence(opener))) break;
+  }
+  // only the template that was kept counts as used
+  w.used.splice(usedBefore, Math.max(0, w.used.length - usedBefore - 1));
+  add(0, 100, opener);
 
   const parts: DayPart[] = ['rano', 'w południe', 'po południu', 'wieczorem'];
-  const style = w.pick(SUMMARY_STYLES);
-  for (const part of parts) {
-    const nouns: string[] = [];
-    for (const a of facts.activities) {
-      if (a.part !== part || SUMMARY_SKIP.has(a.type)) continue;
-      const n = ACT_NOUN[a.type];
-      if (n && !nouns.includes(n)) nouns.push(a.times > 1 && a.type !== 'shower' ? `${n} (${a.times} razy)` : n);
+  // one mention per activity: the same thing in several parts of the day merges ("Rano i po południu: kąpiel w wannie")
+  const byType = new Map<string, { type: string; minutes: number; times: number; parts: DayPart[] }>();
+  for (const a of facts.activities) {
+    const x = byType.get(a.type);
+    if (!x) byType.set(a.type, { type: a.type, minutes: a.minutes, times: a.times, parts: [a.part] });
+    else {
+      x.minutes += a.minutes;
+      x.times += a.times;
+      if (!x.parts.includes(a.part)) x.parts.push(a.part);
     }
-    if (!nouns.length) continue;
-    const items = nouns.slice(0, 3);
+  }
+  const main = [...byType.values()]
+    .filter((a) => ACT_VERB[a.type] && a.minutes >= 30 && a.type !== 'repair')
+    .sort((x, y) => y.minutes - x.minutes)[0];
+  const style = w.pick(SUMMARY_STYLES);
+  const groups = new Map<string, { parts: DayPart[]; nouns: string[] }>();
+  for (const a of byType.values()) {
+    const n = ACT_NOUN[a.type];
+    if (!n || SUMMARY_SKIP.has(a.type) || a === main) continue;
+    const key = a.parts.join('|');
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { parts: a.parts, nouns: [] }));
+    g.nouns.push(a.parts.length === 1 && a.times > 1 && a.type !== 'shower' ? `${n} (${a.times} razy)` : n);
+  }
+  for (const g of [...groups.values()].sort((x, y) => parts.indexOf(x.parts[0]) - parts.indexOf(y.parts[0]))) {
+    const items = g.nouns.slice(0, 3);
     const list = style.startsWith('{P}:') || items.length === 1 ? joinList(items) : `${items.slice(0, -1).join(', ')}, potem ${items[items.length - 1]}`;
-    add(0, 76 - parts.indexOf(part), fill(style, { P: cap(part), L: list }));
+    add(0, 76 - parts.indexOf(g.parts[0]), fill(style, { P: cap(joinList(g.parts)), L: list }));
   }
   const meals = mealLabels(facts.meals);
   if (meals.length) add(0, 50, fill(w.pick(MEALS), { L: joinList(meals) }));
 
-  const main = facts.activities
-    .filter((a) => ACT_VERB[a.type] && a.minutes >= 30 && a.type !== 'repair')
-    .sort((x, y) => y.minutes - x.minutes)[0];
   if (main) {
-    add(0, 65, `${w.pick(ACT_VERB[main.type])} przez ${duration(main.minutes)}.`);
+    add(0, 77, `${w.pick(ACT_VERB[main.type])} przez ${duration(main.minutes)}.`);
     tag(ACT_ICON[main.type]);
     let key = '';
     if (EXERCISE.has(main.type)) key = t.activity >= 0 ? 'exercise_active' : 'exercise_lazy';
@@ -1359,7 +1411,7 @@ function composeDiaryInternal(facts: DiaryFacts, persona: DiaryPersona, seed: nu
     paras[i - 1] = `${paras[i - 1]} ${paras[i]}`;
     paras.splice(i, 1);
   }
-  return { text: paras.join('\n\n'), tags: tags.slice(0, 5), used: w.used };
+  return { text: paras.join('\n\n'), tags: tags.slice(0, 5), used: w.used, opener: firstSentence(opener) };
 }
 
 // ---------------------------------------------------------------- AI rewrite
