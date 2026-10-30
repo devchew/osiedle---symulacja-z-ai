@@ -17,11 +17,13 @@ import {
   projectDayFacts,
   projectsOf,
   startProject,
+  type ProjectKindId,
   type ProjectView,
 } from '../src/world/projects';
 
 // Building projects (world/projects): residents propose a garden gazebo, build it together over
-// about two weeks in stages, then a vegetable garden. Headless runs over several seeds and houses.
+// about two weeks in stages, then a vegetable garden, a tree house and (where there is water) a
+// pier. Headless runs over several seeds and houses.
 
 const DAYS = 21;
 const DAY = 24 * 60;
@@ -44,6 +46,18 @@ const WORK_DRAINED = ['hunger', 'energy', 'hygiene', 'comfort'] as const;
 /** minutes: one dialogue line (11–15 ticks) to say goodbye, plus a little slack */
 const MAX_WORKING_LOW = 20;
 const MIN_NIGHT_SLEEP_SHARE = 0.8;
+
+/** the later projects follow the gazebo and the vegetable garden, so these runs are longer */
+const LATER_RUNS: { map: string; seed: number }[] = [
+  ...[1, 2].flatMap((seed) => ['dom', 'jezioro'].map((map) => ({ map, seed }))),
+  { map: 'kamienica', seed: 1 },
+  { map: 'akademik', seed: 1 },
+];
+const LATER_DAYS = 65;
+/** tree house and pier: finished within this many days after the proposal (for ≥ MIN_ON_TIME of the runs) */
+const DOMEK_DAYS: [number, number] = [6, 12];
+const POMOST_DAYS: [number, number] = [4, 9];
+const WATER_MAPS = ['dom', 'jezioro'];
 
 const key = (p: Vec2): string => `${p.x},${p.y}`;
 
@@ -142,6 +156,50 @@ function simulate(map: string, seed: number): Run {
 
 let runs: Run[] = [];
 
+interface LaterRun {
+  map: string;
+  seed: number;
+  world: World;
+  /** days from proposal to done, per kind (absent = not finished) */
+  days: Partial<Record<ProjectKindId, number>>;
+  /** stage types seen in order, per kind */
+  types: Record<string, string[]>;
+  regress: string[];
+  outsideHours: string[];
+  /** most people at once in the finished building, per kind */
+  maxUsers: Partial<Record<ProjectKindId, number>>;
+}
+
+function simulateLater(map: string, seed: number): LaterRun {
+  const world = newWorld(map, seed);
+  const r: LaterRun = { map, seed, world, days: {}, types: {}, regress: [], outsideHours: [], maxUsers: {} };
+  const last = new Map<string, number>();
+  for (let t = 0; t < LATER_DAYS * DAY; t++) {
+    tickWorld(world);
+    for (const p of projectsOf(world)) {
+      if (p.kindId === 'altana' || p.kindId === 'warzywnik') continue;
+      const types = (r.types[p.kindId] ??= []);
+      const type = siteOf(world, p).type;
+      if (types[types.length - 1] !== type) types.push(type);
+      const prev = last.get(p.kindId) ?? 0;
+      if (p.progress < prev) r.regress.push(`${p.kindId} t${world.tick}`);
+      if (p.progress > prev && p.status === 'building') {
+        const hour = timeFromTick(world.tick).hour;
+        if (hour < WORK_HOURS[0] || hour >= WORK_HOURS[1]) r.outsideHours.push(`${p.kindId} t${world.tick}`);
+      }
+      last.set(p.kindId, p.progress);
+      if (p.finishedTick !== null && r.days[p.kindId] === undefined) r.days[p.kindId] = (p.finishedTick - p.startTick) / DAY;
+      if (p.status === 'done') {
+        const users = world.agents.filter((a) => a.action?.kind === 'use' && a.action.phase === 'using' && a.action.objectUid === p.uid).length;
+        r.maxUsers[p.kindId] = Math.max(r.maxUsers[p.kindId] ?? 0, users);
+      }
+    }
+  }
+  return r;
+}
+
+let later: LaterRun[] = [];
+
 describe('projects: definitions', () => {
   it('every stage and the finished building are object defs with the same work spots', () => {
     for (const kind of Object.values(PROJECT_KINDS)) {
@@ -206,7 +264,7 @@ describe('projects: proposal and site', () => {
         const data = m.create();
         const world = newWorld(m.id, seed);
         const before = reachable(world.grid, data.spawnPoints);
-        for (const kindId of ['altana', 'warzywnik'] as const) {
+        for (const kindId of ['altana', 'warzywnik', 'domek_na_drzewie'] as const) {
           const p = startProject(world, kindId);
           expect(p, `${m.id} ${kindId}`).not.toBeNull();
           for (let dy = 0; dy < p!.size.h; dy++)
@@ -215,6 +273,12 @@ describe('projects: proposal and site', () => {
               expect(data.grid.tiles[i], `${m.id} ${kindId} footprint`).toBe('grass');
               expect(world.grid.solid[i]).toBe(true);
             }
+        }
+        if (WATER_MAPS.includes(m.id)) {
+          const p = startProject(world, 'pomost');
+          expect(p, `${m.id} pomost`).not.toBeNull();
+          for (let dy = 0; dy < p!.size.h; dy++)
+            for (let dx = 0; dx < p!.size.w; dx++) expect(data.grid.tiles[(p!.pos.y + dy) * world.grid.width + p!.pos.x + dx], `${m.id} pomost footprint`).toBe('water');
         }
         const after = reachable(world.grid, data.spawnPoints);
         const sites = projectsOf(world).map((p) => siteOf(world, p));
@@ -240,6 +304,16 @@ describe('projects: proposal and site', () => {
         }
       }
     }
+  });
+
+  it('the pier needs water: no site and no proposal on maps without a lake or pond', () => {
+    for (const m of MAPS.filter((x) => !WATER_MAPS.includes(x.id))) {
+      const world = newWorld(m.id, 1);
+      expect(findSite(world, PROJECT_KINDS.pomost), m.id).toBeNull();
+      expect(startProject(world, 'pomost'), m.id).toBeNull();
+      expect(projectsOf(world).some((p) => p.kindId === 'pomost')).toBe(false);
+    }
+    for (const id of WATER_MAPS) expect(findSite(newWorld(id, 1), PROJECT_KINDS.pomost), id).not.toBeNull();
   });
 
   it('a third site still fits (the search is generic, not a fixed spot per house)', () => {
@@ -341,6 +415,59 @@ describe('projects: building over two weeks', () => {
     // the facts behind it: minutes and co-workers per day
     const days = Array.from({ length: DAYS + 1 }, (_, i) => projectDayFacts(r.world, builder, i + 1)).flat().filter((f) => f.kindId === p.kindId);
     expect(days.reduce((s, f) => s + f.minutes, 0)).toBe(p.contributors[0].minutes);
+  });
+});
+
+describe('projects: tree house and pier follow the garden', () => {
+  beforeAll(() => {
+    later = LATER_RUNS.map((r) => simulateLater(r.map, r.seed));
+    // eslint-disable-next-line no-console
+    console.log(
+      later
+        .map((r) => `${r.map} s${r.seed}: ${projectsOf(r.world).map((p) => `${p.kindId} ${p.status} ${Math.round(p.progress * 100)}% ${(((p.finishedTick ?? r.world.tick) - p.startTick) / DAY).toFixed(1)} d`).join(', ')}, max users ${JSON.stringify(r.maxUsers)}`)
+        .join('\n'),
+    );
+  }, 400_000);
+
+  it('they are proposed in order, the pier only where there is water', () => {
+    for (const r of later) {
+      const kinds = projectsOf(r.world).map((p) => p.kindId);
+      const expected = WATER_MAPS.includes(r.map) ? ['altana', 'warzywnik', 'domek_na_drzewie', 'pomost'] : ['altana', 'warzywnik', 'domek_na_drzewie'];
+      expect(kinds.slice(0, expected.length), `${r.map} seed ${r.seed}`).toEqual(expected.slice(0, kinds.length));
+      if (!WATER_MAPS.includes(r.map)) expect(kinds, `${r.map} seed ${r.seed}`).not.toContain('pomost');
+    }
+    expect(later.some((r) => projectsOf(r.world).some((p) => p.kindId === 'pomost'))).toBe(true);
+  });
+
+  it('each site goes through its stages in order and ends as the finished building; progress never goes back', () => {
+    for (const r of later) {
+      for (const kindId of ['domek_na_drzewie', 'pomost'] as const) {
+        const kind = PROJECT_KINDS[kindId];
+        const order = [...kind.stages.map((s) => s.type), kind.finishedType];
+        const seen = r.types[kindId] ?? [];
+        expect(order.slice(0, seen.length), `${r.map} seed ${r.seed} ${kindId}`).toEqual(seen);
+        if (r.days[kindId] !== undefined) expect(seen).toEqual(order);
+      }
+      expect(r.regress, `${r.map} seed ${r.seed}`).toEqual([]);
+      expect(r.outsideHours, `${r.map} seed ${r.seed}`).toEqual([]);
+    }
+  });
+
+  it(`the tree house takes ${DOMEK_DAYS[0]}–${DOMEK_DAYS[1]} days, the pier ${POMOST_DAYS[0]}–${POMOST_DAYS[1]} days (most seeds and maps)`, () => {
+    const check = (kindId: ProjectKindId, [lo, hi]: [number, number], rs: LaterRun[]) => {
+      const done = rs.filter((r) => r.days[kindId] !== undefined);
+      expect(done.length, kindId).toBe(rs.length);
+      const onTime = done.filter((r) => r.days[kindId]! >= lo && r.days[kindId]! <= hi);
+      expect(onTime.length / rs.length, `${kindId}: ${done.map((r) => r.days[kindId]!.toFixed(1)).join(', ')}`).toBeGreaterThanOrEqual(MIN_ON_TIME);
+    };
+    check('domek_na_drzewie', DOMEK_DAYS, later);
+    check('pomost', POMOST_DAYS, later.filter((r) => WATER_MAPS.includes(r.map)));
+  });
+
+  it('the finished tree house and pier are used', () => {
+    const used = (kindId: ProjectKindId) => later.filter((r) => (r.maxUsers[kindId] ?? 0) >= 1).length;
+    expect(used('domek_na_drzewie')).toBeGreaterThanOrEqual(Math.ceil(later.length * 0.5));
+    expect(used('pomost')).toBeGreaterThanOrEqual(1);
   });
 });
 
