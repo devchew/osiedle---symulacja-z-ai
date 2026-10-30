@@ -12,7 +12,8 @@ export const AKADEMIK_HEIGHT = 31;
  Legend: # wall, D door, ' ' wood floor, . tile floor, , grass, : path, ~ water, @ spawn
  B bed, F fridge, S stove, T dining_table, = counter, H shower, U bathtub, W toilet, K sink,
  V tv, O sofa, R bookshelf, P piano, C computer, E exercise_bike, M treadmill, L bench,
- G grill, * flowerbed, f fishing_spot, Z wardrobe, p plant, l lamp, r rug, Y tree, b bush
+ G grill, * flowerbed, f fishing_spot, Z wardrobe, p plant, l lamp, r rug, Y tree, b bush,
+ m pet_bowl, c pet_cushion, y pet_toy, w dog_walk
  (regenerate: DUMP_MAPS=1 npx vitest run tests/maps.test.ts -> test-results/maps.txt)
 
  ,,,,,,,,Y,,,,,,,,,,,Y,,,,,,,,,,,Y,,,,,,,,Y,,,,
@@ -31,10 +32,10 @@ export const AKADEMIK_HEIGHT = 31;
  ,:,#FFSS==.SS=.p# VVV  RR  PPRR#MMEE   HZZ#,:,
  ,:b#............# rrr          #MM        #,:Y
  ,:,#........@...# rrr          #          #,:,
- ,:,#..TTTTTT....#lOOO   rrr    #          #b:,
+ ,:,#..TTTTTT....#lOOO y rrr g  #          #b:,
  ,:,#..TTTTTT....#       rrr    # r@r      #,:,
- Y:,#............#     @ OOO    # rrr      #,:,
- ,:,#l..........p#p            p#         p#,:,
+ Y:,#..........m.#     @ OOO c  # rrr      #,:,
+ ,:,#l..........p#p XX         p#         p#,:,
  ,:,###########D########D############D######,:,
  ,:,,,,,,,,,,,,:,,,,,,,,:,,,,,,,,,,,,,,,,,,,,:,
  ,:,b,,,,,,,GG,:,LL,,,b,:,,b,LL,,,,,,,,LL,,b,:Y
@@ -190,5 +191,10 @@ export function createAkademikMap(): MapData {
     { x: 7, y: 10 }, { x: 13, y: 11 }, { x: 24, y: 10 }, { x: 30, y: 11 }, { x: 39, y: 11 },
     { x: 22, y: 18 }, { x: 12, y: 15 }, { x: 34, y: 17 }, { x: 23, y: 23 }, { x: 33, y: 25 },
   ];
-  return { grid: g, objects, spawnPoints };
+  // house pet (cat: bowl in the shared kitchen, cushion and toys in the common room, never goes out); placed last so the uids of older objects stay the same
+  put('pet_bowl', 14, 18);
+  put('pet_cushion', 28, 18);
+  put('pet_toy', 22, 16);
+
+  return { grid: g, objects, spawnPoints, pet: { species: 'cat', name: 'Kluska' } };
 }

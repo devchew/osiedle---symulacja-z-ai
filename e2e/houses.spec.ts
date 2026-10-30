@@ -167,3 +167,48 @@ test.describe('mobile 390×844', () => {
     await page.screenshot({ path: `${SHOTS}/house-dialog-mobile.png` });
   });
 });
+
+test.describe('pets (#9)', () => {
+  for (const [id, hour] of [['dom', 12], ['kamienica', 12], ['dom', 23]] as const) {
+    test(`pet in ${id} at ${hour}:00: close-up, click opens the pet panel`, async ({ page }) => {
+      const errors = trackErrors(page);
+      await open(page, `?map=${id}&seed=7&hour=${hour}`);
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: `${SHOTS}/pet-${id}-${hour}-overview.png` });
+      const at = async (): Promise<{ x: number; y: number; name: string }> =>
+        page.evaluate(() => {
+          const { renderer } = window.__sim;
+          const p = renderer.petVisuals()[0];
+          return { ...renderer.toScreen(p.x, p.y), name: p.name };
+        });
+      // the event log covers the bottom-left corner, where some pets live
+      await page.evaluate(() => (document.getElementById('log')!.style.display = 'none'));
+      let p = await at();
+      // zoom in on the pet, then pause so it stays put for the click
+      for (let i = 0; i < 4; i++) {
+        await page.mouse.move(p.x, p.y);
+        await page.mouse.wheel(0, -240);
+        await page.waitForTimeout(350);
+        p = await at();
+      }
+      await page.keyboard.press('Space');
+      await page.waitForTimeout(500);
+      // drag the pet to the middle of the screen (clear of the HUD, the log and the inspector)
+      p = await at();
+      await page.mouse.move(p.x, p.y);
+      await page.mouse.down();
+      await page.mouse.move((p.x + 600) / 2, (p.y + 450) / 2, { steps: 4 });
+      await page.mouse.move(600, 450, { steps: 4 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      p = await at();
+      await page.mouse.click(p.x, p.y + 4);
+      const panel = page.locator('#inspector');
+      await expect(panel).toBeVisible();
+      await expect(panel).toHaveClass(/is-pet/);
+      await expect(panel.locator('.insp-name')).toContainText(p.name);
+      await page.screenshot({ path: `${SHOTS}/pet-${id}-${hour}-closeup.png` });
+      expect(errors).toEqual([]);
+    });
+  }
+});

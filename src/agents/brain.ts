@@ -10,6 +10,7 @@ import { socialObjectBias, talkStatusFactor } from './groups';
 import { statusOf } from '../social/relationships';
 import { jointBlocksChat, jointKindOf, jointMemberOf, jointObjectBias } from './joint';
 import { isMealTime } from './meals';
+import { petObjectBias } from './pets';
 
 import { availability } from '../world/incidents';
 import { projectAppeal } from '../world/projects';
@@ -326,6 +327,8 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
       base = withGoal(base, socialObjectBias(world, agent, obj, def, calm), calm);
       // friends to play / fish with (and sessions in progress)
       if (jointKindOf(obj.type)) base = withGoal(base, jointObjectBias(world, agent, obj, time), calm);
+      // a hungry / bored pet, a dog waiting for its walk (nothing while the pet is fine)
+      base = withGoal(base, petObjectBias(world, obj), calm);
     }
     // broken objects, rain outside: caps every bonus too
     base *= availability(world, obj, def) * projectAppeal(world, obj, def, agent);

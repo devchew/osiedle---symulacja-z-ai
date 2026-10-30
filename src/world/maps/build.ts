@@ -8,6 +8,14 @@ export interface MapData {
   grid: Grid;
   objects: ObjectInstance[];
   spawnPoints: Vec2[];
+  /** the house pet (agents/pets.ts); its bowl, cushion, toy corner and walk spot are among `objects` */
+  pet?: PetSpec;
+}
+
+export interface PetSpec {
+  species: 'cat' | 'dog';
+  /** Polish name, used undeclined */
+  name: string;
 }
 
 export const rect = (x: number, y: number, w: number, h: number): RectArea => ({ x, y, w, h });
@@ -62,6 +70,7 @@ const OBJECT_CHARS: Record<string, string> = {
   bed: 'B', fridge: 'F', stove: 'S', dining_table: 'T', counter: '=', shower: 'H', bathtub: 'U', toilet: 'W', sink: 'K',
   tv: 'V', sofa: 'O', bookshelf: 'R', piano: 'P', computer: 'C', exercise_bike: 'E', treadmill: 'M', bench: 'L',
   grill: 'G', flowerbed: '*', fishing_spot: 'f', console: 'X', board_game_table: 'g', wardrobe: 'Z', plant: 'p', lamp: 'l', rug: 'r', tree: 'Y', bush: 'b',
+  pet_bowl: 'm', pet_cushion: 'c', pet_toy: 'y', dog_walk: 'w',
 };
 const TILE_CHARS: Record<TileKind, string> = { wall: '#', door: 'D', floor: ' ', tile: '.', grass: ',', path: ':', water: '~' };
 

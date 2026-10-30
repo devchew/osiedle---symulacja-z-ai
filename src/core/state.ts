@@ -65,6 +65,13 @@ export interface WorldStateCodec {
    * running page (listeners, clients) are not state and must survive it.
    */
   clear?(world: World): void;
+  /**
+   * the module came after snapshots already in use (live worlds on disk): a snapshot without its
+   * key is still accepted, and `missing` runs instead of load whenever the data is absent or null
+   */
+  optional?: boolean;
+  /** called instead of load when the snapshot has no data for this module */
+  missing?(world: World): void;
 }
 
 export interface WorldSnapshot {
@@ -283,7 +290,7 @@ export function checkSnapshot(snap: unknown): asserts snap is WorldSnapshot {
     throw new SnapshotVersionError(`World snapshot version ${s.version} is not supported (expected ${SNAPSHOT_VERSION})`);
   const mods = s.modules ?? {};
   const unknown = Object.keys(mods).filter((k) => !registry.has(k));
-  const missing = [...registry.keys()].filter((k) => !(k in mods));
+  const missing = [...registry].filter(([k, c]) => !c.optional && !(k in mods)).map(([k]) => k);
   if (unknown.length || missing.length)
     throw new SnapshotVersionError(
       `World snapshot modules do not match this build (unknown: ${unknown.join(', ') || '-'}; missing: ${missing.join(', ') || '-'})`,
@@ -313,6 +320,7 @@ export function restoreWorld(snap: WorldSnapshot, opts: RestoreOptions = {}): Wo
   for (const [key, codec] of registry) {
     const data = snap.modules[key];
     if (data !== null && data !== undefined) codec.load(world, data);
+    else codec.missing?.(world);
   }
   return world;
 }
@@ -394,5 +402,6 @@ export function applySnapshot(world: World, snap: WorldSnapshot): void {
     codec.clear?.(world);
     const data = snap.modules[key];
     if (data !== null && data !== undefined) codec.load(world, data);
+    else codec.missing?.(world);
   }
 }

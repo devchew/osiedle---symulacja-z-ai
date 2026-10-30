@@ -181,6 +181,30 @@ const defs: Record<string, Def> = {
     effects: { fun: 0.6, comfort: 0.3, hygiene: -0.2 }, duration: [30, 50], tags: ['outdoor', 'fun', 'quiet'],
   },
 
+  // ------------------------------------------------------------ pets (agents/pets.ts)
+  // floor spots the resident stands on; they appeal only while the pet needs that kind of care
+  // (agents/pets.ts petObjectBias), the pet itself reacts in tickPets
+  pet_bowl: {
+    name: 'Miska', verb: 'Nasypuje karmę', icon: '🥣', color: '#d9534f',
+    size: { w: 1, h: 1 }, blocking: false,
+    slots: [{ stand: { x: 0, y: 0 } }],
+    effects: { fun: 0.3, social: 0.3, comfort: 0.2 }, duration: [4, 7], tags: ['pet'],
+  },
+  pet_toy: {
+    name: 'Kącik zwierzaka', verb: 'Bawi się ze zwierzakiem', icon: '🧶', color: '#e9a23b',
+    size: { w: 1, h: 1 }, blocking: false,
+    slots: [{ stand: { x: 0, y: 0 } }],
+    effects: { fun: 0.8, social: 0.4, comfort: 0.2 }, duration: [12, 20], tags: ['pet', 'fun'],
+  },
+  // the far end of the garden path: there and back with the dog
+  dog_walk: {
+    name: 'Trasa spaceru z psem', verb: 'Spaceruje z psem', icon: '🐕', color: '#9c7a54',
+    size: { w: 1, h: 1 }, blocking: false,
+    slots: [{ stand: { x: 0, y: 0 } }],
+    effects: { fun: 0.6, comfort: 0.3, social: 0.2, energy: -0.1 }, duration: [20, 35], tags: ['pet', 'outdoor', 'exercise'],
+  },
+  pet_cushion: deco('Legowisko', '🐾', '#8e6c8a', 1, 1, false, ['pet']),
+
   // ------------------------------------------------------------ decoration
   sofa: deco('Kanapa', '🛋️', '#b5654a', 3, 1, true),
   wardrobe: deco('Szafa', '🚪', '#8b5e3c', 2, 1, true),
