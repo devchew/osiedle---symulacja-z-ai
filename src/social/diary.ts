@@ -12,6 +12,7 @@ import { weatherOf, type WeatherKind } from '../world/incidents';
 import { projectDayFacts, type ProjectDayFact } from '../world/projects';
 import { topicAbout } from './conversation';
 import { describeTraits } from './llmProvider';
+import { petsOf, type PetSpecies } from '../agents/pets';
 import { createDiaryAiClient, DiaryAiError, type DiaryAiClient, type DiaryAiClientOptions, type LlmDiaryRequest } from './diaryAi';
 
 // Residents' diaries: every evening each resident writes a first-person entry about their day,
@@ -111,8 +112,22 @@ export interface DiaryFacts {
   lowNeeds: NeedKey[];
   /** building projects: work done today, stages finished, proposal, completion (world/projects) */
   projects?: ProjectDayFact[];
+  /** the house pet, when the writer looked after it or shared a moment with it today (agents/pets) */
+  pet?: PetDayFact;
   /** how the writer feels about the people met today (strongest first) */
   feelings: { with: string; status: RelationStatus; sympathy: number }[];
+}
+
+export interface PetDayFact {
+  /** nominative, never declined */
+  name: string;
+  species: PetSpecies;
+  /** visits to the bowl, games at the toy corner, walks (dogs) */
+  fed: number;
+  played: number;
+  walked: number;
+  /** first-person story beats ("Drapię psa za uchem, Burek merda ogonem. 🐕") */
+  moments: string[];
 }
 
 export interface DiaryPersona {
@@ -159,6 +174,8 @@ interface Bucket {
   broke: string[];
   fixed: string[];
   moments: string[];
+  /** pet care and moments (optional: buckets saved before #9 have none) */
+  pet?: { fed: number; played: number; walked: number; moments: string[] };
   moodStart: number | null;
   moodMin: number;
   moodMax: number;
@@ -312,6 +329,10 @@ function onTrace(world: World, s: DiaryState, e: TraceEntry): void {
     const type = obj.type.startsWith('repair_') ? 'repair' : obj.type;
     d.pendingUse = { type, uid, tick: e.tick };
     const b = bucketOf(s, e.agentId, e.tick);
+    if (b && PET_CARE[type] && petsOf(world).length) {
+      const pet = (b.pet ??= { fed: 0, played: 0, walked: 0, moments: [] });
+      pet[PET_CARE[type]]++;
+    }
     if (b && MEAL_TYPES.has(type)) {
       const kind = mealKind(e.tick, type);
       if (!b.meals.some((m) => m.kind === kind && m.where === type)) b.meals.push({ kind, where: type });
@@ -389,6 +410,19 @@ const MOMENTS: [RegExp, string][] = [
   [/tulipany/, 'Tulipany w ogródku kwitną. 🌷'],
   [/chwila spokoju na ławce/, 'Chwila spokoju na ławce. 🌿'],
   [/książka skończona/, 'Kończę świetną książkę. 📖'],
+];
+
+/** pet objects (agents/pets.ts) → the counter of the writer's care it adds to */
+const PET_CARE: Record<string, 'fed' | 'played' | 'walked'> = { pet_bowl: 'fed', pet_toy: 'played', dog_walk: 'walked' };
+
+/** pet stories (agents/pets.ts) retold in the first person; {P} = the pet's name */
+const PET_MOMENTS: [RegExp, string][] = [
+  [/głaszcze kota/, 'Głaszczę kota, a {P} mruczy z zadowolenia. 🐈'],
+  [/wskakuje na kolana/, '{P} wskakuje mi na kolana i nie da się wstać. 🐈'],
+  [/strąca kubek/, '{P} strąca kubek ze stołu, a sprzątanie skorup — na mojej głowie. 😾'],
+  [/drapie psa za uchem/, 'Drapię psa za uchem, {P} merda ogonem. 🐕'],
+  [/kradnie skarpetkę/, '{P} kradnie mi skarpetkę i gonitwa po całym domu gotowa! 🧦'],
+  [/kładzie łeb na kolanach/, '{P} kładzie mi łeb na kolanach — od razu lepszy humor. 🐕'],
 ];
 
 function onEvent(world: World, s: DiaryState, e: SimEvent): void {
@@ -475,6 +509,16 @@ function onEvent(world: World, s: DiaryState, e: SimEvent): void {
   }
   if (gt.startsWith(`${name} naprawia `)) {
     bk.fixed.push(gt.slice(`${name} naprawia `.length));
+    return;
+  }
+  const pet = petsOf(world)[0];
+  if (pet && e.kind === 'use' && gt.includes(pet.name)) {
+    const tpl = PET_MOMENTS.find(([re]) => re.test(gt))?.[1];
+    if (tpl) {
+      const p = (bk.pet ??= { fed: 0, played: 0, walked: 0, moments: [] });
+      const line = tpl.replace('{P}', pet.name);
+      if (!p.moments.includes(line)) p.moments.push(line);
+    }
     return;
   }
   if (e.text.startsWith(`${name}: `)) {
@@ -579,7 +623,15 @@ function buildFacts(world: World, s: DiaryState, agent: Agent, b: Bucket, late: 
     lowNeeds: [...b.lowNeeds],
     feelings,
     projects: projectDayFacts(world, agent.id, b.day),
+    ...petFact(world, b),
   };
+}
+
+function petFact(world: World, b: Bucket): { pet?: PetDayFact } {
+  const pet = petsOf(world)[0];
+  const p = b.pet;
+  if (!pet || !p || !(p.fed || p.played || p.walked || p.moments.length)) return {};
+  return { pet: { name: pet.name, species: pet.species, fed: p.fed, played: p.played, walked: p.walked, moments: [...p.moments] } };
 }
 
 function write(world: World, s: DiaryState, agent: Agent, late: boolean): void {
@@ -730,6 +782,7 @@ const ACT_NOUN: Record<string, string> = {
   treadmill: 'bieżnia', tv: 'telewizja', bench: 'ławka w ogrodzie', flowerbed: 'praca w ogródku', bathtub: 'kąpiel w wannie',
   shower: 'prysznic', nap: 'drzemka', repair: 'naprawy', grill: 'grill', stove: 'gotowanie', altana: 'altana w ogrodzie',
   warzywnik: 'praca w warzywniku', console: 'granie na konsoli', board_game_table: 'planszówki',
+  pet_bowl: 'karmienie zwierzaka', pet_toy: 'zabawa ze zwierzakiem', dog_walk: 'spacer z psem',
 };
 const ACT_VERB: Record<string, readonly string[]> = {
   fishing_spot: ['Łowię ryby na pomoście', 'Siedzę z wędką nad wodą', 'Moczę wędkę w jeziorze'],
@@ -750,13 +803,17 @@ const ACT_VERB: Record<string, readonly string[]> = {
   warzywnik: ['Pielę warzywnik', 'Doglądam grządek w warzywniku'],
   console: ['Gram na konsoli', 'Siedzę z padem przed telewizorem'],
   board_game_table: ['Gram w planszówki', 'Siedzę nad planszą i kartami'],
+  pet_toy: ['Bawię się ze zwierzakiem', 'Spędzam czas ze zwierzakiem'],
+  dog_walk: ['Spaceruję z psem', 'Chodzę z psem po okolicy'],
 };
 const ACT_ICON: Record<string, string> = {
   fishing_spot: '🎣', bookshelf: '📖', computer: '🎮', piano: '🎹', exercise_bike: '🚴', treadmill: '🏃', tv: '📺', bench: '🪑',
   flowerbed: '🌷', bathtub: '🛁', nap: '💤', repair: '🔧', grill: '🌭', stove: '🍳', altana: '🛖', warzywnik: '🥕',
-  console: '🎮', board_game_table: '🎲',
+  console: '🎮', board_game_table: '🎲', pet_bowl: '🥣', pet_toy: '🧶', dog_walk: '🐕',
 };
-const EXERCISE = new Set(['exercise_bike', 'treadmill']);
+const EXERCISE = new Set(['exercise_bike', 'treadmill', 'dog_walk']);
+/** told by the pet lines when the facts have a pet (not repeated in the activity summary) */
+const PET_TYPES = new Set(Object.keys(PET_CARE));
 const LOUNGE = new Set(['tv', 'bench', 'nap', 'altana']);
 const QUIET = new Set(['bookshelf', 'fishing_spot', 'piano', 'flowerbed', 'computer', 'warzywnik']);
 const HYGIENE = new Set(['bathtub', 'shower']);
@@ -1016,6 +1073,20 @@ const PROJECT_DONE = [
 ];
 const PROJECT_DONE_M = ['{N} gotowy! Ekipa: {C}. Co za radość 🎉', 'Udało się — {n} gotowy! Ekipa: {C}. Świętujemy 🎉'];
 
+// the house pet (agents/pets): {P} = its name, always in the nominative; no gendered words about the pet either
+const PET_FEED: Record<PetSpecies, readonly string[]> = {
+  cat: ['Miska pełna, {P} od razu przy jedzeniu. 🥣', 'Nasypuję karmę — {P} już czeka przy misce. 🥣', 'Karma w misce, {P} je ze smakiem. 🥣'],
+  dog: ['Miska pełna, {P} aż podskakuje. 🥣', 'Nasypuję karmę — {P} pałaszuje w sekundę. 🥣', '{P} i miska karmy: znika w mgnieniu oka. 🥣'],
+};
+const PET_FEED_MANY = ['Karmienie zwierzaka dziś na mojej głowie: {P} ma pełną miskę. 🥣', 'Kilka razy pełna miska — {P} wie, do kogo przyjść. 🥣'];
+const PET_PLAY: Record<PetSpecies, readonly string[]> = {
+  cat: ['Zabawa z kotem: {P} poluje na piórko. 🧶', 'Kłębek wełny w ruch — {P} goni go po całym pokoju. 🧶', 'Wędka z piórkiem i {P} — kocie polowanie na całego. 🧶'],
+  dog: ['Rzucam piłkę, {P} aportuje bez końca. 🎾', 'Przeciąganie sznurka: {P} i ja, remis. 🎾', 'Zabawa z psem — {P} przynosi piłkę za piłką. 🎾'],
+};
+const PET_WALK = ['Spacer z psem — {P} ciągnie smycz jak zawsze. 🐕', 'Wychodzę z psem na spacer. {P} obwąchuje każdy krzak. 🐕', 'Spacer: {P} i ja, smycz i świeże powietrze. 🐕'];
+const PET_WALK_MANY = ['Spacer za spacerem — {P} chyba nigdy się nie męczy. 🐕', 'Dziś więcej niż jeden spacer z psem. {P} ma swój dzień. 🐕'];
+const PET_WALK_RAIN = ['Spacer z psem mimo deszczu — {P} wraca w błocie po uszy. 🐕', 'Deszcz czy nie, {P} musi wyjść. Spacer w kaloszach. 🐕'];
+
 const NEWS = ['W telewizji: „{H}”.', 'W telewizji mówią: „{H}”.', 'Z wiadomości: „{H}”.'];
 
 const BROKE: Pools = {
@@ -1213,14 +1284,16 @@ function composeDiaryInternal(
       if (!x.parts.includes(a.part)) x.parts.push(a.part);
     }
   }
+  // with a pet fact the pet lines tell about the walks and games (no "spacer z psem" in the summary as well)
+  const petLines = !!facts.pet;
   const main = [...byType.values()]
-    .filter((a) => ACT_VERB[a.type] && a.minutes >= 30 && a.type !== 'repair')
+    .filter((a) => ACT_VERB[a.type] && a.minutes >= 30 && a.type !== 'repair' && !(petLines && PET_TYPES.has(a.type)))
     .sort((x, y) => y.minutes - x.minutes)[0];
   const style = w.pick(SUMMARY_STYLES);
   const groups = new Map<string, { parts: DayPart[]; nouns: string[] }>();
   for (const a of byType.values()) {
     const n = ACT_NOUN[a.type];
-    if (!n || SUMMARY_SKIP.has(a.type) || a === main) continue;
+    if (!n || SUMMARY_SKIP.has(a.type) || a === main || (petLines && PET_TYPES.has(a.type))) continue;
     const key = a.parts.join('|');
     let g = groups.get(key);
     if (!g) groups.set(key, (g = { parts: a.parts, nouns: [] }));
@@ -1264,6 +1337,19 @@ function composeDiaryInternal(
     if (p.proposed || p.minutes >= 15 || p.finished) tag(p.finished ? '🎉' : '🔨');
   }
   if (facts.moments.some((m) => m.includes('🐟'))) tag('🐟');
+
+  const pet = facts.pet;
+  if (pet) {
+    const vars = { P: pet.name };
+    const care: string[] = [];
+    const wet = facts.weather.includes('rain') || facts.weather.includes('storm');
+    if (pet.walked) care.push(w.pick(wet ? PET_WALK_RAIN : pet.walked > 1 ? PET_WALK_MANY : PET_WALK));
+    if (pet.played) care.push(w.pick(PET_PLAY[pet.species]));
+    if (pet.fed) care.push(w.pick(pet.fed > 1 ? PET_FEED_MANY : PET_FEED[pet.species]));
+    care.slice(0, 2).forEach((tpl, i) => add(0, 73 - i * 4, fill(tpl, vars)));
+    for (const m of pet.moments.slice(0, 1)) add(0, 71, m);
+    tag(pet.species === 'cat' ? '🐈' : '🐕');
+  }
 
   const wx = facts.weather;
   const wk = wx.includes('storm') ? 'storm' : wx.includes('rain') ? 'rain' : wx.length === 1 && wx[0] === 'sunny' ? 'sunny' : wx.length ? 'cloudy' : null;
@@ -1440,6 +1526,17 @@ export function diaryFactLines(f: DiaryFacts): string[] {
   for (const p of parts) {
     const acts = f.activities.filter((a) => a.part === p && ACT_NOUN[a.type]).map((a) => `${ACT_NOUN[a.type]} (${a.minutes} min)`);
     if (acts.length) out.push(`${p}: ${acts.join(', ')}`);
+  }
+  if (f.pet) {
+    const p = f.pet;
+    const times = (n: number): string => (n > 1 ? ` (${n}×)` : '');
+    const care = [
+      p.fed ? `karmienie${times(p.fed)}` : '',
+      p.walked ? `spacer${times(p.walked)}` : '',
+      p.played ? `zabawa${times(p.played)}` : '',
+    ].filter(Boolean);
+    out.push(`zwierzak domowy: ${p.name} (${p.species === 'cat' ? 'kot' : 'pies'}, imię w mianowniku)${care.length ? ` — ${care.join(', ')}` : ''}`);
+    for (const m of p.moments.slice(0, 2)) out.push(`chwila ze zwierzakiem: ${m}`);
   }
   const meals = mealLabels(f.meals);
   if (meals.length) out.push(`posiłki: ${meals.join(', ')}`);

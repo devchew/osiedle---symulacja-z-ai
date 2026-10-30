@@ -85,6 +85,13 @@ function narrate(world: World, kind: SimEventKind, text: string, ids: number[], 
   pushEvent(world, kind, text, ids, gossip);
 }
 
+/** a story from another module (pets) under the same hourly budget; false = skipped */
+export function narrateStory(world: World, kind: SimEventKind, text: string, ids: number[], gossip?: Gossip): boolean {
+  if (!budget(world)) return false;
+  narrate(world, kind, text, ids, gossip);
+  return true;
+}
+
 /** story about a single agent: "<name> <predicate>" */
 function story(agent: Agent, predicate: string | undefined, valence: number | undefined): Gossip | undefined {
   if (!predicate || valence === undefined) return undefined;

@@ -146,13 +146,24 @@ export function createView(opts: ViewOptions): View {
   const log = createEventLog(document.getElementById('log')!, world, { onSelectAgent: (id) => select(id) });
 
   let selected: number | null = null;
+  let selectedPet: number | null = null;
   function select(id: number | null): void {
     if (id !== null && !world.agents.some((a) => a.id === id)) id = null;
     selected = id;
+    selectedPet = null;
     renderer.setSelected(id);
+    renderer.setSelectedPet(null);
     inspector.show(id);
     if (id === null) renderer.follow(null);
     opts.onSelect?.(id);
+  }
+
+  /** a pet in the inspector (residents' selection is cleared; the URL hash stays resident-only) */
+  function selectPet(id: number): void {
+    select(null);
+    selectedPet = id;
+    renderer.setSelectedPet(id);
+    inspector.showPet(id);
   }
 
   // a click (not a drag) on an agent opens the inspector
@@ -160,7 +171,10 @@ export function createView(opts: ViewOptions): View {
   canvas.addEventListener('pointerdown', (e) => (down = { x: e.clientX, y: e.clientY }));
   canvas.addEventListener('pointerup', (e) => {
     if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5) {
-      select(renderer.pickAgent(e.clientX, e.clientY)?.id ?? null);
+      const agent = renderer.pickAgent(e.clientX, e.clientY);
+      const pet = agent ? null : renderer.pickPet(e.clientX, e.clientY);
+      if (pet) selectPet(pet.id);
+      else select(agent?.id ?? null);
     }
     down = null;
   });
@@ -230,7 +244,7 @@ export function createView(opts: ViewOptions): View {
         // keep the selection (the resident is a new object with the same id)
         renderer.setSelected(selected);
         if (!w.agents.some((a) => a.id === selected)) select(null);
-      }
+      } else if (selectedPet !== null) renderer.setSelectedPet(selectedPet);
       update();
     },
   };

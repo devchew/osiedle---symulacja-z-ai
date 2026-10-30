@@ -13,7 +13,8 @@ export const JEZIORO_HEIGHT = 32;
  Legend: # wall, D door, ' ' wood floor, . tile floor, , grass, : path, ~ water, @ spawn
  B bed, F fridge, S stove, T dining_table, = counter, H shower, U bathtub, W toilet, K sink,
  V tv, O sofa, R bookshelf, P piano, C computer, E exercise_bike, M treadmill, L bench,
- G grill, * flowerbed, f fishing_spot, Z wardrobe, p plant, l lamp, r rug, Y tree, b bush
+ G grill, * flowerbed, f fishing_spot, Z wardrobe, p plant, l lamp, r rug, Y tree, b bush,
+ m pet_bowl, c pet_cushion, y pet_toy, w dog_walk
  (regenerate: DUMP_MAPS=1 npx vitest run tests/maps.test.ts -> test-results/maps.txt)
 
  ,,,,,,,,Y,,,,,,,,Y,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
@@ -21,7 +22,7 @@ export const JEZIORO_HEIGHT = 32;
  ,,,,,,,,,,,,,,,,,,,,,Y,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
  ,,,,,,,,***,,***,,,,,,,,,,,,,,,,,,,,,,,~~~~,f,,,,,,,,Y
  ,,,Y,,,,,,,,,,,,,,,b,,,,,,Y,,,,,,,,,,~~~~~~~~,,,,,,,,,
- ,,,,,,,,,,,,,,@,,,,,,,,,,,,,,,,,,,,~~~~~~~~~~~,,,,,,,,
+ ,,,,,,,,,,,,,,@,,,,,,,,,,,,,,,,,,,f~~~~~~~~~~~,,,,,,,,
  ,,,,,,#################,,,,,,,,,,f~~~~~~~~~~~~~~,,,,,,
  ,,,b,,#BlBZZ#H.W#BlBZZ#,Y,,,,,,,,~~~~~~~~~~~~~~~~,,,,,
  Y,,,,Y#B B  #...#B B  #,,,,,,,,,~~~~~~~~~~~~~~~~~,,,,,
@@ -29,23 +30,23 @@ export const JEZIORO_HEIGHT = 32;
  ,,,,,,#rrr  #...# rrr #,,,,,,,,,~~~~~~~~~~~~~~~~~~~,,,
  ,,Y,,,####D###D####D###,LL,,,,,~~~~~~~~~~~~~~~~~~~~f,,
  ,,,,,,#FSS =   VVV  RR#:::,,,,~~~~~~~~~~~~~~~~~~~~~~,,
- ,,,,,,#        rrr    #:::,,,,~~~~~~~~~~~~~~~~~~~~~~~,
- ,,,,Y,#     @  rrr    D:::,,,~~~~~~~~~~~~~~~~~~~~~~~~,
+ ,,,,,,#  m     rrr    #:::,,,,~~~~~~~~~~~~~~~~~~~~~~~,
+ ,,,,Y,#     @  rrr    D:::,,,~~:f~~~~~~~~~~~~~~~~~~~~,
  ,,,,,,#  TTT   OOO    D:::::::@:f~~~~~~~~~~~~~~~~~~~~~
- ,,::::D  TTT          #:@:,,,~~~~~~~~~~~~~~~~~~~~~~~~~
- ,Y,,,,#      @    @   #:::,,,~~~~~~~~~~~~~~~~~~~~~~~~~
- ,,,,,,#l          p  l#,:,,,,~~~~~~~~~~~~~~~~~~~~~~~~,
+ ,,::::D  TTT y     g  #:@:,,,~~~~~~~~~~~~~~~~~~~~~~~~~
+ ,Y,,,,#      @    @ c #:::,,,~~~~~~~~~~~~~~~~~~~~~~~~~
+ ,,,,,,#l        XXp  l#,:,,,,~~~~~~~~~~~~~~~~~~~~~~~~,
  ,,,,,b########D########,:,b,,,~~~~~~~~~~~~~~~~~~~~~~~,
  ,,,Y,,,,,,,,,,:,,,,,,,,,:,,,,,~~~~~~~~~~~~~~~~~~~~~~,Y
  ,,,,,,,,,b,,,,:,,,,,,,,,:,,,,,,~~~~~~~~~~~~~~~~~~~~,,,
  ,,,,,,,,,,,,,,::::::::@::,,,,,,,~~~~~~~~~~~~~~~~~~,,,,
- Y,,,,,,,,,,Y,,,,,LL,,,,,Y,,,,,,,,~~~~~~~~~~~~~~~~,,,,,
+ Y,,,,,,,,,,Y,,,,,LL,,,,,Y,,,,,,,f~~~~~~~~~~~~~~~~,,,,,
  ,,,,,Y,,,,,,,,,,,,,,,,,,,,,,,,,,f~~~~~~~~~~~~~~~,,,,,,
  ,,,,,,,,,,,,,LL,,GG,@LL,,,,,,,,,,,~~~~~~~~~~~~~,,,,,,,
  ,,,,,,,,,,@,,,,,,,,,,,,,,,,,,,,,,,,,~~~~~~~~~~,,,,,,,,
  ,,Y,,,,,,,b,,,,@,,,,,,,,,,,,,,,,,,,,,~~~~~~~~,,,,,,,,,
  ,,,,,,,,,,,,,,,,,LL,,,,,,,,Y,,,,,,,,,,f~~~~,,,,,,,,,,,
- ,,,,,,,,Y,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Y,
+ ,,,,,,,,Y,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,w,,,,,,,,,,,Y,
  ,Y,,,Y,,,,,,,Y,,,,,,Y,,,,,,,,Y,,,,,,,,,,,,,,,Y,,,,,,,,
  ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Y,,,,
 */
@@ -173,7 +174,13 @@ export function createJezioroMap(): MapData {
     { x: 12, y: 14 }, { x: 18, y: 17 }, { x: 13, y: 17 }, { x: 24, y: 16 }, { x: 30, y: 15 },
     { x: 15, y: 27 }, { x: 22, y: 22 }, { x: 10, y: 26 }, { x: 14, y: 5 }, { x: 20, y: 25 },
   ];
-  return { grid: g, objects, spawnPoints };
+  // house pet (dog: bowl by the kitchen, cushion and toys in the main room, walks across the meadow to the south shore); placed last so the uids of older objects stay the same
+  put('pet_bowl', 9, 13);
+  put('pet_cushion', 20, 17);
+  put('pet_toy', 13, 16);
+  put('dog_walk', 40, 29);
+
+  return { grid: g, objects, spawnPoints, pet: { species: 'dog', name: 'Azor' } };
 }
 
 /** a free shore tile (grass / path next to water) 1–2 tiles from (x, y), not one of `taken` */

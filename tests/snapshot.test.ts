@@ -25,6 +25,7 @@ import { agentMemories } from '../src/social/memory';
 import { statusOf } from '../src/social/relationships';
 import { mapIdOf } from '../src/world/maps';
 import { currentHeadline } from '../src/world/news';
+import { petsOf } from '../src/agents/pets';
 
 const DAY = 24 * 60;
 
@@ -46,6 +47,7 @@ const REQUIRED_MODULES = [
   'news',
   'trace',
   'diary',
+  'pets',
 ];
 
 const roundTrip = (snap: WorldSnapshot): WorldSnapshot => JSON.parse(JSON.stringify(snap)) as WorldSnapshot;
@@ -78,6 +80,7 @@ function publicView(world: World) {
     gatherings: gatheringLog(world),
     headline: currentHeadline(world),
     map: mapIdOf(world),
+    pets: petsOf(world),
   };
 }
 

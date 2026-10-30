@@ -7,13 +7,14 @@ import { Camera, type Insets } from './camera';
 import { UI_FONT, EMOJI_FONT, rr } from './colors';
 import { createBubblePresenter, drawBubbles, type BubbleItem, type Obstacle } from './bubbles';
 import { Lighting, lightStateAt } from './lighting';
-import { AGENT_SCALE, drawAgent, drawSelection, headTop, type AgentPose, type PoseMode } from './sprites';
+import { AGENT_SCALE, drawAgent, drawPet, drawPetSelection, drawSelection, headTop, petTop, type AgentPose, type PetPose, type PoseMode } from './sprites';
 import { buildStaticLayer, staticSignature, type StaticLayer } from './tiles';
 import { WeatherFx, drawIncidentBadges, drawIncidents, weatherDim } from './weather';
 import { drawProjectBadges } from './projects';
 import { drawTvNews, drawTvScreens } from './tv';
 import { MotionTracker } from './motion';
 import { trailOf } from '../agents/movement';
+import { petsOf, type Pet } from '../agents/pets';
 import { isRealtime } from '../realtime/state';
 
 export interface Renderer {
@@ -23,7 +24,11 @@ export interface Renderer {
   resize(): void;
   /** agent under the given client (viewport) coordinates, or null */
   pickAgent(clientX: number, clientY: number): Agent | null;
+  /** pet under the given client coordinates, or null (checked after pickAgent: residents win) */
+  pickPet(clientX: number, clientY: number): Pet | null;
   setSelected(id: number | null): void;
+  /** highlights a pet (ids are separate from the residents'); null = none */
+  setSelectedPet(id: number | null): void;
   /** smoothly keeps the camera centred on the agent; any drag / key pan cancels it (double-click an agent to follow) */
   follow(id: number | null): void;
   /** id of the followed agent, or null */
@@ -36,6 +41,8 @@ export interface Renderer {
   toScreen(wx: number, wy: number): { x: number; y: number };
   /** where the agent is drawn (tile units) and whether it is visually walking — for tests / debugging */
   visualOf(id: number): { x: number; y: number; moving: boolean } | null;
+  /** where the pets are drawn (tile units) — for tests / debugging */
+  petVisuals(): { id: number; name: string; x: number; y: number; activity: string }[];
   /**
    * shows another World object (live view: a new frame restored as a new world, or another place).
    * `sameScene` keeps the camera and the residents' walking cursors (next frame of the same place);
@@ -75,6 +82,10 @@ function poseModeFor(type: string): PoseMode {
 
 interface Pose extends AgentPose {
   agent: Agent;
+}
+
+interface PetDraw extends PetPose {
+  pet: Pet;
 }
 
 export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): Renderer {
@@ -117,7 +128,12 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
   let poses: Pose[] = [];
   const walk = new Map<number, { phase: number }>();
   // residents walk along the path they actually took (see motion.ts)
-  let motion = new MotionTracker(trailOf);
+  let motion = new MotionTracker<Agent>(trailOf);
+  // pets: own tracker (their ids overlap the residents'); live frames bring new Pet objects, keyed by id
+  let petMotion = new MotionTracker<Pet>(trailOf);
+  const petWalk = new Map<number, number>();
+  let petPoses: PetDraw[] = [];
+  let selectedPet: number | null = null;
 
   function resize(): void {
     const rect = canvas.getBoundingClientRect();
@@ -377,6 +393,21 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     return out;
   }
 
+  function computePetPoses(now: number, dt: number): PetDraw[] {
+    const pets = petsOf(world);
+    if (!pets.length) return [];
+    petMotion.update(pets, world.tick, now, dt, isRealtime(world));
+    return pets.map((pet) => {
+      const m = petMotion.of(pet.id)!;
+      let phase = petWalk.get(pet.id) ?? pet.id * 2.3;
+      // short legs: quicker steps than a resident's
+      if (m.moving) phase += Math.min(m.moved * Math.PI * 4, dt * Math.PI * 2 * 5);
+      petWalk.set(pet.id, phase);
+      const facing = m.moving && m.facing !== 0 ? m.facing : pet.facing;
+      return { pet, x: m.x, y: m.y, moving: m.moving, phase, facing };
+    });
+  }
+
   function labelWidth(text: string, ui: number): number {
     ctx!.font = `650 ${Math.max(10.5, 11 * ui)}px ${UI_FONT}`;
     return ctx!.measureText(text).width + 12 * ui;
@@ -458,6 +489,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     const c = ctx!;
 
     poses = computePoses(alpha, now, dt);
+    petPoses = computePetPoses(now, dt);
     if (world.tick !== bubbleTick || alpha !== bubbleAlpha) bubbleClock += dt * 1000;
     bubbleTick = world.tick;
     bubbleAlpha = alpha;
@@ -514,10 +546,22 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     drawIncidents(c, world, now);
     drawTvScreens(c, world, now);
 
+    // residents and pets in one y-sorted pass (a pet behind a resident is hidden by them)
+    let pi = 0;
+    const drawPetsAbove = (y: number): void => {
+      for (; pi < petPoses.length && petPoses[pi].y < y; pi++) {
+        const q = petPoses[pi];
+        if (q.pet.id === selectedPet) drawPetSelection(c, q, now);
+        drawPet(c, q.pet, q, now);
+      }
+    };
+    petPoses.sort((p, q) => p.y - q.y || p.pet.id - q.pet.id);
     for (const p of poses) {
+      drawPetsAbove(p.y);
       if (p.agent.id === selected) drawSelection(c, p, now);
       drawAgent(c, p.agent, p, now);
     }
+    drawPetsAbove(Infinity);
     ambient.drawClouds(c, now, clear.daylight, sky.kind === 'sunny' ? 1 : sky.kind === 'cloudy' ? 2 : 3);
     weather.drawWorld(c, now, light.daylight);
 
@@ -620,6 +664,13 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
           conversationId: convOf.get(a.id) ?? null,
         });
     }
+    // selected pet: name pill above it
+    const sp = petPoses.find((q) => q.pet.id === selectedPet);
+    if (sp) {
+      const top = cam.toScreen(sp.x, sp.y + petTop(sp.pet));
+      const lh = Math.max(10.5, 11 * ui) + 6 * ui;
+      drawLabel(sp.pet.name, top.x, top.y - lh - 3 * ui, ui, true);
+    }
     drawBubbles(c, bubbles, cam.viewW, cam.viewH, obstacles);
   }
 
@@ -640,13 +691,33 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     return best;
   }
 
+  function pickPet(clientX: number, clientY: number): Pet | null {
+    const rect = canvas.getBoundingClientRect();
+    const w = cam.toWorld(clientX - rect.left, clientY - rect.top);
+    const radius = Math.max(0.4, 12 / cam.zoom);
+    let best: Pet | null = null;
+    let bestD = Infinity;
+    for (const p of petPoses) {
+      const d = Math.hypot(w.x - p.x, w.y - (p.y + 0.05));
+      if (d < radius && d < bestD) {
+        bestD = d;
+        best = p.pet;
+      }
+    }
+    return best;
+  }
+
   resize();
   return {
     render,
     resize,
     pickAgent,
+    pickPet,
     setSelected: (id) => {
       selected = id;
+    },
+    setSelectedPet: (id) => {
+      selectedPet = id;
     },
     follow: (id) => {
       followId = id;
@@ -667,14 +738,19 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
       const m = motion.of(id);
       return m ? { x: m.x, y: m.y, moving: m.moving } : null;
     },
+    petVisuals: () => petPoses.map((p) => ({ id: p.pet.id, name: p.pet.name, x: p.x, y: p.y, activity: p.pet.activity })),
     setWorld: (w, sameScene) => {
       if (w === world) return;
       world = w;
       presenter.retain(new Set(w.agents.map((a) => a.id)));
       if (!sameScene) {
         presenter.clear();
-        motion = new MotionTracker(trailOf);
+        motion = new MotionTracker<Agent>(trailOf);
         walk.clear();
+        petMotion = new MotionTracker<Pet>(trailOf);
+        petWalk.clear();
+        petPoses = [];
+        selectedPet = null;
         poses = [];
         layer = null;
         followId = null;

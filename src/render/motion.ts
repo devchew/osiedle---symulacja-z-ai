@@ -12,7 +12,6 @@
 // After the queue is drained the agent stands at its simulated position. Pure (no DOM),
 // so tests can sample it.
 
-import type { Agent } from '../types';
 import { WALK_TILES_PER_SECOND, type TrailPoint } from '../agents/movement';
 
 export const MOTION = {
@@ -168,18 +167,24 @@ export class AgentMotion {
   }
 }
 
-/** per-agent motion cursors for one world */
-export class MotionTracker {
+/** anything that walks along recorded trails: a resident, a pet (ids are unique per tracker only) */
+export interface Mover {
+  id: number;
+  pos: { x: number; y: number };
+}
+
+/** per-agent motion cursors for one world (a separate tracker per kind of mover: ids may overlap) */
+export class MotionTracker<T extends Mover = Mover> {
   private readonly cursors = new Map<number, AgentMotion>();
   private lastTick = -1;
   private lastTickAt = 0;
   /** measured real seconds per tick (lab) */
   tickSeconds = 0.2;
 
-  constructor(private readonly trailOf: (a: Agent) => readonly TrailPoint[]) {}
+  constructor(private readonly trailOf: (a: T) => readonly TrailPoint[]) {}
 
   /** call once per frame before reading positions */
-  update(agents: readonly Agent[], tick: number, nowMs: number, dtReal: number, realtime: boolean): void {
+  update(agents: readonly T[], tick: number, nowMs: number, dtReal: number, realtime: boolean): void {
     if (tick !== this.lastTick) {
       if (this.lastTick >= 0 && tick > this.lastTick && this.lastTickAt > 0) {
         const per = (nowMs - this.lastTickAt) / 1000 / (tick - this.lastTick);

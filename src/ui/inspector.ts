@@ -4,6 +4,7 @@ import type { Action, Agent, NeedKey, Traits, World } from '../types';
 import { relationshipLabel } from '../social/relationships';
 import { goalOf } from '../agents/goals';
 import { agentMemories, type MemoryView } from '../social/memory';
+import { describePet, petById, petIcon, PET_NEED_LABELS, speciesName, type Pet, type PetNeeds } from '../agents/pets';
 import type { RelationOfFn } from './extras';
 import { entriesLabel } from './diary';
 import { el, moodEmoji, setBar, setText, storageGet, storageSet } from './dom';
@@ -25,9 +26,13 @@ export interface InspectorDiary {
 
 export interface Inspector {
   show(id: number | null): void;
+  /** shows a pet instead of a resident (null = close) */
+  showPet(id: number | null): void;
   update(): void;
   /** currently shown agent id */
   readonly current: number | null;
+  /** currently shown pet id */
+  readonly currentPet: number | null;
   /** shows another world (live view); keeps the shown resident when they are there */
   setWorld(world: World): void;
 }
@@ -35,6 +40,11 @@ export interface Inspector {
 const MAX_RELATIONS = 5;
 const MAX_MEMORIES = 5;
 const MEM_COLLAPSED_KEY = 'sim.insp.memCollapsed';
+
+const PET_NEED_ICONS: Record<keyof PetNeeds, string> = { hunger: '🥣', fun: '🧶', energy: '💤', walk: '🦮' };
+const PET_ACTIVITY_ICONS: Record<Pet['activity'], string> = {
+  idle: '🐾', stroll: '🐾', sleep: '😴', eat: '🥣', play: '🧶', walk: '🦮', cuddle: '🤗',
+};
 
 /** icon for how nice / embarrassing a remembered story is */
 export function valenceIcon(v: number): string {
@@ -200,8 +210,7 @@ export function createInspector(root: HTMLElement, initialWorld: World, opts: In
   ]);
 
   const section = (title: string, ...body: Node[]) => el('section', 'insp-section', [el('h3', '', [title]), ...body]);
-  root.append(
-    header,
+  const agentNodes: HTMLElement[] = [
     traits,
     action,
     goal,
@@ -211,9 +220,33 @@ export function createInspector(root: HTMLElement, initialWorld: World, opts: In
     section('Relacje', relList, relEmpty),
     memSection,
     section('Statystyki', stats),
-  );
+  ];
+
+  // pet view (#9): same header, a lighter body (activity, mood, needs)
+  const petKindChip = el('span', 'chip');
+  const petKind = el('div', 'insp-traits', [petKindChip]);
+  const petNowIcon = el('span', 'insp-now-icon');
+  // own class (as the goal row): e2e tests address the resident's activity by .insp-now-text
+  const petNowText = el('span', 'insp-pet-now-text');
+  Object.assign(petNowText.style, { fontWeight: '650', fontSize: '13.5px', lineHeight: '1.25', overflowWrap: 'anywhere' });
+  const petNow = el('div', 'insp-now', [petNowIcon, el('div', 'insp-now-body', [el('span', 'insp-now-label', ['Co teraz robi']), petNowText])]);
+  const petMood = barRow('Nastrój', '🙂');
+  petMood.row.classList.add('bar-row--mood');
+  const petNeedRows = new Map<keyof PetNeeds, BarRow>();
+  const petNeedsBox = el('div', 'insp-needs');
+  for (const k of Object.keys(PET_NEED_LABELS) as (keyof PetNeeds)[]) {
+    const r = barRow(PET_NEED_LABELS[k], PET_NEED_ICONS[k]);
+    petNeedRows.set(k, r);
+    petNeedsBox.append(r.row);
+  }
+  const petNodes: HTMLElement[] = [petKind, petNow, el('div', 'insp-mood', [petMood.row]), section('Potrzeby', petNeedsBox)];
+  // the mode is a class on the panel (.is-pet), so the residents' own hidden flags stay as they are
+  for (const n of [...agentNodes, dot, followBtn]) n.classList.add('insp-agent-only');
+  for (const n of petNodes) n.classList.add('insp-pet-only');
+  root.append(header, ...agentNodes, ...petNodes);
 
   let current: number | null = null;
+  let currentPet: number | null = null;
   let traitsKey = '';
   let relKey = '';
   let memKey = '';
@@ -228,7 +261,7 @@ export function createInspector(root: HTMLElement, initialWorld: World, opts: In
     if (current !== null) opts.onFollow?.(current);
   });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && current !== null) close();
+    if (e.key === 'Escape' && (current !== null || currentPet !== null)) close();
   });
 
   function find(): Agent | undefined {
@@ -323,7 +356,43 @@ export function createInspector(root: HTMLElement, initialWorld: World, opts: In
     return row;
   }
 
+  function updatePet(): void {
+    const pet = currentPet === null ? undefined : petById(world, currentPet);
+    if (!pet) {
+      close();
+      return;
+    }
+    setText(name, `${petIcon(pet)} ${pet.name}`);
+    setText(petKindChip, speciesName(pet));
+    const icon = PET_ACTIVITY_ICONS[pet.activity];
+    if (petNowIcon.textContent !== icon) {
+      setText(petNowIcon, icon);
+      petNowIcon.classList.remove('is-pop');
+      void petNowIcon.offsetWidth;
+      petNowIcon.classList.add('is-pop');
+    }
+    setText(petNowText, describePet(world, pet));
+    petNow.dataset.state = pet.activity === 'stroll' || pet.activity === 'walk' ? 'moving' : 'busy';
+    setText(petMood.row.querySelector('.bar-icon')!, moodEmoji(pet.mood));
+    setBar(petMood.fill, pet.mood);
+    setText(petMood.value, String(Math.round(pet.mood)));
+    for (const [k, r] of petNeedRows) {
+      // a cat goes nowhere: no walk bar
+      r.row.style.display = k === 'walk' && pet.species !== 'dog' ? 'none' : '';
+      setBar(r.fill, pet.needs[k]);
+      setText(r.value, String(Math.round(pet.needs[k])));
+      r.row.classList.toggle('is-low', pet.needs[k] < 20);
+    }
+  }
+
+  /** switches the panel body between a resident and a pet */
+  function setMode(pet: boolean): void {
+    root.classList.toggle('is-pet', pet);
+    root.setAttribute('aria-label', pet ? 'Szczegóły zwierzaka' : 'Szczegóły postaci');
+  }
+
   function update(): void {
+    if (currentPet !== null) return updatePet();
     if (current === null) return;
     const a = find();
     if (!a) {
@@ -390,6 +459,8 @@ export function createInspector(root: HTMLElement, initialWorld: World, opts: In
 
   function show(id: number | null): void {
     current = id;
+    currentPet = null;
+    setMode(false);
     if (id === null || !find()) {
       current = null;
       root.hidden = true;
@@ -406,11 +477,32 @@ export function createInspector(root: HTMLElement, initialWorld: World, opts: In
     requestAnimationFrame(() => root.classList.remove('no-anim'));
   }
 
+  function showPet(id: number | null): void {
+    current = null;
+    currentPet = id;
+    if (id === null || !petById(world, id)) {
+      currentPet = null;
+      setMode(false);
+      root.hidden = true;
+      return;
+    }
+    setMode(true);
+    root.hidden = false;
+    root.classList.add('no-anim');
+    updatePet();
+    void root.offsetWidth;
+    requestAnimationFrame(() => root.classList.remove('no-anim'));
+  }
+
   return {
     show,
+    showPet,
     update,
     get current() {
       return current;
+    },
+    get currentPet() {
+      return currentPet;
     },
     setWorld(w) {
       if (w === world) return;

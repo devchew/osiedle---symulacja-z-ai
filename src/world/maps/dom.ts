@@ -13,7 +13,8 @@ export const MAP_HEIGHT = 29;
  Legend: # wall, D door, ' ' wood floor, . tile floor, , grass, : path, ~ water, @ spawn
  B bed, F fridge, S stove, T dining_table, = counter, H shower, U bathtub, W toilet, K sink,
  V tv, O sofa, R bookshelf, P piano, C computer, E exercise_bike, M treadmill, L bench,
- G grill, * flowerbed, f fishing_spot, Z wardrobe, p plant, l lamp, r rug, Y tree, b bush
+ G grill, * flowerbed, f fishing_spot, Z wardrobe, p plant, l lamp, r rug, Y tree, b bush,
+ m pet_bowl, c pet_cushion, y pet_toy, w dog_walk
 
  ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
  ,,,,,,,,,,,,,,,,,,,,,,Y,,,,,,,,,,,,,,,,,,,,,
@@ -27,19 +28,19 @@ export const MAP_HEIGHT = 29;
  ,,Y,,,,,,,,,,#rrr #...p# rrr#,,,,,,,,,,,,,,,
  ,,,,,,,##########D#D####D####GG,,LL,,,,,,,Y,
  ,,,,,,,#ME CC#VVV l FSSF.RRp#,,,,,,,,,,,,,,,
- ,,,,,GG#M    #r@r   ........#::,,~~~,,,,,,,,
- ,,,,,,,# r@r Drrr @ .....@..D:@,~~~~~,,b,,,,
- ,,,,@::D rrr #OOO   TTT@....D::f~~~~~f,,,,,,
+ ,,,,,GG#M    #r@rc  ........#::,,~~~,,,,,,,,
+ ,,,,,,,# r@r Drrr @ .....@..D:@,~~~~~f,b,,,,
+ ,,,,@::D rrr #OOOy  TTT@.g..D::f~~~~~f,,,,,,
  ,,,,:,,#PP RR#    @ TTT...@.#::,~~~~~,,,,,,,
- ,,,,:,,#     #p   l .......l#,:,,~~~,,,,,,,,
- ,***:,,##########D#D####D####LL,,,f,,,,,,,,,
+ ,,,,:,,#     #pXX l ......ml#,:,,~~~,,,,,,,,
+ ,***:,,##########D#D####D####LL,,fff,,,,,,,,
  ,,,,:,,,,,,,,#rrr #.HUU# rrr#,:,,,,,,,,,Y,,,
  ,,,,:,,,,,,,,Drrrp#....#prrrD,:,,,,@,,,,,,,,
  ,,,,:,b,Y,,,,#BlB #W..K#BlB #,:***,,,,,,,,,,
  ,,,,:,,,,,,,b#B B #...p#B B #b:,,,,,,,,,,,,,
  ,Y,,:,,,,,,,,################,:,,,,,,,,,,,,,
  ,,,,:,,,,,,,,,,,b,,,,,,,,b,,,,:,,,,,,,,,,,,Y
- ,,,,:::::::::::::::::::::::::::,,,,,,,,,,,,,
+ ,,,,::::w::::::::::::::::::::::,,,,,,,,,,,,,
  ,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
  ,,,,,,,,,,,,,,,,,Y,,,,,,,,,,,,,,,,,,,Y,,,,,,
  ,,,Y,,,,,,Y,,,,,,,,,,,,,Y,,,,,,Y,,,,,,,,,,,,
@@ -182,5 +183,11 @@ export function createDefaultMap(): MapData {
     { x: 15, y: 12 }, { x: 18, y: 13 }, { x: 23, y: 14 }, { x: 26, y: 15 }, { x: 18, y: 15 },
     { x: 10, y: 13 }, { x: 30, y: 13 }, { x: 35, y: 19 }, { x: 4, y: 14 }, { x: 25, y: 13 },
   ];
-  return { grid: g, objects, spawnPoints };
+  // house pet (dog: bowl in the kitchen, cushion and toy corner in the living room, walks to the far end of the garden path); placed last so the uids of older objects stay the same
+  put('pet_bowl', 26, 16);
+  put('pet_cushion', 17, 12);
+  put('pet_toy', 17, 14);
+  put('dog_walk', 8, 24);
+
+  return { grid: g, objects, spawnPoints, pet: { species: 'dog', name: 'Burek' } };
 }

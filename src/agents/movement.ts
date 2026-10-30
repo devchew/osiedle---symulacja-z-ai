@@ -46,9 +46,12 @@ interface MoveState {
 // Render-side information only: nothing here feeds back into decisions, so the
 // simulation stays deterministic with or without it (it is still saved with the world
 // so that a restored world animates the walk in progress).
-const moves = new WeakMap<Agent, MoveState>();
+const moves = new WeakMap<Walker, MoveState>();
 
-function stateOf(agent: Agent): MoveState {
+/** anything that walks the grid: residents and pets (agents/pets.ts) */
+export type Walker = Pick<Agent, 'pos' | 'path' | 'facing'>;
+
+function stateOf(agent: Walker): MoveState {
   let s = moves.get(agent);
   if (!s) {
     s = { trail: [], clockTick: -1, clockT: 0 };
@@ -72,19 +75,19 @@ function push(s: MoveState, p: TrailPoint): void {
 }
 
 /** records the agent's current position as the start of a movement, unless it is already the last point */
-function markStart(s: MoveState, agent: Agent, tick: number, t: number): void {
+function markStart(s: MoveState, agent: Walker, tick: number, t: number): void {
   const last = s.trail[s.trail.length - 1];
   if (last && last.tick === tick && last.x === agent.pos.x && last.y === agent.pos.y) return;
   push(s, { tick, t, x: agent.pos.x, y: agent.pos.y });
 }
 
 /** the recorded walked path (oldest first); the renderer reads points newer than the last tick it saw */
-export function trailOf(agent: Agent): readonly TrailPoint[] {
+export function trailOf(agent: Walker): readonly TrailPoint[] {
   return moves.get(agent)?.trail ?? [];
 }
 
 /** the walked points of one tick, oldest first */
-export function trailForTick(agent: Agent, tick: number): TrailPoint[] {
+export function trailForTick(agent: Walker, tick: number): TrailPoint[] {
   return trailOf(agent).filter((p) => p.tick === tick);
 }
 
@@ -94,7 +97,7 @@ export function trailForTick(agent: Agent, tick: number): TrailPoint[] {
  * tick does). With `tick` the walk is recorded (trail + timing within the tick) and the
  * agent's walking time per tick is capped at one minute across several calls.
  */
-export function stepAgent(agent: Agent, speed = WALK_SPEED, tick?: number): 'moving' | 'arrived' | 'idle' {
+export function stepAgent(agent: Walker, speed = WALK_SPEED, tick?: number): 'moving' | 'arrived' | 'idle' {
   if (agent.path.length === 0) return 'idle';
   const s = tick === undefined ? null : stateOf(agent);
   const perSecond = speed / TICK_SECONDS;
@@ -130,7 +133,7 @@ export function stepAgent(agent: Agent, speed = WALK_SPEED, tick?: number): 'mov
  * a short step without pathfinding (stand tile → seat, getting up from furniture):
  * sets `pos` and records it on the trail at walking pace
  */
-export function placeAgent(agent: Agent, p: Vec2, tick: number): void {
+export function placeAgent(agent: Walker, p: Vec2, tick: number): void {
   const s = stateOf(agent);
   const t0 = clockAt(s, tick);
   const d = Math.hypot(p.x - agent.pos.x, p.y - agent.pos.y);
@@ -162,6 +165,17 @@ export function saveMovementState(world: World): MovementSnapshot {
     if (s) agents[a.id] = { trail: s.trail.map((p) => ({ ...p })), clockTick: s.clockTick, clockT: s.clockT };
   }
   return { agents };
+}
+
+/** one walker's trail and walking clock as plain data (null = none yet) */
+export function saveWalkerMove(w: Walker): MovementSnapshot['agents'][number] | null {
+  const s = moves.get(w);
+  return s ? { trail: s.trail.map((p) => ({ ...p })), clockTick: s.clockTick, clockT: s.clockT } : null;
+}
+
+export function loadWalkerMove(w: Walker, data: MovementSnapshot['agents'][number] | null | undefined): void {
+  if (data) moves.set(w, { trail: data.trail.map((p) => ({ ...p })), clockTick: data.clockTick, clockT: data.clockT });
+  else moves.delete(w);
 }
 
 export function loadMovementState(world: World, data: MovementSnapshot | null | undefined): void {
