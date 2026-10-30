@@ -1,7 +1,7 @@
 // Canvas 2D renderer: camera, static layer cache, agents, bubbles, lighting.
 // Reads the World only; never mutates simulation state.
 
-import type { Agent, Bubble, World } from '../types';
+import type { Agent, Bubble, Vec2, World } from '../types';
 import { Ambient } from './ambient';
 import { Camera, type Insets } from './camera';
 import { UI_FONT, EMOJI_FONT, rr } from './colors';
@@ -31,6 +31,10 @@ export interface Renderer {
   setSelectedPet(id: number | null): void;
   /** smoothly keeps the camera centred on the agent; any drag / key pan cancels it (double-click an agent to follow) */
   follow(id: number | null): void;
+  /** smoothly glides the camera to a tile point and keeps it there; follow(), a drag or a key pan cancels it (director mode) */
+  focusOn(point: Vec2 | null): void;
+  /** animated zoom to `zoom` CSS px per tile around the screen centre (instant with reduced motion) */
+  zoomTo(zoom: number): void;
   /** id of the followed agent, or null */
   readonly following: number | null;
   /** re-fits the camera to the map, leaving room for the HUD and the log */
@@ -124,6 +128,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
   let staticBuilds = 0;
   let selected: number | null = null;
   let followId: number | null = null;
+  let focusPoint: Vec2 | null = null;
   let lastNow = performance.now();
   let poses: Pose[] = [];
   const walk = new Map<number, { phase: number }>();
@@ -224,6 +229,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
       for (const id of pointers.keys()) pinchIds.add(id);
       drag = null;
       followId = null;
+      focusPoint = null;
       return;
     }
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
@@ -245,6 +251,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     if (!drag.moved) {
       drag.moved = true;
       followId = null;
+      focusPoint = null;
       canvas.style.cursor = 'grabbing';
       try {
         canvas.setPointerCapture(e.pointerId);
@@ -317,6 +324,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     if (PAN_KEYS[e.code]) {
       keys.add(e.code);
       followId = null;
+      focusPoint = null;
       if (e.code.startsWith('Arrow')) e.preventDefault();
     } else if (e.key === '+' || e.key === '=') cam.zoomSmooth(cam.viewW / 2, cam.viewH / 2, 1.35);
     else if (e.key === '-' || e.key === '_') cam.zoomSmooth(cam.viewW / 2, cam.viewH / 2, 1 / 1.35);
@@ -517,6 +525,11 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
         cam.cy += (p.y - cam.cy) * k;
         cam.clamp();
       } else followId = null;
+    } else if (focusPoint) {
+      const k = reduceMotion ? 1 : 1 - Math.exp(-dt * 3);
+      cam.cx += (focusPoint.x - cam.cx) * k;
+      cam.cy += (focusPoint.y - cam.cy) * k;
+      cam.clamp();
     }
 
     const z = cam.zoom;
@@ -723,7 +736,13 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     },
     follow: (id) => {
       followId = id;
+      if (id !== null) focusPoint = null;
     },
+    focusOn: (point) => {
+      focusPoint = point ? { ...point } : null;
+      if (point) followId = null;
+    },
+    zoomTo: (zoom) => cam.zoomToSmooth(cam.viewW / 2, cam.viewH / 2, zoom),
     get following() {
       return followId;
     },
@@ -756,6 +775,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
         poses = [];
         layer = null;
         followId = null;
+        focusPoint = null;
         ensureStatic();
         fitView();
       }

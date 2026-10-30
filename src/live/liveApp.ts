@@ -8,6 +8,7 @@ import { createChroniclePanel } from '../ui/chronicle';
 import { createView, type View } from '../ui/view';
 import { createConnBanner, createPlaceBar, placeIcon } from '../ui/places';
 import { el } from '../ui/dom';
+import { createDirectorMode, directorPreference } from '../ui/director';
 import '../ui/debug';
 import { PLACES, placeById, LIVE_TIME_ZONE, type LiveFrame, type LiveMeta, type PlaceId } from './protocol';
 import { connectLive, fetchChronicle, fetchPlaces, type LiveStream } from './client';
@@ -26,6 +27,7 @@ export const LIVE_HELP: [string, string][] = [
   ['P', 'pamiętniki mieszkańców (← → dni)'],
   ['B', 'projekty budowlane'],
   ['K', 'kronika miejsca z ostatnich dni'],
+  ['R', 'tryb reżysera: kamera sama pokazuje ciekawe momenty'],
   ['przeciągnij', 'przesuń widok'],
   ['WASD / strzałki', 'przesuń widok'],
   ['kółko / szczypnięcie', 'przybliż i oddal'],
@@ -102,6 +104,8 @@ export function startLive(initialPlace: PlaceId): void {
     onOpenDiary: (id) => view?.diary.openFor(id),
   });
 
+  const director = createDirectorMode({ view: () => view });
+
   function createLiveView(world: World): View {
     const v = createView({
       world,
@@ -109,7 +113,10 @@ export function startLive(initialPlace: PlaceId): void {
       showPopulation: false,
       insets: INSETS,
       help: { keys: LIVE_HELP, note: LIVE_NOTE },
-      buttons: [{ id: 'chronicle', icon: '📜', title: 'Kronika miejsca (K)', onClick: () => chronicle.setOpen(!chronicle.isOpen) }],
+      buttons: [
+        { id: 'chronicle', icon: '📜', title: 'Kronika miejsca (K)', onClick: () => chronicle.setOpen(!chronicle.isOpen) },
+        { id: 'director', icon: '🎬', title: 'Tryb reżysera: kamera sama pokazuje ciekawe momenty (R)', onClick: () => director.toggle() },
+      ],
       panels: [{ id: 'chronicle', setOpen: (o) => chronicle.setOpen(o) }],
       onSelect: (id) => hash.onSelect(id),
       live: {
@@ -137,6 +144,7 @@ export function startLive(initialPlace: PlaceId): void {
     loop.setDriver(() => (lastFrameAt ? Math.min(1, (performance.now() - lastFrameAt) / frameGap) : 1));
     loop.start();
     v.hud.setActive('chronicle', chronicle.isOpen);
+    v.hud.setActive('director', director.enabled);
     return v;
   }
 
@@ -164,11 +172,13 @@ export function startLive(initialPlace: PlaceId): void {
     if (!view) {
       view = createLiveView(res.world);
       exposeDebug();
+      if (directorPreference()) director.setEnabled(true);
     } else if (res.swapped) view.setWorld(res.world, samePlace);
     if (!samePlace) {
       shownPlace = place;
       frameGap = 60_000;
       view.history.clear();
+      director.reset();
       hash.apply();
     }
     view.history.record(res.world);

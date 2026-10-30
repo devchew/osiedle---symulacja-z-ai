@@ -86,6 +86,12 @@ export class Camera {
     this.anchor = { x: sx, y: sy };
   }
 
+  /** animated zoom to an absolute level around a screen point */
+  zoomToSmooth(sx: number, sy: number, zoom: number): void {
+    this.targetZoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
+    this.anchor = { x: sx, y: sy };
+  }
+
   /** advances the zoom animation (instant when `instant`); returns true while animating */
   update(dt: number, instant = false): boolean {
     if (this.targetZoom === null) return false;

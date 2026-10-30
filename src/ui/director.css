@@ -1,0 +1,32 @@
+/* Director mode caption: what the camera is showing, bottom centre (live view). */
+
+.director-caption {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 12;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 7px 14px;
+  color: var(--ui-text, #f1f4fb);
+  font: 13px/1.3 var(--ui-font, system-ui, sans-serif);
+  text-align: center;
+  background: var(--ui-bg-strong, rgba(16, 20, 32, 0.86));
+  border: 1px solid var(--ui-border, rgba(255, 255, 255, 0.12));
+  border-radius: 999px;
+  box-shadow: var(--ui-shadow, 0 8px 28px rgba(0, 0, 0, 0.35));
+  pointer-events: none;
+}
+.director-caption[hidden] {
+  display: none;
+}
+.director-caption.is-paused {
+  color: var(--ui-muted, #a9b2c7);
+}
+
+@media (max-width: 720px) {
+  /* above the event log sheet */
+  .director-caption {
+    bottom: 118px;
+  }
+}
