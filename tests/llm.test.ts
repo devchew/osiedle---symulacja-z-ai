@@ -527,6 +527,8 @@ describe('diary AI: request validation, prompt and output parsing', () => {
     expect(validateDiaryRequest({ ...diaryReq(), facts: Array.from({ length: 25 }, () => 'x') })).toBeNull();
     expect(validateDiaryRequest({ ...diaryReq(), news: ['a', 'b', 'c'] })).toBeNull();
     expect(validateDiaryRequest({ ...diaryReq(), day: 0 })).toBeNull();
+    expect(validateDiaryRequest({ ...diaryReq(), names: ['Ola', 'Bartek'] })!.names).toEqual(['Ola', 'Bartek']);
+    expect(validateDiaryRequest({ ...diaryReq(), names: Array.from({ length: 25 }, () => 'Ola') })).toBeNull();
     expect(validateDiaryRequest({ ...diaryReq(), facts: ['x'.repeat(500)] })!.facts[0].length).toBe(160);
   });
 

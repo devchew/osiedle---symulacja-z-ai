@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Connect } from 'vite';
 import type { LlmGossip, LlmLineRequest, LlmLineResponse } from '../src/social/llmProvider.ts';
 import type { LlmDiaryRequest } from '../src/social/diaryAi.ts';
-import { DIARY_AI_MAX_WORDS, LLM_DIARY_URL, checkDiaryText, validateDiaryRequest } from '../src/social/diaryAi.ts';
+import { DIARY_AI_MAX_WORDS, LLM_DIARY_URL, checkDiaryText, findGenderedForms, validateDiaryRequest } from '../src/social/diaryAi.ts';
 import type { LlmChronicleRequest } from '../src/social/chronicleAi.ts';
 import { CHRONICLE_AI_MAX_WORDS, LLM_CHRONICLE_URL, checkChronicleText, validateChronicleRequest } from '../src/social/chronicleAi.ts';
 import {
@@ -129,6 +129,17 @@ export function validateLineRequest(body: unknown): LlmLineRequest | null {
 
 // ------------------------------------------------------------ prompt
 
+/** few-shot lines shown to the model; tests keep them valid (no gendered forms, within the length limit) */
+export const LINE_EXAMPLES: readonly { situation: string; text: string }[] = [
+  { situation: 'powitanie', text: 'Cześć! Co słychać?' },
+  { situation: 'odpowiedź na zaproszenie', text: 'Fajnie, że wpadasz. Napijesz się herbaty?' },
+  { situation: 'miła plotka', text: 'Słyszysz? Kasia gotuje pyszny obiad!' },
+  { situation: 'wstydliwa plotka', text: 'Podobno Piotr przypala obiad. Każdemu się zdarza, więc cicho sza.' },
+  { situation: 'wiadomość z telewizji', text: 'W telewizji podają: „Reprezentacja wygrywa mecz”. Oglądamy?' },
+  { situation: 'zła relacja i kiepski nastrój', text: 'Daj mi spokój, nie mam teraz siły na pogaduszki.' },
+  { situation: 'pożegnanie', text: 'Muszę lecieć. Do zobaczenia!' },
+];
+
 export const SYSTEM_PROMPT = [
   'Piszesz kwestie dialogowe do symulacji życia w stylu The Sims. Mieszkańcy osiedla rozmawiają ze sobą w dymkach nad głowami.',
   'Za każdym razem dostajesz opis postaci, która teraz mówi, i dotychczasowy przebieg rozmowy. Napisz JEDNĄ następną kwestię tej postaci.',
@@ -136,12 +147,17 @@ export const SYSTEM_PROMPT = [
   `- naturalna, potoczna polszczyzna, jedno krótkie zdanie lub dwa bardzo krótkie, maksymalnie ${LLM_MAX_LINE} znaków;`,
   '- mów w charakterze postaci: uwzględnij nastrój, cechy, potrzeby, relację z rozmówcą, temat i porę dnia;',
   '- reaguj na ostatnią kwestię rozmówcy, nie powtarzaj wcześniejszych kwestii; jeśli rozmówca właśnie opowiedział jakąś historię, odnieś się do niej;',
-  '- unikaj czasowników w czasie przeszłym z rodzajem (np. "zrobiłem/zrobiłam", "byliśmy/byłyśmy") i form zdradzających płeć mówiącego; wybieraj czas teraźniejszy, przyszły lub formy bezosobowe;',
-  '- bez cudzysłowów, bez imienia mówiącego na początku, bez emoji, bez opisów didaskaliów;',
+  '- NIGDY nie używaj form zdradzających płeć mówiącego ani rozmówcy: czasu przeszłego z rodzajem (np. "zrobiłem/zrobiłam", "słyszałeś/słyszałaś", "byliśmy/byłyśmy") ani przymiotników o człowieku (np. "jestem zmęczony", "jesteś miła"); wybieraj czas teraźniejszy, przyszły, formy bezosobowe lub rzeczowniki;',
+  '- zamiast form z rodzajem: "Słyszałeś?" → "Słyszysz?", "Widziałeś?" → "Widzisz?", "Byłem w ogrodzie" → "Siedzę w ogrodzie", "Cieszę się, że przyszedłeś" → "Fajnie, że wpadasz", "Jestem zmęczony" → "Padam z nóg";',
+  '- bez cudzysłowów (poza cytatem nagłówka), bez imienia mówiącego na początku, bez emoji, bez opisów didaskaliów;',
   '- pierwsza kwestia rozmowy to powitanie, ostatnia to pożegnanie;',
   '- treści przyjazne rodzinie.',
   'Czasem dostajesz listę historii, które mówiący pamięta (plotki o innych albo wspólne wspomnienia). Jeśli rozmowa na to pozwala, chętnie opowiedz JEDNĄ z nich (nie musisz). Zachowaj czas teraźniejszy i imiona w mianowniku jak w opisie, np. "Słyszysz? Kasia przypala obiad!"; wspólne wspomnienie przywołaj bez czasu przeszłego, np. "Pamiętasz, jak Ola i Tomek tańczą w ogrodzie?" albo "Pamiętasz ten taniec w ogrodzie?" (nigdy "tańczyliśmy"). Nie wymyślaj innych plotek.',
+  'Historie oznaczone jako wstydliwe opowiadaj taktownie i życzliwie (z troską, dyskretnie, bez wyśmiewania i złośliwości; w polu "tone" daj "neutral"), a "positive" zostaw dla miłych historii.',
   'Czasem dostajesz też nagłówki wiadomości, które mówiący widzi w telewizji (prawdziwe wiadomości ze świata albo wiadomości z osiedla). Możesz (nie musisz) nawiązać do JEDNEGO: przytocz go dosłownie w cudzysłowie „…”, np. "W telewizji podają: „…”", albo skomentuj krótko i ogólnie. Nie dodawaj faktów, liczb, nazwisk ani szczegółów, których nie ma w nagłówku, niczego nie zgaduj; przy poważnych lub smutnych wiadomościach zachowaj powagę i nie żartuj.',
+  'Przykłady dobrych kwestii (inne postacie i sytuacje):',
+  ...LINE_EXAMPLES.map((e) => `- ${e.situation}: ${e.text}`),
+  'Przed odpowiedzią sprawdź, czy kwestia nie zawiera formy z rodzajem; jeśli tak, przeformułuj.',
   'Odpowiedz WYŁĄCZNIE obiektem JSON, bez komentarzy i bez bloku kodu:',
   '{"text": "<kwestia>", "tone": "positive" | "neutral" | "negative", "gossip": <numer wykorzystanej historii albo null>}',
 ].join('\n');
@@ -260,13 +276,37 @@ export function extractJson(text: string): unknown {
   }
 }
 
-/** parses the model's JSON line; null when unusable. An out-of-range gossip index becomes null. */
-export function parseModelText(content: string, speakerName?: string, gossipCount = 0): LlmLineResponse | null {
+/**
+ * parses the model's JSON line; null when unusable (`why` gets the reason, never the text).
+ * An out-of-range gossip index becomes null; `allow` = names that are not gendered forms.
+ */
+export function parseModelText(
+  content: string,
+  speakerName?: string,
+  gossipCount = 0,
+  why?: (reason: string) => void,
+  allow: Iterable<string> = [],
+): LlmLineResponse | null {
   const data = extractJson(content);
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    why?.('no JSON object');
+    return null;
+  }
   const { text, tone, gossip } = data as Record<string, unknown>;
   const clean = sanitizeLine(text, LLM_MAX_LINE, speakerName);
-  if (!clean || !isTone(tone)) return null;
+  if (!clean) {
+    why?.('no text');
+    return null;
+  }
+  if (!isTone(tone)) {
+    why?.('bad tone');
+    return null;
+  }
+  const gendered = findGenderedForms(clean, allow);
+  if (gendered.length) {
+    why?.(`gendered forms: ${gendered.slice(0, 3).join(', ')}`);
+    return null;
+  }
   return { text: clean, tone, gossip: isGossipIndex(gossip, gossipCount) ? gossip : null };
 }
 
@@ -275,17 +315,23 @@ export function parseCompletion(
   body: unknown,
   speakerName?: string,
   gossipCount = 0,
+  why?: (reason: string) => void,
+  allow: Iterable<string> = [],
 ): { line: LlmLineResponse; model: string } | null {
-  if (!body || typeof body !== 'object') return null;
+  const fail = (reason: string): null => {
+    why?.(reason);
+    return null;
+  };
+  if (!body || typeof body !== 'object') return fail('no body');
   const b = body as Record<string, unknown>;
-  if (b.error) return null; // generation error delivered with HTTP 200
+  if (b.error) return fail('error body'); // generation error delivered with HTTP 200
   const choice = Array.isArray(b.choices) ? (b.choices[0] as Record<string, unknown> | undefined) : undefined;
-  if (!choice || choice.error) return null;
+  if (!choice || choice.error) return fail('no choice');
   const finish = choice.finish_reason;
-  if (finish !== 'stop' && finish !== null && finish !== undefined) return null; // length, content_filter, error, tool_calls
+  if (finish !== 'stop' && finish !== null && finish !== undefined) return fail(`finish ${String(finish)}`); // length, content_filter, error, tool_calls
   const content = (choice.message as Record<string, unknown> | undefined)?.content;
-  if (typeof content !== 'string') return null;
-  const line = parseModelText(content, speakerName, gossipCount);
+  if (typeof content !== 'string') return fail('no content');
+  const line = parseModelText(content, speakerName, gossipCount, why, allow);
   return line ? { line, model: typeof b.model === 'string' ? b.model : '?' } : null;
 }
 
@@ -304,18 +350,26 @@ export function diaryReserve(limit: number): number {
   return Math.max(DIARY_RESERVE_MIN, Math.ceil(limit * DIARY_RESERVE_SHARE));
 }
 
+/** few-shot diary entries (other facts than any real request); tests keep them valid for checkDiaryText */
+export const DIARY_EXAMPLES: readonly string[] = [
+  'Pobudka o 7:10. Rano długie wędkowanie — i jest szczupak! 🎣\n\nKasia i ja: świetna rozmowa o muzyce. Tomek nie ma czasu na pogawędkę. Trudno.\n\nCel dnia zaliczony. Co za dzień!',
+  'Rano sprzątanie, potem długi spacer z psem — Azor ciągnie smycz jak szalony.\n\nPiotr: krótka, chłodna wymiana zdań o hałasie. Mam dosyć, ale nie chcę kłótni.\n\nPadam z nóg. Dobranoc!',
+];
+
 export const DIARY_SYSTEM_PROMPT = [
   'Piszesz krótkie wpisy do pamiętników mieszkańców symulacji życia w stylu The Sims.',
   'Dostajesz imię i charakter autora, jego nastrój oraz listę FAKTÓW z jego dnia. Napisz wpis do pamiętnika w pierwszej osobie, tak jak autor pisałby wieczorem przed snem.',
   'Zasady:',
   `- naturalna, potoczna polszczyzna, 2–4 krótkie akapity, łącznie najwyżej ${DIARY_AI_MAX_WORDS} słów;`,
-  '- opisuj WYŁĄCZNIE podane fakty, nie wymyślaj zdarzeń, osób, miejsc, rozmów, cytatów ani szczegółów; możesz dodać uczucia i komentarze autora zgodne z jego charakterem i nastrojem; nie musisz użyć wszystkich faktów;',
+  '- opisuj WYŁĄCZNIE podane fakty: nie wymyślaj zdarzeń, osób (wymieniaj tylko te, które są w faktach), miejsc, rozmów, cytatów, powodów ani szczegółów; możesz dodać uczucia i komentarze autora zgodne z jego charakterem i nastrojem; nie musisz użyć wszystkich faktów;',
   '- pisz w czasie teraźniejszym (np. "Rano łowię ryby", "Ola mówi, że…", "Bartek i ja kłócimy się o politykę");',
   '- NIGDY nie używaj czasu przeszłego ani trybu przypuszczającego z rodzajem (np. "zrobiłem/zrobiłam", "poszedł/poszła", "rozmawialiśmy", "chciałbym/chciałabym") ani przymiotników zdradzających płeć autora (np. "jestem zmęczony/zmęczona", "byłem szczęśliwy") — zamiast tego czas teraźniejszy, formy bezosobowe lub rzeczowniki ("zmęczenie", "padam z nóg", "co za radość");',
-  '- imiona innych osób zawsze w mianowniku, bez odmiany i bez przyimków przed imieniem (np. "Ola i ja…", "Bartek: miła rozmowa", "Kasia mówi, że…", "wspólny obiad: Staś, Marek i ja"), nigdy "z Olą", "ze Staś", "Bartka"; tak samo imię zwierzaka domowego (np. "spacer z psem — Burek ciągnie smycz", nigdy "z Burkiem");',
+  '- imiona innych osób zawsze w mianowniku, bez odmiany i bez przyimków przed imieniem (np. "Ola i ja…", "Bartek: miła rozmowa", "Kasia mówi, że…", "wspólny obiad: Staś, Marek i ja"), nigdy "z Olą", "ze Staś", "o Kasi", "na Bartka", "Bartka"; jeśli zdanie wymaga przyimka, przebuduj je na dwukropek albo "X i ja" (zamiast "rozmowa z Olą" → "rozmowa: Ola"); tak samo imię zwierzaka domowego (np. "spacer z psem — Burek ciągnie smycz", nigdy "z Burkiem");',
   '- nagłówki z telewizji możesz przytoczyć tylko dosłownie w cudzysłowie „…” albo pominąć; nie dodawaj do nich żadnych faktów ani interpretacji; innych cytatów w „…” nie używaj;',
   '- bez daty, bez nagłówka, bez podpisu; najwyżej 3 emoji; treści przyjazne rodzinie.',
-  'Przykład stylu (inne fakty): "Pobudka o 7:10. Rano długie wędkowanie — i jest szczupak! 🎣\\n\\nKasia i ja: świetna rozmowa o muzyce. Tomek nie ma czasu na pogawędkę. Trudno.\\n\\nCel dnia zaliczony. Co za dzień!"',
+  'Przykłady stylu (inne fakty, nie przepisuj ich):',
+  ...DIARY_EXAMPLES.map((e) => `"${e.replace(/\n/g, '\\n')}"`),
+  'Przed odpowiedzią sprawdź: czas teraźniejszy, brak form z rodzajem, imiona w mianowniku bez przyimków, same podane fakty.',
   'Odpowiedz WYŁĄCZNIE obiektem JSON, bez komentarzy i bez bloku kodu:',
   '{"text": "<wpis; akapity oddzielone znakami \\n\\n>"}',
 ].join('\n');
@@ -363,7 +417,7 @@ export function parseDiaryCompletion(body: unknown, r: LlmDiaryRequest, why?: (r
   if (typeof content !== 'string') return null;
   const data = extractJson(content);
   const raw = data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>).text : null;
-  const checked = checkDiaryText(raw, { name: r.name, news: r.news, allow: [r.name] });
+  const checked = checkDiaryText(raw, { name: r.name, news: r.news, allow: [r.name, ...(r.names ?? [])], names: r.names, facts: r.facts });
   if ('reason' in checked) {
     why?.(checked.reason);
     return null;
@@ -682,11 +736,12 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
           }
           return sendJson(res, 200, entry);
         }
-        const parsed = parseCompletion(completion, request!.speaker, request!.gossip?.length ?? 0);
+        let reason = 'bad completion';
+        const parsed = parseCompletion(completion, request!.speaker, request!.gossip?.length ?? 0, (r) => (reason = r), [request!.speaker, request!.listener]);
         if (!parsed) {
           const c = completion as { error?: { message?: unknown }; choices?: { finish_reason?: unknown }[]; model?: unknown };
           log(
-            `unusable model output (model=${String(c?.model ?? '?')}, finish=${String(c?.choices?.[0]?.finish_reason ?? '-')}` +
+            `unusable model output (model=${String(c?.model ?? '?')}, finish=${String(c?.choices?.[0]?.finish_reason ?? '-')}, ${reason}` +
               `${typeof c?.error?.message === 'string' ? `, error=${c.error.message.slice(0, 120)}` : ''})`,
           );
           return sendJson(res, 503, { error: 'unusable model output' });
