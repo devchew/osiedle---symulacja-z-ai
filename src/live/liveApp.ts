@@ -26,6 +26,7 @@ export const LIVE_HELP: [string, string][] = [
   ['P', 'pamiętniki mieszkańców (← → dni)'],
   ['B', 'projekty budowlane'],
   ['K', 'kronika miejsca z ostatnich dni'],
+  ['M', 'dźwięk: ambient dnia, nocy i deszczu (domyślnie wyłączony)'],
   ['przeciągnij', 'przesuń widok'],
   ['WASD / strzałki', 'przesuń widok'],
   ['kółko / szczypnięcie', 'przybliż i oddal'],
