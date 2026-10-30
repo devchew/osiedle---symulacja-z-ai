@@ -1,5 +1,6 @@
-import type { WorldSnapshot } from '../core/state';
-import type { WeatherSample } from '../world/incidents';
+import type { Json, WorldSnapshot } from '../core/state';
+import type { SimEventKind } from '../types';
+import type { WeatherKind, WeatherSample } from '../world/incidents';
 
 export type { ChronicleDayView, ChronicleItem, ChronicleKind, ChronicleResponse } from '../social/chronicle';
 
@@ -54,6 +55,13 @@ export const liveStreamUrl = (place: PlaceId): string => `/api/live/${place}/str
  */
 export const liveChronicleUrl = (place: PlaceId): string => `/api/live/${place}/chronicle`;
 
+/**
+ * GET → ReplayResponse: a compact recording of the last 24 h of the place (every tick: positions,
+ * actions, bubbles, weather, events…), read-only, ETag + gzip; 503 { error: 'starting' } until the
+ * world is synced. Kept on the server across restarts (DATA_DIR/<place>.replay.json).
+ */
+export const liveReplayUrl = (place: PlaceId): string => `/api/live/${place}/replay`;
+
 export interface LiveMeta {
   place: PlaceId;
   /** server wall clock (ms since epoch) when the frame was produced */
@@ -90,4 +98,68 @@ export interface PlaceSummary {
   highlight: string | null;
   temperature: number | null;
   weatherIcon: string;
+}
+
+// ---------------------------------------------------------------- replay of the last 24 h
+
+/** one row = the state from `tick` on, until the next row (changes only; the first row is the state at the window start) */
+export interface ReplayActionLite {
+  k: 'use' | 'talk' | 'wander' | 'idle';
+  /** phase (use / talk / wander) */
+  p?: string;
+  /** objectUid (use) */
+  o?: number;
+  /** slot (use) */
+  s?: number;
+  /** partnerId (talk) */
+  w?: number;
+  /** conversationId (talk) */
+  c?: number | null;
+  /** label */
+  l: string;
+  /** icon */
+  i: string;
+}
+
+export interface ReplayBubbleLite {
+  k: 'speech' | 'thought';
+  t: string;
+  tone?: 'positive' | 'neutral' | 'negative';
+}
+
+export interface ReplayAgentTrack {
+  id: number;
+  /** [tick, x, y, facing]: where the resident stood after the tick */
+  pos: [number, number, number, number][];
+  act: [number, ReplayActionLite | null][];
+  bub: [number, ReplayBubbleLite | null][];
+  /** [tick, mood, hunger, energy, fun, social, hygiene, comfort], sampled every 10 ticks (integers) */
+  needs: number[][];
+}
+
+export interface ReplayPetTrack {
+  id: number;
+  /** [tick, x, y, facing, activity, withId] */
+  pos: [number, number, number, number, string, number | null][];
+}
+
+/** the response of GET /api/live/:place/replay (and the content of DATA_DIR/<place>.replay.json) */
+export interface ReplayResponse {
+  format: 1;
+  place: PlaceId;
+  /** first / last recorded tick; the window is at most 24 h (1440 ticks) */
+  fromTick: number;
+  toTick: number;
+  /** server wall clock (ms since epoch) of toTick */
+  serverTime: number;
+  agents: ReplayAgentTrack[];
+  pets: ReplayPetTrack[];
+  /** [tick, [[uid, type, x, y], …]] whenever the set of objects changed (breakdowns, building stages) */
+  objects: [number, [number, string, number, number][]][];
+  /** [tick, kind, intensity, label|null, icon|null, temperature|null] */
+  weather: [number, WeatherKind, number, string | null, string | null, number | null][];
+  /** [tick, kind, text, agentIds]: the world's events in the window (the same log as live) */
+  events: [number, SimEventKind, string, number[]][];
+  /** [tick, projects of the projects module (JSON)], sampled every 30 ticks when changed */
+  projects: [number, Json][];
 }

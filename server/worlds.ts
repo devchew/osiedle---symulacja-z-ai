@@ -19,6 +19,8 @@ import { LIVE_TIME_ZONE, PLACES, type LiveFrame, type PlaceDef, type PlaceId, ty
 import { createAiGate, createGatedChronicleClient, createGatedDiaryClient, createGatedDialogue, type AiBudgetView, type AiGate } from './worldsAi';
 import type { ChronicleAiClient } from '../src/social/chronicleAi';
 import { chroniclePath, decodeChronicle, encodeChronicle, summaryCandidate, summaryRequest } from './chronicle';
+import { createReplayRecorder, type ReplayRecorder } from '../src/live/replayRecorder';
+import { decodeReplay, encodeReplay, replayPath } from './replay';
 
 // Live worlds host: the four PLACES as shared worlds running 24/7 in real time on the server.
 // No Vite imports — used by server/prod.ts and by the Vite plugin (server/worldsProxy.ts).
@@ -45,6 +47,10 @@ import { chroniclePath, decodeChronicle, encodeChronicle, summaryCandidate, summ
 // Chronicle (src/social/chronicle.ts): after every tick the worlds' new events are classified and
 // the important ones kept for 14 days in DATA_DIR/<place>.chronicle.json (saved with the snapshot).
 // With AI on, each finished day gets one budgeted AI summary (a failure keeps the procedural one).
+//
+// Replay (src/live/replayRecorder.ts): after every tick the world's visible state is recorded as
+// change-only rows for the last 24 h (bounded memory) and served read-only as one JSON document
+// (GET /api/live/:place/replay); saved in DATA_DIR/<place>.replay.json just before the snapshot.
 //
 // Frames: after every tick each world's LiveFrame (NETWORK_SNAPSHOT) is serialized once and
 // shared by every subscriber (see LiveFrameData; gzip variants are computed lazily, once).
@@ -116,9 +122,19 @@ export interface ChronicleData {
   jsonGzip(): Buffer;
 }
 
+/** one serialized replay response (GET /api/live/:place/replay), cached until the next tick */
+export interface ReplayData {
+  etag: string;
+  json: string;
+  /** `json` gzipped, computed once */
+  jsonGzip(): Buffer;
+}
+
 export interface LiveWorld {
   place: PlaceDef;
   world: World;
+  /** the last 24 h, recorded after every tick */
+  replay: ReplayRecorder;
   /** important events of the last days (see src/social/chronicle.ts) */
   chronicle: ChronicleStore;
   /** local calendar day number (days since 1970-01-01) of game day 0 */
@@ -140,6 +156,8 @@ export interface LiveHost {
   summaries(): PlaceSummary[];
   /** the place's chronicle; undefined for an unknown place or while the world is not synced */
   chronicle(id: string): ChronicleData | undefined;
+  /** the place's last-24 h recording; undefined for an unknown place or while the world is not synced */
+  replay(id: string): ReplayData | undefined;
   /** subscribe to a world's frames (called after each published tick) */
   onFrame(id: PlaceId, fn: (frame: LiveFrameData) => void): () => void;
   /** registers a viewer (SSE stream) of a world, for the AI budget priority; returns the release function */
@@ -481,6 +499,43 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
     return data;
   }
 
+  // ------------------------------------------------ replay
+  const replayCache = new Map<PlaceId, ReplayData & { key: string }>();
+
+  function replayData(lw: LiveWorld): ReplayData {
+    const key = `${lw.replay.lastTick}`;
+    const hit = replayCache.get(lw.place.id);
+    if (hit && hit.key === key) return hit;
+    const json = JSON.stringify(lw.replay.data(realNow()));
+    let gz: Buffer | null = null;
+    const data = { key, etag: `"r-${lw.place.id}-${key}"`, json, jsonGzip: () => (gz ??= gzipSync(json)) };
+    replayCache.set(lw.place.id, data);
+    return data;
+  }
+
+  /** never throws: an unusable file is renamed to .bak and the recording starts over */
+  async function loadReplay(place: PlaceDef, world: World, restored: boolean): Promise<ReplayRecorder> {
+    const rec = createReplayRecorder(place.id);
+    if (!dataDir || !restored) return rec;
+    const file = replayPath(dataDir, place.id);
+    let text: string | null = null;
+    try {
+      text = await readFile(file, 'utf8');
+    } catch {
+      /* no recording yet */
+    }
+    if (text === null) return rec;
+    try {
+      decodeReplay(text, rec);
+      rec.rewind(world.tick);
+      return rec;
+    } catch (err) {
+      log(`${place.id}: cannot read ${file} (${(err as Error)?.message ?? err}) — starting a new recording, old file kept as .bak`);
+      await rename(file, `${file}.bak`).catch(() => {});
+      return createReplayRecorder(place.id);
+    }
+  }
+
   // ------------------------------------------------ load / create
   async function load(place: PlaceDef): Promise<LiveWorld> {
     if (dataDir) {
@@ -495,7 +550,7 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
         try {
           const { world, baseDay } = decodeSave(text, place);
           log(`${place.id}: restored at tick ${world.tick}`);
-          return { place, world, chronicle: await loadChronicle(place, world, baseDay, true), baseDay, ready: false, restored: true, weather: null, weatherUpdatedAt: null, ai: false, frame: null };
+          return { place, world, replay: await loadReplay(place, world, true), chronicle: await loadChronicle(place, world, baseDay, true), baseDay, ready: false, restored: true, weather: null, weatherUpdatedAt: null, ai: false, frame: null };
         } catch (err) {
           log(`${place.id}: cannot restore ${file} (${(err as Error)?.message ?? err}) — starting fresh, old file kept as .bak`);
           await rename(file, `${file}.bak`).catch(() => {});
@@ -504,7 +559,7 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
     }
     const world = createWorld(place.seed, { agentCount: place.residents, mapId: place.mapId });
     const baseDay = baseDayFor(localNow());
-    return { place, world, chronicle: await loadChronicle(place, world, baseDay, false), baseDay, ready: false, restored: false, weather: null, weatherUpdatedAt: null, ai: false, frame: null };
+    return { place, world, replay: await loadReplay(place, world, false), chronicle: await loadChronicle(place, world, baseDay, false), baseDay, ready: false, restored: false, weather: null, weatherUpdatedAt: null, ai: false, frame: null };
   }
 
   /** steps `lw` up to the clock (re-anchoring when far off); yields between chunks */
@@ -524,6 +579,7 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
       for (let i = 0; i < n; i++) {
         tickWorld(lw.world);
         collectEvents(lw.chronicle, lw.world.events, lw.world.tick, date);
+        lw.replay.record(lw.world, lw.weather?.current?.temperature ?? null);
       }
       stepped += n;
       if (behind > n) await sleep0();
@@ -581,6 +637,10 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
 
   async function saveOne(lw: LiveWorld): Promise<void> {
     if (!dataDir || !lw.ready) return;
+    // the recording first: after a crash it is never behind the snapshot (a restore rewinds it if ahead)
+    const rfile = replayPath(dataDir, lw.place.id);
+    await writeFile(`${rfile}.tmp`, encodeReplay(lw.replay, realNow()));
+    await rename(`${rfile}.tmp`, rfile);
     const file = snapshotPath(dataDir, lw.place.id);
     const tmp = `${file}.tmp`;
     await writeFile(tmp, encodeSave(lw, realNow()));
@@ -617,6 +677,10 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
     chronicle(id) {
       const lw = worlds.get(id as PlaceId);
       return lw?.ready ? chronicleData(lw) : undefined;
+    },
+    replay(id) {
+      const lw = worlds.get(id as PlaceId);
+      return lw?.ready ? replayData(lw) : undefined;
     },
     onFrame(id, fn) {
       let set = listeners.get(id);
@@ -670,6 +734,9 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
       for (const lw of worlds.values()) {
         if (!lw.ready) continue;
         try {
+          const rfile = replayPath(dataDir, lw.place.id);
+          writeFileSync(`${rfile}.tmp`, encodeReplay(lw.replay, realNow()));
+          renameSync(`${rfile}.tmp`, rfile);
           const file = snapshotPath(dataDir, lw.place.id);
           writeFileSync(`${file}.tmp`, encodeSave(lw, realNow()));
           renameSync(`${file}.tmp`, file);
