@@ -17,6 +17,8 @@ const LOADERS: Record<string, () => Promise<unknown>> = {
   'agents/brain': () => import('../src/agents/brain'),
   'agents/groups': () => import('../src/agents/groups'),
   'agents/joint': () => import('../src/agents/joint'),
+  'agents/work': () => import('../src/agents/work'),
+  'agents/household': () => import('../src/agents/household'),
   'social/diary': () => import('../src/social/diary'),
   'core/state': () => import('../src/core/state'),
 };

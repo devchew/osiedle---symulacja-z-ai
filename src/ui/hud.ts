@@ -1,6 +1,7 @@
 import './ui.css';
 import { formatClock } from '../core/time';
 import type { DayPhase, Season, SimControls, World } from '../types';
+import { householdSummary } from '../agents/work';
 import { el, isTypingTarget, moodEmoji, setText } from './dom';
 import type { WeatherOfFn } from './extras';
 import '../realtime/realtime.css';
@@ -134,7 +135,8 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
   const pop = el('span', 'hud-stat');
   pop.hidden = opts.showPopulation === false;
   const mood = el('span', 'hud-stat');
-  const statsBox = el('div', 'hud-stats', [pop, mood]);
+  const budget = el('span', 'hud-stat');
+  const statsBox = el('div', 'hud-stats', [pop, mood, budget]);
 
   // help: small popover with keys and gestures
   const helpBtn = el('button', 'hud-btn hud-help-btn', ['?']);
@@ -266,6 +268,9 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
       setText(mood, `${moodEmoji(avg)} ${Math.round(avg)}`);
       mood.title = 'Średni nastrój';
     } else setText(mood, '');
+    const home = householdSummary(world);
+    setText(budget, `💰 ${home.money} zł · 🧺 ${home.stock}`);
+    budget.title = `Budżet domu i porcje w lodówce (z ${home.capacity})${home.away ? `; poza domem: ${home.away}` : ''}`;
   }
 
   const onKey = (e: KeyboardEvent): void => {

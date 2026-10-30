@@ -192,6 +192,21 @@ export interface Agent {
   action: Action | null;
   bubble: Bubble | null;
   stats: AgentStats;
+  /**
+   * set while the resident is out of the house (work, classes, a shopping trip; agents/work.ts):
+   * not drawn on the map, `pos` stays at the tile they left through, `action` is an idle line
+   * with the same label and icon. Absent = at home.
+   */
+  away?: AwayInfo;
+}
+
+export interface AwayInfo {
+  kind: 'work' | 'classes' | 'shop';
+  /** Polish, e.g. "W pracy (wraca ok. 16:30)" */
+  label: string;
+  icon: string;
+  /** tick of the expected return */
+  until: number;
 }
 
 // ---------------------------------------------------------------- social

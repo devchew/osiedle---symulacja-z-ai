@@ -15,6 +15,7 @@ import { EXCHANGE_GAP, LINE_TTL, chatAcceptanceChance, conversationDelta, descri
 import { feltSympathy, recordConversation, recordFriction, statusOf } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 import { onConversationEnd, recallFor } from '../social/memory';
+import { eatPortions } from './household';
 import { goalConversation, goalUseEnd, goalUseTick, updateGoal } from './goals';
 import { wakeHour } from './seasons';
 import { gatheringOf as gatheringOfAgent, noticeCompetition, onHeadingTo } from './groups';
@@ -286,6 +287,7 @@ export function updateAgent(world: World, agent: Agent, time: GameTime): void {
           if (obj.type === 'fishing_spot') noteFishingCast(world, agent, obj);
           agent.stats.objectsUsed++;
           rememberUse(agent, obj.type);
+          eatPortions(world, obj.type);
           if (isSleepingObject(def)) pushEvent(world, 'use', `${agent.name} idzie spać`, [agent.id]);
           else onStartUse(world, agent, def, usersOf(world, obj, agent));
         }

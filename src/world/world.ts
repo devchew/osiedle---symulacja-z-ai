@@ -22,6 +22,7 @@ import { initProjects, tickProjects } from './projects';
 import { updateRelations } from '../social/relationships';
 import { tickGatherings } from '../agents/groups';
 import { ensurePets, tickPets } from '../agents/pets';
+import { tickEconomy, tickWork } from '../agents/work';
 // side effects: register the module state of actions.ts / movement.ts with the snapshot registry
 import '../agents/actionsState';
 import '../agents/movementState';
@@ -95,7 +96,7 @@ export function tickWorld(world: World): void {
     decayNeeds(agent, { sleeping: isAgentSleeping(world, agent), hour: time.hour });
     if (agent.bubble && --agent.bubble.ttl <= 0) agent.bubble = null;
   }
-  for (const agent of world.agents) updateAgent(world, agent, time);
+  for (const agent of world.agents) if (!tickWork(world, agent, time, endAction)) updateAgent(world, agent, time);
   tickPets(world);
   tickIncidents(world, endAction);
   tickProjects(world);
@@ -106,8 +107,10 @@ export function tickWorld(world: World): void {
   updateRelations(world);
   tickGatherings(world);
   ambientChats(world);
+  tickEconomy(world, time);
   for (const agent of world.agents) {
     agent.mood = computeMood(agent.needs, agent.traits);
+    if (agent.away) continue;
     thinkAloud(world, agent);
     narrateState(world, agent, isAgentSleeping(world, agent));
   }

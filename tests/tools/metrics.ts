@@ -4,6 +4,7 @@ import { NEED_KEYS } from '../../src/types';
 import type { Agent, NeedKey, Traits, World } from '../../src/types';
 import { setCalendar, timeOf } from '../../src/core/calendar';
 import { isAgentSleeping } from '../../src/agents/actions';
+import { WORK_EVENT_RE } from '../../src/agents/work';
 import { goalHistory, type GoalRecord } from '../../src/agents/goals';
 import { gatheringTotals, type GatheringKind } from '../../src/agents/groups';
 import { jointLog, type JointRecord } from '../../src/agents/joint';
@@ -190,7 +191,7 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
         if (key === 'wander') m.wanderTicks++;
         else m.tripTicks++;
       }
-      if (agent.action?.kind === 'idle') m.idleTicks++;
+      if (agent.action?.kind === 'idle' && !agent.away) m.idleTicks++;
       const asleep = isAgentSleeping(world, agent);
       const mod = time.hour * 60 + time.minute;
       if (asleep && !wasSleeping[idx] && (time.hour >= 19 || time.hour < 4)) m.bedtimes.push(time.hour < 12 ? mod + 1440 : mod);
@@ -220,7 +221,7 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
         m.maxLowStreak = lowStreak[idx];
         m.lowStreakNeed = low ?? null;
       }
-      stuck[idx] = moved || active ? 0 : stuck[idx] + 1;
+      stuck[idx] = moved || active || agent.away ? 0 : stuck[idx] + 1;
       m.maxStuck = Math.max(m.maxStuck, stuck[idx]);
     });
 
@@ -234,7 +235,8 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
         if (e.kind === 'conversation' || e.kind === 'relationship' || /spać|wstaje/.test(e.text)) continue;
         const h = Math.floor(world.tick / 60);
         // world incidents (weather, breakdowns, repairs; src/world/incidents.ts) have their own budget
-        if (e.agentIds.length === 0 || /🔧|🧰/.test(e.text)) continue;
+        if (e.agentIds.length === 0 || /🔧|🧰/.test(e.text) || WORK_EVENT_RE.test(e.text)) continue;
+        // commuting and shopping (agents/work.ts) are a routine, not a story
         // estate news bulletins (world/news.ts, "📰 …") are TV, not narration
         if (e.text.startsWith('📰')) continue;
         if (JOINT_RE.test(e.text)) {
