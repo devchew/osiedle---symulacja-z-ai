@@ -8,14 +8,17 @@ import { NETWORK_SNAPSHOT, DISK_SNAPSHOT, SnapshotVersionError, snapshotWorld, t
 import { setWeatherOverride, weatherOf } from '../src/world/incidents';
 import { hasRealNews, setNewsFeed } from '../src/world/news';
 import { setDiaryAiEnabled } from '../src/social/diary';
+import { collectEvents, createChronicle, rewindChronicle, toView, type ChronicleStore } from '../src/social/chronicle';
 import { isAgentSleeping } from '../src/agents/actions';
 import { jointSessions, type JointKind } from '../src/agents/joint';
 import { joinNames } from '../src/agents/groups';
 import { activeProject } from '../src/world/projects';
-import { baseDayFor, localTimeIn, parseLocalTime, MAX_CATCH_UP_TICKS, reanchorBaseDay, targetTick, type LocalTime } from '../src/realtime/clock';
+import { baseDayFor, localTimeIn, parseLocalTime, MAX_CATCH_UP_TICKS, reanchorBaseDay, targetTick, tickToLocal, type LocalTime } from '../src/realtime/clock';
 import { fetchRealWeather, weatherSource, type RealWeather } from '../src/realtime/weather';
 import { LIVE_TIME_ZONE, PLACES, type LiveFrame, type PlaceDef, type PlaceId, type PlaceSummary } from '../src/live/protocol';
-import { createAiGate, createGatedDiaryClient, createGatedDialogue, type AiBudgetView, type AiGate } from './worldsAi';
+import { createAiGate, createGatedChronicleClient, createGatedDiaryClient, createGatedDialogue, type AiBudgetView, type AiGate } from './worldsAi';
+import type { ChronicleAiClient } from '../src/social/chronicleAi';
+import { chroniclePath, decodeChronicle, encodeChronicle, summaryCandidate, summaryRequest } from './chronicle';
 
 // Live worlds host: the four PLACES as shared worlds running 24/7 in real time on the server.
 // No Vite imports — used by server/prod.ts and by the Vite plugin (server/worldsProxy.ts).
@@ -38,6 +41,10 @@ import { createAiGate, createGatedDiaryClient, createGatedDialogue, type AiBudge
 // written atomically (tmp + rename) every 5 minutes and on shutdown. A file that cannot be restored
 // (corrupt, other snapshot version, other place) is renamed to <place>.json.bak and the world starts
 // fresh.
+//
+// Chronicle (src/social/chronicle.ts): after every tick the worlds' new events are classified and
+// the important ones kept for 14 days in DATA_DIR/<place>.chronicle.json (saved with the snapshot).
+// With AI on, each finished day gets one budgeted AI summary (a failure keeps the procedural one).
 //
 // Frames: after every tick each world's LiveFrame (NETWORK_SNAPSHOT) is serialized once and
 // shared by every subscriber (see LiveFrameData; gzip variants are computed lazily, once).
@@ -101,9 +108,19 @@ export interface LiveFrameData {
   jsonGzip(): Buffer;
 }
 
+/** one serialized chronicle response (GET /api/live/:place/chronicle), cached until the chronicle changes */
+export interface ChronicleData {
+  etag: string;
+  json: string;
+  /** `json` gzipped, computed once */
+  jsonGzip(): Buffer;
+}
+
 export interface LiveWorld {
   place: PlaceDef;
   world: World;
+  /** important events of the last days (see src/social/chronicle.ts) */
+  chronicle: ChronicleStore;
   /** local calendar day number (days since 1970-01-01) of game day 0 */
   baseDay: number;
   ready: boolean;
@@ -121,6 +138,8 @@ export interface LiveHost {
   readonly places: readonly PlaceDef[];
   get(id: string): LiveWorld | undefined;
   summaries(): PlaceSummary[];
+  /** the place's chronicle; undefined for an unknown place or while the world is not synced */
+  chronicle(id: string): ChronicleData | undefined;
   /** subscribe to a world's frames (called after each published tick) */
   onFrame(id: PlaceId, fn: (frame: LiveFrameData) => void): () => void;
   /** registers a viewer (SSE stream) of a world, for the AI budget priority; returns the release function */
@@ -393,7 +412,71 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
     const fallback = lw.world.dialogue;
     lw.world.dialogue = createGatedDialogue(lw.place.id, aiGate, opts.ai.fetch, fallback);
     setDiaryAiEnabled(lw.world, true, { client: createGatedDiaryClient(lw.place.id, aiGate, opts.ai.fetch), spacingMs: 8000 });
+    chronicleClients.set(lw.place.id, createGatedChronicleClient(lw.place.id, aiGate, opts.ai.fetch));
     lw.ai = true;
+  }
+
+  // ------------------------------------------------ chronicle
+  const chronicleClients = new Map<PlaceId, ChronicleAiClient>();
+  const summarizing = new Set<PlaceId>();
+  const chronicleCache = new Map<PlaceId, ChronicleData & { key: string }>();
+
+  const dateOf = (lw: { baseDay: number }) => (tick: number): string => tickToLocal(tick, lw.baseDay).date;
+
+  /** never throws: an unusable file is renamed to .bak and the chronicle starts over */
+  async function loadChronicle(place: PlaceDef, world: World, baseDay: number, restored: boolean): Promise<ChronicleStore> {
+    let store = createChronicle();
+    if (dataDir) {
+      const file = chroniclePath(dataDir, place.id);
+      let text: string | null = null;
+      try {
+        text = await readFile(file, 'utf8');
+      } catch {
+        /* no chronicle yet */
+      }
+      if (text !== null) {
+        try {
+          store = decodeChronicle(text, place);
+        } catch (err) {
+          log(`${place.id}: cannot read ${file} (${(err as Error)?.message ?? err}) — starting a new chronicle, old file kept as .bak`);
+          await rename(file, `${file}.bak`).catch(() => {});
+        }
+      }
+    }
+    // a fresh world restarts at tick 0: older days stay, the new ticks are collected from the start
+    if (restored) rewindChronicle(store, world.tick);
+    else store.lastTick = 0;
+    collectEvents(store, world.events, world.tick, dateOf({ baseDay }));
+    return store;
+  }
+
+  function maybeSummarize(lw: LiveWorld): void {
+    const client = chronicleClients.get(lw.place.id);
+    if (!client || stopped || summarizing.has(lw.place.id)) return;
+    const day = summaryCandidate(lw.chronicle, tickToLocal(lw.world.tick, lw.baseDay).date);
+    if (!day) return;
+    day.aiTried = true;
+    summarizing.add(lw.place.id);
+    client
+      .write(summaryRequest(lw.place, day, lw.world.agents.map((a) => a.name)))
+      .then(
+        (text) => {
+          day.ai = text;
+        },
+        (err: unknown) => log(`${lw.place.id}: chronicle summary of ${day.date} failed (${(err as Error)?.message ?? err})`),
+      )
+      .finally(() => summarizing.delete(lw.place.id));
+  }
+
+  function chronicleData(lw: LiveWorld): ChronicleData {
+    const key = `${lw.chronicle.lastTick}-${lw.chronicle.days.filter((d) => d.ai).length}`;
+    const hit = chronicleCache.get(lw.place.id);
+    if (hit && hit.key === key) return hit;
+    const json = JSON.stringify(toView(lw.chronicle, lw.place.id, lw.chronicle.lastTick));
+    let gz: Buffer | null = null;
+    const data = { key, etag: `"c-${lw.place.id}-${key}"`, json, jsonGzip: () => (gz ??= gzipSync(json)) };
+    chronicleCache.set(lw.place.id, data);
+    return data;
   }
 
   // ------------------------------------------------ load / create
@@ -410,7 +493,7 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
         try {
           const { world, baseDay } = decodeSave(text, place);
           log(`${place.id}: restored at tick ${world.tick}`);
-          return { place, world, baseDay, ready: false, restored: true, weather: null, weatherUpdatedAt: null, ai: false, frame: null };
+          return { place, world, chronicle: await loadChronicle(place, world, baseDay, true), baseDay, ready: false, restored: true, weather: null, weatherUpdatedAt: null, ai: false, frame: null };
         } catch (err) {
           log(`${place.id}: cannot restore ${file} (${(err as Error)?.message ?? err}) — starting fresh, old file kept as .bak`);
           await rename(file, `${file}.bak`).catch(() => {});
@@ -418,7 +501,8 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
       }
     }
     const world = createWorld(place.seed, { agentCount: place.residents, mapId: place.mapId });
-    return { place, world, baseDay: baseDayFor(localNow()), ready: false, restored: false, weather: null, weatherUpdatedAt: null, ai: false, frame: null };
+    const baseDay = baseDayFor(localNow());
+    return { place, world, chronicle: await loadChronicle(place, world, baseDay, false), baseDay, ready: false, restored: false, weather: null, weatherUpdatedAt: null, ai: false, frame: null };
   }
 
   /** steps `lw` up to the clock (re-anchoring when far off); yields between chunks */
@@ -434,7 +518,11 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
       const behind = targetTick(localNow(), lw.baseDay) - lw.world.tick;
       if (behind <= 0 || stopped) break;
       const n = Math.min(behind, CATCH_UP_CHUNK);
-      for (let i = 0; i < n; i++) tickWorld(lw.world);
+      const date = dateOf(lw);
+      for (let i = 0; i < n; i++) {
+        tickWorld(lw.world);
+        collectEvents(lw.chronicle, lw.world.events, lw.world.tick, date);
+      }
       stepped += n;
       if (behind > n) await sleep0();
     }
@@ -467,6 +555,7 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
       attachAi(lw);
       lw.ready = true;
       publish(lw);
+      maybeSummarize(lw);
       log(`${lw.place.id}: ${lw.restored ? 'restored' : 'new'} world at tick ${lw.world.tick} (+${n} ticks in ${Date.now() - t0} ms)`);
     }
     if (stopped) return;
@@ -494,6 +583,10 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
     const tmp = `${file}.tmp`;
     await writeFile(tmp, encodeSave(lw, realNow()));
     await rename(tmp, file);
+    // after the snapshot: a crash in between leaves the chronicle behind (re-collected from the world's events), never ahead
+    const cfile = chroniclePath(dataDir, lw.place.id);
+    await writeFile(`${cfile}.tmp`, encodeChronicle(lw.place.id, lw.chronicle));
+    await rename(`${cfile}.tmp`, cfile);
   }
 
   const host: LiveHost = {
@@ -519,6 +612,10 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
         };
       });
     },
+    chronicle(id) {
+      const lw = worlds.get(id as PlaceId);
+      return lw?.ready ? chronicleData(lw) : undefined;
+    },
     onFrame(id, fn) {
       let set = listeners.get(id);
       if (!set) listeners.set(id, (set = new Set()));
@@ -542,6 +639,7 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
           if (!lw.ready || stopped) continue;
           const n = await catchUp(lw);
           if (n > 0) publish(lw);
+          maybeSummarize(lw);
         }
       };
       const prev = syncing ?? Promise.resolve();
@@ -573,6 +671,9 @@ export function createLiveHost(opts: LiveHostOptions = {}): LiveHost {
           const file = snapshotPath(dataDir, lw.place.id);
           writeFileSync(`${file}.tmp`, encodeSave(lw, realNow()));
           renameSync(`${file}.tmp`, file);
+          const cfile = chroniclePath(dataDir, lw.place.id);
+          writeFileSync(`${cfile}.tmp`, encodeChronicle(lw.place.id, lw.chronicle));
+          renameSync(`${cfile}.tmp`, cfile);
         } catch (err) {
           log(`${lw.place.id}: save failed (${(err as Error)?.message ?? err})`);
         }
