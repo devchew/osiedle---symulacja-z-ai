@@ -9,7 +9,7 @@ import { WORLD_OBJECT_DEFS } from './objects';
 import { pushEvent } from './events';
 import { createAgents } from '../agents/agent';
 import { computeMood, decayNeeds } from '../agents/needs';
-import { ambientChats, isAgentSleeping, tickConversations, updateAgent } from '../agents/actions';
+import { ambientChats, endAction, isAgentSleeping, tickConversations, updateAgent } from '../agents/actions';
 import { mostUrgentNeed } from '../agents/brain';
 import { assignBeds } from '../agents/home';
 import { narrateState } from '../agents/narration';
@@ -94,7 +94,7 @@ export function tickWorld(world: World): void {
     if (agent.bubble && --agent.bubble.ttl <= 0) agent.bubble = null;
   }
   for (const agent of world.agents) updateAgent(world, agent, time);
-  tickIncidents(world);
+  tickIncidents(world, endAction);
   tickProjects(world);
   tickNews(world);
   updateMemories(world);

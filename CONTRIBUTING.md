@@ -87,8 +87,9 @@ publikuje obraz `runtime` do GHCR (`ghcr.io/<repo>`).
 - **Stan modułów** trzymany w `WeakMap` musi być zarejestrowany w `registerWorldState`
   (`src/core/state.ts`) — inaczej nie przetrwa snapshotu (restart serwera, sandbox). Test:
   `tests/snapshot.test.ts`.
-- **Kolejność importów**: w symulacji są cykle importów (issue #1) — każdy punkt wejścia ładuje najpierw
-  `src/world/world.ts`.
+- **Bez cykli importów** w `src` (test: `tests/imports.test.ts`; kolejność ładowania nie zmienia świata:
+  `tests/loadOrder.test.ts`). Gdy moduł świata musi wywołać logikę agentów, `world.ts` przekazuje funkcję
+  jawnie (np. `tickIncidents(world, endAction)`); wspólne stałe idą do modułów-liści (np. `agents/meals.ts`).
 - **Serwer** (`server/`): rdzenie handlerów bez zależności od Vite (`llm.ts`, `news.ts`, `worlds*.ts`),
   pluginy Vite tylko je opakowują; produkcja to `server/prod.ts` zbundlowany do `dist-server/prod.js`.
 

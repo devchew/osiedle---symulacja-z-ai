@@ -1,6 +1,3 @@
-// simulation modules have import cycles whose top-level state depends on evaluation order:
-// load the world entry first, exactly like the tests and the browser do
-import '../src/world/world';
 import { createDailyBudget, createLlmHandler, parseDailyLimit, parseModelList } from './llm';
 import { createNewsService, parseFeedList } from './news';
 import { liveConfigFromEnv } from './worlds';
