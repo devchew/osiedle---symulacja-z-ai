@@ -154,6 +154,8 @@ export interface Bubble {
   /** remaining ticks */
   ttl: number;
   tone?: Tone;
+  /** fraction of the tick (0..1) from which the bubble shows, e.g. a reply a few seconds after the opener; default 0 */
+  at?: number;
 }
 
 export interface AgentStats {

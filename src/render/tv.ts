@@ -6,6 +6,7 @@
 import type { World } from '../types';
 import { activeTvs, currentHeadline, type NewsItem } from '../world/news';
 import { EMOJI_FONT, UI_FONT, rr } from './colors';
+import { SCROLL_SPEED, presentHeadline, scrollOffset, ticker } from './tvTicker';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -13,7 +14,7 @@ type Ctx = CanvasRenderingContext2D;
 export function drawTvScreens(ctx: Ctx, world: World, now: number): void {
   const uids = activeTvs(world);
   if (!uids.length) return;
-  const item = currentHeadline(world);
+  const item = presentHeadline(ticker, currentHeadline(world), now);
   const t = now / 1000;
   ctx.save();
   for (const uid of uids) {
@@ -226,7 +227,7 @@ export function drawTvNews(
   viewW: number,
   viewH: number,
 ): TvPanelRect[] {
-  const item = currentHeadline(world);
+  const item = presentHeadline(ticker, currentHeadline(world), now);
   const uids = activeTvs(world);
   if (!item || !uids.length || zoom < 9) return [];
   const ui = Math.max(1, Math.min(1.25, zoom / 30));
@@ -323,17 +324,16 @@ export function drawTvNews(
     const tw = textWidth(ctx, text, font);
     const avail = right - left - 8 * ui;
     const tyMid = ty + th / 2 + 0.5;
-    if (tw <= avail) ctx.fillText(text, left + 4 * ui, tyMid);
-    else {
-      // continuous marquee; starts with a short pause at the beginning
-      const gap = 48 * ui;
-      const span = tw + gap;
-      const speed = 42 * ui;
-      const cycle = span / speed + 1.2;
-      const ph = t % cycle;
-      const off = ph < 1.2 ? 0 : (ph - 1.2) * speed;
+    if (tw <= avail) {
+      ticker.dist = 0;
+      ctx.fillText(text, left + 4 * ui, tyMid);
+    } else {
+      // one pass from the first word (pause, scroll, rest); the ticker holds the headline until it ends
+      const dist = tw - avail;
+      ticker.dist = dist;
+      ticker.speed = SCROLL_SPEED * ui;
+      const off = scrollOffset((now - ticker.since) / 1000, dist, ticker.speed);
       ctx.fillText(text, left + 4 * ui - off, tyMid);
-      ctx.fillText(text, left + 4 * ui - off + span, tyMid);
     }
     ctx.restore();
     rects.push({ x, y, w: W, h: H + 6 * ui });
