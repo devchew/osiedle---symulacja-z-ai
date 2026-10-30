@@ -2,7 +2,7 @@
 import { createWorld, tickWorld } from '../../src/world/world';
 import { NEED_KEYS } from '../../src/types';
 import type { Agent, NeedKey, Traits, World } from '../../src/types';
-import { timeFromTick } from '../../src/core/time';
+import { setCalendar, timeOf } from '../../src/core/calendar';
 import { isAgentSleeping } from '../../src/agents/actions';
 import { goalHistory, type GoalRecord } from '../../src/agents/goals';
 import { gatheringTotals, type GatheringKind } from '../../src/agents/groups';
@@ -119,6 +119,8 @@ function activityOf(world: World, agent: Agent): { key: string | null; phase: st
 
 export function runMetrics(seed: number, days: number, agentCount = 6): RunMetrics {
   const world = createWorld(seed, { agentCount });
+  // SOAK_DATE=2026-12-21 runs the week in another season (the date of day 1)
+  if (process.env.SOAK_DATE) setCalendar(world, Math.round(Date.parse(process.env.SOAK_DATE) / 86_400_000));
   const ticks = days * 24 * 60;
   const ms: AgentMetrics[] = world.agents.map((a) => ({
     id: a.id,
@@ -167,7 +169,7 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
 
   for (let i = 0; i < ticks; i++) {
     tickWorld(world);
-    const time = timeFromTick(world.tick);
+    const time = timeOf(world);
     const holders = world.objects.flatMap((o) => o.reservedBy.filter((r) => r !== null));
     if (new Set(holders).size !== holders.length) doubleBookings++;
 

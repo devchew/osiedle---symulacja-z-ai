@@ -1,10 +1,11 @@
 import type { Agent, GameTime, ObjectDef, ObjectInstance, Vec2, World } from '../types';
-import { timeFromTick } from '../core/time';
+import { timeOf } from '../core/calendar';
 import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
 import { pushEvent } from '../world/events';
 import { REL_TUNING, clash, recordFriction, statusOf, type RelationStatus } from '../social/relationships';
 import { isMealTime } from './meals';
 import { goalObjectBias, type GoalBias } from './goals';
+import { bedtimeHour, outdoorEveningEnd } from './seasons';
 
 // Group activities. A resident who heads for a "gathering" object at the right
 // time (dining table at a meal, grill around lunch/dinner, TV in the evening)
@@ -120,8 +121,8 @@ const MOVIE_PROPOSE_AFTER = 20;
 function inviteKind(type: string, time: GameTime): GatheringKind | null {
   const h = hourOf(time);
   if (type === 'dining_table') return isMealTime(time) ? 'meal' : null;
-  if (type === 'grill') return h >= 11 && h < 20 ? 'grill' : null;
-  if (type === 'tv') return h >= MOVIE_FROM && h < 22 ? 'movie' : null;
+  if (type === 'grill') return h >= 11 && h < outdoorEveningEnd(time) ? 'grill' : null;
+  if (type === 'tv') return h >= MOVIE_FROM && h < bedtimeHour(time) ? 'movie' : null;
   return null;
 }
 
@@ -182,7 +183,7 @@ function maybeInvite(world: World, agent: Agent, obj: ObjectInstance, time: Game
  * "let's grill the fish". Returns false when the object hosts nothing now or is already invited to.
  */
 export function callGathering(world: World, host: Agent, obj: ObjectInstance, text: string): boolean {
-  const kind = inviteKind(obj.type, timeFromTick(world.tick));
+  const kind = inviteKind(obj.type, timeOf(world));
   if (!kind) return false;
   const s = store(world);
   s.invites = s.invites.filter((i) => i.until > world.tick);
@@ -304,7 +305,7 @@ function describe(kind: GatheringKind, time: GameTime, names: string[]): { label
 /** detects gatherings, logs new ones and closes finished ones; call once per tick */
 export function tickGatherings(world: World): void {
   const s = store(world);
-  const time = timeFromTick(world.tick);
+  const time = timeOf(world);
   const T = GROUP_TUNING;
   if (s.invites.length > 0) s.invites = s.invites.filter((i) => i.until > world.tick);
   for (const anchor of world.objects) {
@@ -349,8 +350,9 @@ export function tickGatherings(world: World): void {
 
 /** after a shared dinner someone may suggest a film (host + invitation to the TV) */
 function proposeMovie(world: World, s: GroupStore, g: Gathering): void {
-  const h = hourOf(timeFromTick(world.tick));
-  if (g.proposed || g.kind !== 'meal' || h < MOVIE_PROPOSE[0] || h >= MOVIE_PROPOSE[1]) return;
+  const time = timeOf(world);
+  const h = hourOf(time);
+  if (g.proposed || g.kind !== 'meal' || h < MOVIE_PROPOSE[0] || h >= MOVIE_PROPOSE[1] + bedtimeHour(time) - 22) return;
   if (world.tick - g.startTick < MOVIE_PROPOSE_AFTER) return;
   g.proposed = true;
   const tv = world.objects.find((o) => o.type === 'tv' && o.reservedBy.every((r) => r === null));

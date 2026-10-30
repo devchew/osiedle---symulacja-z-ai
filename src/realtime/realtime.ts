@@ -1,6 +1,7 @@
 import './realtime.css';
 import type { SimControls, World } from '../types';
 import type { Loop } from '../core/loop';
+import { setCalendar } from '../core/calendar';
 import { setWeatherOverride } from '../world/incidents';
 import { replayTo } from '../ui/replay';
 import { el } from '../ui/dom';
@@ -163,6 +164,7 @@ export async function startRealtime(opts: RealtimeOptions): Promise<void> {
 
   const now0 = localTimeOf(new Date());
   const baseDay = baseDayFor(now0);
+  setCalendar(world, baseDay);
   let real: RealWeather | null = null;
   setWeatherOverride(
     world,

@@ -5,7 +5,7 @@
 // dozen small shapes.
 
 import type { ObjectInstance, World } from '../types';
-import { baseTypeOf, brokenObjects, isBroken, weatherOf, type WeatherInfo } from '../world/incidents';
+import { baseTypeOf, brokenObjects, isBroken, snowCoverOf, weatherOf, type WeatherInfo } from '../world/incidents';
 import { EMOJI_FONT, hash2 } from './colors';
 
 /** how much the weather dims daylight (0 = none); used to scale the lighting's "night" */
@@ -14,7 +14,7 @@ export function weatherDim(w: WeatherInfo): number {
     case 'cloudy':
       return 0.08;
     case 'rain':
-      return 0.2 + 0.3 * w.intensity;
+      return w.snow ? 0.1 + 0.2 * w.intensity : 0.2 + 0.3 * w.intensity;
     case 'storm':
       return 0.45 + 0.2 * w.intensity;
     default:
@@ -24,6 +24,7 @@ export function weatherDim(w: WeatherInfo): number {
 
 const MAX_DROPS = 420;
 const RIPPLES = 70;
+const MAX_FLAKES = 260;
 
 export class WeatherFx {
   /** outdoor tiles (grass, path, water) as one clip path, built per map */
@@ -34,6 +35,14 @@ export class WeatherFx {
   private mapH = 1;
   /** smoothed weather intensity (rain fades in/out between ticks and across speed changes) */
   private rain = 0;
+  /** the smoothed precipitation is snow (flakes instead of streaks) */
+  private snowing = false;
+  /** smoothed snow cover of the ground, 0..1 */
+  private cover = 0;
+  private coverSeen = false;
+  /** grass tiles as one clip path, for the snow cover */
+  private grass: Path2D | null = null;
+  private flakeTiles: { x: number; y: number; h: number }[] = [];
   private flash = 0;
   private nextFlash = 0;
 
@@ -42,6 +51,8 @@ export class WeatherFx {
     this.mapW = g.width;
     this.mapH = g.height;
     const p = new Path2D();
+    const grass = new Path2D();
+    this.flakeTiles = [];
     this.puddles = [];
     for (let y = 0; y < g.height; y++) {
       // merge horizontal runs of outdoor tiles into one rect each
@@ -49,6 +60,10 @@ export class WeatherFx {
       for (let x = 0; x <= g.width; x++) {
         const k = x < g.width ? g.tiles[y * g.width + x] : 'wall';
         const out = k === 'grass' || k === 'path' || k === 'water';
+        if (k === 'grass') {
+          grass.rect(x - 0.5, y - 0.5, 1, 1);
+          this.flakeTiles.push({ x, y, h: hash2(x, y, 33) });
+        }
         if (out && run < 0) run = x;
         if (!out && run >= 0) {
           p.rect(run - 0.5, y - 0.5, x - run, 1);
@@ -59,6 +74,7 @@ export class WeatherFx {
       }
     }
     this.outdoor = p;
+    this.grass = grass;
     // a stable subset, so ripples keep appearing in the same puddles
     this.puddles.sort((a, b) => a.h - b.h);
     this.puddles = this.puddles.slice(0, RIPPLES);
@@ -70,6 +86,12 @@ export class WeatherFx {
     const target = w.raining ? 0.35 + 0.65 * w.intensity : 0;
     this.rain += (target - this.rain) * (1 - Math.exp(-dt * 1.5));
     if (this.rain < 0.002) this.rain = 0;
+    if (w.raining) this.snowing = !!w.snow;
+    const cover = snowCoverOf(world);
+    // the first frame shows the ground as it is, no fade-in from bare grass
+    this.cover = this.coverSeen ? this.cover + (cover - this.cover) * (1 - Math.exp(-dt * 0.8)) : cover;
+    this.coverSeen = true;
+    if (this.cover < 0.002) this.cover = 0;
     if (w.kind === 'storm') {
       this.nextFlash -= dt;
       if (this.nextFlash <= 0) {
@@ -81,11 +103,43 @@ export class WeatherFx {
     return w;
   }
 
-  /** world-space: wet tint, puddle ripples and rain streaks over the outdoor area (call with the world transform) */
+  /** world-space: snow lying on the grass (call right after the static layer, before residents) */
+  drawSnowCover(ctx: CanvasRenderingContext2D, daylight: number): void {
+    const c = this.cover;
+    if (c <= 0 || !this.grass) return;
+    ctx.save();
+    ctx.clip(this.grass);
+    ctx.fillStyle = `rgba(238,244,252,${(0.85 * c).toFixed(3)})`;
+    ctx.fillRect(-0.5, -0.5, this.mapW, this.mapH);
+    // uneven cover: a few bare grass spots show through while it is thin, drifts glitter when it is deep
+    const spots = Math.round(this.flakeTiles.length * 0.18 * (1 - c));
+    ctx.fillStyle = `rgba(86,128,70,${(0.45 * (1 - c)).toFixed(3)})`;
+    for (let i = 0; i < spots; i++) {
+      const tile = this.flakeTiles[Math.floor(hash2(i, 41) * this.flakeTiles.length)];
+      ctx.beginPath();
+      ctx.ellipse(tile.x + (tile.h - 0.5) * 0.5, tile.y + (hash2(i, 43) - 0.5) * 0.5, 0.28, 0.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = `rgba(255,255,255,${(0.35 * c * (0.4 + 0.6 * daylight)).toFixed(3)})`;
+    const drifts = Math.round(this.flakeTiles.length * 0.25 * c);
+    for (let i = 0; i < drifts; i++) {
+      const tile = this.flakeTiles[Math.floor(hash2(i, 47) * this.flakeTiles.length)];
+      ctx.beginPath();
+      ctx.ellipse(tile.x + (tile.h - 0.5) * 0.6, tile.y + 0.12 + (hash2(i, 49) - 0.5) * 0.4, 0.24, 0.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** world-space: falling snow, or wet tint, puddle ripples and rain streaks, over the outdoor area (call with the world transform) */
   drawWorld(ctx: CanvasRenderingContext2D, now: number, daylight: number): void {
     const k = this.rain;
     if (k <= 0 || !this.outdoor) return;
     const t = now / 1000;
+    if (this.snowing) {
+      this.drawFlakes(ctx, t, k, daylight);
+      return;
+    }
     ctx.save();
     ctx.clip(this.outdoor);
     // wet, darker ground
@@ -128,10 +182,28 @@ export class WeatherFx {
     ctx.restore();
   }
 
+  private drawFlakes(ctx: CanvasRenderingContext2D, t: number, k: number, daylight: number): void {
+    ctx.save();
+    ctx.fillStyle = `rgba(250,252,255,${((0.55 + 0.3 * k) * (0.5 + 0.5 * daylight)).toFixed(3)})`;
+    const flakes = Math.round(MAX_FLAKES * k);
+    const H = this.mapH + 2;
+    ctx.beginPath();
+    for (let i = 0; i < flakes; i++) {
+      const sp = 0.9 + hash2(i, 3) * 1.1;
+      const y = ((hash2(i, 2) * H + t * sp) % H) - 1;
+      const x = hash2(i, 1) * (this.mapW + 2) - 1 + Math.sin(t * (0.6 + hash2(i, 4)) + i) * 0.35;
+      const r = 0.035 + hash2(i, 5) * 0.035;
+      ctx.moveTo(x + r, y);
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    ctx.restore();
+  }
+
   /** screen-space: storm flash and a cool overcast grade (call with an identity/dpr transform) */
   drawScreen(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     if (this.rain > 0) {
-      ctx.fillStyle = `rgba(55,70,100,${(0.12 * this.rain).toFixed(3)})`;
+      ctx.fillStyle = `rgba(55,70,100,${((this.snowing ? 0.07 : 0.12) * this.rain).toFixed(3)})`;
       ctx.fillRect(0, 0, w, h);
     }
     if (this.flash > 0) {

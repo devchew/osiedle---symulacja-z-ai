@@ -524,7 +524,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     const ox = (cam.viewW / 2 - cam.cx * z) * dpr;
     const oy = (cam.viewH / 2 - cam.cy * z) * dpr;
     const sky = weather.update(world, dt);
-    const clear = lightStateAt(world.tick, alpha);
+    const clear = lightStateAt(world, alpha);
     // overcast and rain dim the daylight: the lighting then shows lit windows and lamps
     const light = { hour: clear.hour, daylight: clear.daylight * (1 - weatherDim(sky)) };
 
@@ -543,6 +543,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     rr(c, -0.5 + 0.12, -0.5 + 0.18, g.width, g.height, 0.3);
     c.fill();
     if (layer) c.drawImage(layer.canvas, -0.5, -0.5, g.width, g.height);
+    weather.drawSnowCover(c, light.daylight);
     ambient.drawGround(c, now, light.daylight);
     drawIncidents(c, world, now);
     drawTvScreens(c, world, now);
