@@ -1,5 +1,6 @@
 import type { Agent, Gossip, NeedKey, ObjectDef, SimEventKind, World } from '../types';
 import { pushEvent } from '../world/events';
+import { recordQuarrel } from '../social/relationships';
 import { loadByAgent, registerWorldState, saveByAgent, type Json } from '../core/state';
 
 // Small story beats for the event log: mishaps and successes during activities,
@@ -123,6 +124,7 @@ export function onStartUse(world: World, agent: Agent, def: ObjectDef, others: A
       aboutIds: [agent.id, other.id],
       valence: -0.5,
     });
+    recordQuarrel(world, agent.id, other.id, 'Kłótnia o pilota 📺');
     return;
   }
   roll(world, agent, ON_START[def.id]);
@@ -156,6 +158,13 @@ registerWorldState('narration', {
     if (d.recent) recentEvents.set(world, [...d.recent]);
     if (d.scale) loadByAgent(world, effectScale, d.scale);
     if (d.flags) loadByAgent(world, flags, d.flags);
+  },
+  clear: (world) => {
+    recentEvents.delete(world);
+    for (const a of world.agents) {
+      effectScale.delete(a);
+      flags.delete(a);
+    }
   },
 });
 

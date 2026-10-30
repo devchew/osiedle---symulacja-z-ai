@@ -7,8 +7,9 @@ import { createRng } from './rng';
 // by the World or by Agent objects (goals, memories, bonds, diaries, projects…). Each such module
 // registers a codec here at import time (registerWorldState) with its save/load functions next to
 // its WeakMaps. snapshotWorld calls every save; restoreWorld builds the base World and calls every
-// load in registration order. Agent-keyed state is saved by agent id, object-keyed state by uid,
-// event-keyed state by index in world.events, conversation-keyed state by conversation id.
+// load in registration order; applySnapshot updates an existing World in place the same way
+// (every codec's clear, then load). Agent-keyed state is saved by agent id, object-keyed state by
+// uid, event-keyed state by index in world.events, conversation-keyed state by conversation id.
 //
 // Rules for codecs:
 //  - save returns plain JSON (no Maps, Sets, functions, ±Infinity: use toJson / fromJson), never
@@ -43,7 +44,7 @@ export interface SnapshotOptions {
   diaryFactDays?: number;
 }
 
-/** compact snapshot for sending a world to the browser (sandbox) */
+/** compact snapshot for sending a world to the browser (live frames) */
 export const NETWORK_SNAPSHOT: SnapshotOptions = { includeTrace: false, diaryFactDays: 2 };
 /** full snapshot for persisting a live world (server volume) */
 export const DISK_SNAPSHOT: SnapshotOptions = { includeTrace: true };
@@ -58,6 +59,12 @@ export interface WorldStateCodec {
   save(world: World, opts: SnapshotOptions): Json;
   /** called only for non-null data, after the base world (agents, objects, events…) exists */
   load(world: World, data: Json): void;
+  /**
+   * forgets this module's state for `world` (and for its current agents). applySnapshot calls it
+   * before every load, so state the new snapshot lacks does not outlive the update. Hooks of the
+   * running page (listeners, clients) are not state and must survive it.
+   */
+  clear?(world: World): void;
 }
 
 export interface WorldSnapshot {
@@ -308,4 +315,84 @@ export function restoreWorld(snap: WorldSnapshot, opts: RestoreOptions = {}): Wo
     if (data !== null && data !== undefined) codec.load(world, data);
   }
   return world;
+}
+
+// ---------------------------------------------------------------- in-place update
+
+/** replaces the own fields of `dst` with a copy of `src` (the object keeps its identity) */
+function overwrite<T extends object>(dst: T, src: T): T {
+  const d = dst as Record<string, unknown>;
+  for (const k of Object.keys(d)) if (!(k in src)) delete d[k];
+  return Object.assign(dst, clone(src));
+}
+
+/** makes `target` hold `source` items in order, reusing (and overwriting) the existing item with the same key */
+function syncById<T extends object>(target: T[], source: readonly T[], keyOf: (t: T) => number): void {
+  const old = new Map(target.map((t) => [keyOf(t), t] as const));
+  const next = source.map((s) => {
+    const existing = old.get(keyOf(s));
+    return existing ? overwrite(existing, s) : clone(s);
+  });
+  target.splice(0, target.length, ...next);
+}
+
+function sameGridShape(a: Grid, b: Grid): boolean {
+  return (
+    a.width === b.width &&
+    a.height === b.height &&
+    a.tiles.length === b.tiles.length &&
+    a.tiles.every((t, i) => t === b.tiles[i]) &&
+    JSON.stringify(a.rooms) === JSON.stringify(b.rooms)
+  );
+}
+
+/**
+ * updates `world` in place to the state of `snap`, as if it were restoreWorld(snap) but keeping
+ * the World, its Agent / object / conversation instances (matched by id / uid), the event objects
+ * that did not change, and the hooks of the running page (dialogue provider, diary listeners).
+ * `world.grid` stays the same object while tiles and rooms are unchanged (the renderer keys its
+ * static layer on it); only `solid` is refreshed then. Throws (before touching `world`) when the
+ * snapshot cannot be restored by this build.
+ */
+export function applySnapshot(world: World, snap: WorldSnapshot): void {
+  if (!base) throw new Error('applySnapshot: world modules are not loaded (import src/world/world.ts first)');
+  checkSnapshot(snap);
+  const grid = decodeGrid(snap.grid);
+
+  world.seed = snap.seed;
+  world.tick = snap.tick;
+  if (world.rng.setState) world.rng.setState(snap.rng);
+  else world.rng = createRng(snap.seed, snap.rng);
+
+  if (sameGridShape(world.grid, grid)) grid.solid.forEach((s, i) => (world.grid.solid[i] = s));
+  else world.grid = grid;
+
+  syncById(world.objects, snap.objects, (o) => o.uid);
+  syncById(world.agents, snap.agents, (a) => a.id);
+  // an async (LLM) line in flight is lost, as in restoreWorld: ask again
+  syncById(
+    world.conversations,
+    snap.conversations.map((c) => (c.pending ? { ...c, pending: false } : c)),
+    (c) => c.id,
+  );
+
+  const oldEvents = new Map<string, SimEvent[]>();
+  for (const e of world.events) {
+    const k = JSON.stringify(e);
+    const list = oldEvents.get(k);
+    if (list) list.push(e);
+    else oldEvents.set(k, [e]);
+  }
+  const events = snap.events.map((e) => oldEvents.get(JSON.stringify(e))?.shift() ?? clone(e));
+  world.events.splice(0, world.events.length, ...events);
+
+  const relationships = base.createRelationships();
+  for (const [a, b, v] of snap.relationships) relationships.adjust(a, b, v);
+  world.relationships = relationships;
+
+  for (const [key, codec] of registry) {
+    codec.clear?.(world);
+    const data = snap.modules[key];
+    if (data !== null && data !== undefined) codec.load(world, data);
+  }
 }

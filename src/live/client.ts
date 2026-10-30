@@ -1,6 +1,6 @@
 import { LIVE_PLACES_URL, liveChronicleUrl, liveSnapshotUrl, liveStreamUrl, type ChronicleResponse, type LiveFrame, type PlaceId, type PlaceSummary } from './protocol';
 
-// Network side of the live view: the place list, one-off snapshots (sandbox fork) and the
+// Network side of the live view: the place list, one-off snapshots and the
 // Server-Sent Events stream of one place with reconnects. No simulation, no DOM besides
 // EventSource / fetch.
 

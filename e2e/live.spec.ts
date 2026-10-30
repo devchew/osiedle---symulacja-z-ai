@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 // Wave 10: live view of the server worlds, place switcher, resident links (#name), read-only
-// diaries, sandbox fork ("Co będzie dalej?") with 8×, back to live, phone layout, offline banner.
+// diaries, phone layout, offline banner.
 // Needs the live worlds on the preview server (server/worldsProxy.ts); a second frame arrives
 // quickly with LIVE_SPEED (e.g. 30 → a tick every 2 s), at speed 1 it takes up to a minute.
 // Shots land in test-results/shots/live-*.png.
@@ -92,6 +92,13 @@ test('live view: a new frame updates the world and keeps the selection and open 
     await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body });
   });
   await openLive(page, '/jezioro');
+  // the first frame built the world and the static layer; later frames must only update them
+  await page.evaluate(() => {
+    const w = window as unknown as { first: unknown };
+    w.first = window.__sim.world;
+  });
+  await page.waitForFunction(() => window.__sim.renderer.staticBuilds >= 1);
+  const builds = await page.evaluate(() => window.__sim.renderer.staticBuilds);
   const name = await page.evaluate(() => window.__sim.world.agents[0].name);
   await page.evaluate(() => window.__sim.select(window.__sim.world.agents[0].id));
   await page.keyboard.press('t');
@@ -99,6 +106,9 @@ test('live view: a new frame updates the world and keeps the selection and open 
   // the stream closes after each response: the client reconnects and gets the next frame
   await page.waitForFunction((t) => window.__sim.world.tick === t, next.meta.tick, { timeout: 20_000 });
   expect(await page.evaluate(() => window.__sim.world.agents[0].pos.x)).toBe(next.snapshot.agents[0].pos.x);
+  // updated in place: the same World object, and no rebuild of the static layer
+  expect(await page.evaluate(() => (window as unknown as { first: unknown }).first === window.__sim.world)).toBe(true);
+  expect(await page.evaluate(() => window.__sim.renderer.staticBuilds)).toBe(builds);
   await expect(page.locator('#inspector .insp-name')).toHaveText(name);
   await expect(page.locator('#stats-panel')).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`#${encodeURIComponent(name)}$`));
@@ -245,52 +255,6 @@ test('chronicle panel: real endpoint, empty state and error state; phone layout'
   expect(await page.locator('.chr-note').count()).toBe(0);
 });
 
-test('sandbox: fork the live world, run it at 8×, survive a reload, back to live', async ({ page }) => {
-  const errors = trackErrors(page);
-  await openLive(page, '/kamienica');
-  const liveTick = await page.evaluate(() => window.__sim.world.tick);
-
-  await page.locator('#places .places-fork').click();
-  await expect(page).toHaveURL(/\/sandbox\?from=kamienica$/);
-  await page.waitForFunction(() => window.__sim?.mode === 'sandbox', undefined, { timeout: 30_000 });
-  const bar = page.locator('#sandbox-bar');
-  await expect(bar).toContainText('Symulacja w Twojej przeglądarce — świat na żywo toczy się dalej bez zmian');
-  await expect(bar).toContainText('Kamienica');
-  const fork = await page.evaluate(() => ({ seed: window.__sim.world.seed, tick: window.__sim.world.tick }));
-  expect(fork.seed).toBe(1912);
-  expect(fork.tick).toBeGreaterThanOrEqual(liveTick);
-
-  // time controls: 8× (key 4)
-  const hud = page.locator('#hud');
-  await expect(hud.locator('.hud-pause')).toBeVisible();
-  await page.keyboard.press('4');
-  await expect(hud.locator('.hud-speed').nth(3)).toHaveClass(/is-active/);
-  await page.waitForTimeout(2500);
-  const ran = await page.evaluate(() => window.__sim.world.tick);
-  expect(ran - fork.tick).toBeGreaterThan(40);
-  await expect(page.locator('.hud-save-btn')).toHaveCount(0);
-  await page.screenshot({ path: `${SHOTS}/live-sandbox.png` });
-
-  // the copy lives in sessionStorage: a reload continues it
-  await page.keyboard.press('Space');
-  await page.waitForTimeout(300);
-  const before = await page.evaluate(() => window.__sim.world.tick);
-  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
-  await page.reload();
-  await page.waitForFunction(() => window.__sim?.mode === 'sandbox', undefined, { timeout: 30_000 });
-  const after = await page.evaluate(() => window.__sim.world.tick);
-  expect(after).toBeGreaterThanOrEqual(before);
-
-  // the live world was not touched
-  const placeTick = await page.evaluate(async () => (await (await fetch('/api/live/places')).json()).find((p: { id: string }) => p.id === 'kamienica').tick);
-  expect(placeTick).toBeLessThan(after);
-
-  await bar.getByText('↩ Wróć na żywo').click();
-  await expect(page).toHaveURL(/\/kamienica$/);
-  await page.waitForFunction(() => window.__sim?.mode === 'live' && (window.__sim.frames ?? 0) >= 1, undefined, { timeout: 30_000 });
-  expect(errors).toEqual([]);
-});
-
 test('phone layout: place tabs, HUD and log fit the screen', async ({ page }) => {
   const errors = trackErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -305,23 +269,13 @@ test('phone layout: place tabs, HUD and log fit the screen', async ({ page }) =>
   expect(boxes.places.top).toBeGreaterThanOrEqual(boxes.hud.bottom - 1);
   expect(boxes.places.right).toBeLessThanOrEqual(390);
   expect(boxes.log.top).toBeGreaterThan(boxes.places.bottom);
-  // every HUD button and the fork button are on screen
-  for (const sel of ['#hud .hud-help-btn', '#places .places-fork']) {
+  // every HUD button is on screen
+  for (const sel of ['#hud .hud-help-btn']) {
     const r = await page.locator(sel).boundingBox();
     expect(r && r.x >= 0 && r.x + r.width <= 390, sel).toBe(true);
   }
   await page.screenshot({ path: `${SHOTS}/live-mobile.png` });
-
-  await page.locator('#places .places-fork').click();
-  await page.waitForFunction(() => window.__sim?.mode === 'sandbox', undefined, { timeout: 30_000 });
-  await page.waitForTimeout(600);
-  await page.screenshot({ path: `${SHOTS}/live-mobile-sandbox.png` });
-  const sb = await page.evaluate(() => {
-    const r = document.querySelector('#sandbox-bar')!.getBoundingClientRect();
-    return { right: r.right, scrollW: document.documentElement.scrollWidth };
-  });
-  expect(sb.right).toBeLessThanOrEqual(390);
-  expect(sb.scrollW).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   expect(errors).toEqual([]);
 });
 

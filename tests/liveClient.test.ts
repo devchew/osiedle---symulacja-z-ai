@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { agentFromHash, hashFor, parseRoute, sandboxPath, slug } from '../src/live/routes';
+import { agentFromHash, hashFor, parseRoute, slug } from '../src/live/routes';
 import { backoffDelay, parseFrame } from '../src/live/client';
-import { applyFrame, forkWorld, liveWeatherSample } from '../src/live/frames';
+import { applyFrame, liveWeatherSample } from '../src/live/frames';
 import { createWorld, tickWorld } from '../src/world/world';
 import { snapshotWorld, NETWORK_SNAPSHOT } from '../src/core/state';
 import { isRealtime } from '../src/realtime/state';
 import { weatherOf } from '../src/world/incidents';
+import { staticSignature } from '../src/render/tiles';
 import type { LiveFrame } from '../src/live/protocol';
 
 describe('live routes', () => {
@@ -14,10 +15,8 @@ describe('live routes', () => {
     expect(parseRoute('/kamienica')).toEqual({ kind: 'live', place: 'kamienica' });
     expect(parseRoute('/Akademik/')).toEqual({ kind: 'live', place: 'akademik' });
     expect(parseRoute('/nieznane')).toEqual({ kind: 'live', place: 'dom' });
-    expect(parseRoute('/sandbox', '?from=jezioro')).toEqual({ kind: 'sandbox', place: 'jezioro' });
-    expect(parseRoute('/sandbox', '?from=xyz')).toEqual({ kind: 'sandbox', place: 'dom' });
-    expect(parseRoute('/lab', '?seed=7')).toEqual({ kind: 'lab' });
-    expect(sandboxPath('kamienica')).toBe('/sandbox?from=kamienica');
+    expect(parseRoute('/sandbox')).toEqual({ kind: 'live', place: 'dom' });
+    expect(parseRoute('/lab')).toEqual({ kind: 'lab' });
   });
 
   it('finds residents by hash name (any case, diacritics) or id', () => {
@@ -74,9 +73,22 @@ describe('live frames', () => {
     expect(isRealtime(first.world)).toBe(true);
     tickWorld(server);
     const next = applyFrame(first.world, 'jezioro', frameOf(server));
+    expect(next.swapped).toBe(false);
+    expect(next.world).toBe(first.world);
     expect(next.world.tick).toBe(31);
     expect(next.world.agents.map((a) => a.pos)).toEqual(server.agents.map((a) => a.pos));
     expect(isRealtime(next.world)).toBe(true);
+  });
+
+  it('the static layer signature follows what is drawn, not who uses it', () => {
+    const w = createWorld(1410, { agentCount: 4, mapId: 'jezioro' });
+    const before = staticSignature(w);
+    w.objects[0].reservedBy = [3];
+    expect(staticSignature(w)).toBe(before);
+    // a construction stage swap keeps the name length but changes the picture
+    const t = w.objects[0].type;
+    w.objects[0].type = t.slice(0, -1) + (t.endsWith('x') ? 'y' : 'x');
+    expect(staticSignature(w)).not.toBe(before);
   });
 
   it('uses the weather the server saw', () => {
@@ -87,18 +99,5 @@ describe('live frames', () => {
     expect(sample?.kind).toBe(weatherOf(server).kind);
     const sent = { ...f, meta: { ...f.meta, weather: { ...f.meta.weather, sample: { kind: 'storm', intensity: 1 } } } } as LiveFrame;
     expect(weatherOf(applyFrame(null, null, sent).world).kind).toBe('storm');
-  });
-
-  it('a sandbox fork runs on its own and leaves the source untouched', () => {
-    const server = createWorld(1912, { agentCount: 8, mapId: 'kamienica' });
-    for (let i = 0; i < 20; i++) tickWorld(server);
-    const f = frameOf(server);
-    const before = JSON.stringify(f.snapshot);
-    const fork = forkWorld(f.snapshot, { kind: 'rain', intensity: 0.6 });
-    for (let i = 0; i < 120; i++) tickWorld(fork);
-    expect(fork.tick).toBe(140);
-    expect(isRealtime(fork)).toBe(false);
-    expect(JSON.stringify(f.snapshot)).toBe(before);
-    expect(server.tick).toBe(20);
   });
 });

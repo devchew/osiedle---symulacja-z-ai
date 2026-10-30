@@ -3,7 +3,7 @@ import { timeFromTick } from '../core/time';
 import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
 import { pushEvent } from '../world/events';
 import { REL_TUNING, clash, recordFriction, statusOf, type RelationStatus } from '../social/relationships';
-import { isMealTime } from './brain';
+import { isMealTime } from './meals';
 import { goalObjectBias, type GoalBias } from './goals';
 
 // Group activities. A resident who heads for a "gathering" object at the right
@@ -409,6 +409,10 @@ registerWorldState('groups', {
     const d = data as { store: Json; compete: Json };
     if (d.store) stores.set(world, fromJson<GroupStore>(d.store));
     if (d.compete) lastCompete.set(world, fromJson<Map<string, number>>(d.compete));
+  },
+  clear: (world) => {
+    stores.delete(world);
+    lastCompete.delete(world);
   },
 });
 

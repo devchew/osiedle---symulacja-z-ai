@@ -225,6 +225,59 @@ describe('diary: tone and subjectivity', () => {
   });
 });
 
+describe('diary: repetitions', () => {
+  const persona = { name: 'Ola', traits: { sociability: 0, activity: 0, neatness: 0, cheerfulness: 0 }, mood: 60 };
+  const firstSentence = (text: string): string => text.split(/(?<=[.!?…])\s+/)[0];
+
+  it('mentions an activity repeated in several parts of the day once', () => {
+    const facts = sampleFacts({
+      activities: [
+        { type: 'bathtub', part: 'rano', minutes: 25, times: 1 },
+        { type: 'bathtub', part: 'po południu', minutes: 20, times: 1 },
+        { type: 'tv', part: 'wieczorem', minutes: 60, times: 1 },
+      ],
+    });
+    for (let seed = 1; seed <= 20; seed++) {
+      const { text } = composeDiary(facts, persona, seed);
+      expect(text.match(/wann/g)?.length, text).toBe(1);
+      expect(text, text).toMatch(/[Rr]ano i po południu/);
+    }
+  });
+
+  it('never states the same activity twice in an entry', () => {
+    for (const seed of [3, 11]) {
+      for (const e of all(world3(seed))) {
+        for (const noun of ['wędkowanie', 'kąpiel w wannie', 'telewizja', 'drzemka', 'gry na komputerze']) {
+          expect(e.text.split(noun).length - 1, `${noun}: ${e.text}`).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it('residents do not open the same day with the same sentence', () => {
+    for (const seed of [3, 11]) {
+      const w = world3(seed);
+      for (const day of [1, 2, 3]) {
+        const firsts = w.agents.map((a) => firstSentence(diaryOf(w, a.id).find((e) => e.day === day)!.text));
+        expect(new Set(firsts).size, firsts.join('\n')).toBe(firsts.length);
+      }
+    }
+  });
+
+  it('avoids the given openers and still writes one when every template is taken', () => {
+    const facts = sampleFacts({ wake: null, day: 1 });
+    const taken: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const first = composeDiary(facts, persona, 10 + i, [], taken).text.split('\n\n')[0];
+      const opener = first.split(/(?<=[.!?…])\s+/)[0];
+      expect(taken).not.toContain(opener);
+      taken.push(opener);
+    }
+    const all15 = composeDiary(facts, persona, 99, [], taken.concat(Array.from({ length: 30 }, (_, i) => `x${i}`)));
+    expect(all15.text.length).toBeGreaterThan(0);
+  });
+});
+
 describe('diary: determinism and isolation', () => {
   it('is deterministic per seed (a replay recreates the same entries)', () => {
     const a = runDays(5, 2);

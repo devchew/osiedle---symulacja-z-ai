@@ -109,6 +109,7 @@ registerWorldState('news', {
     }
     states.set(world, s);
   },
+  clear: (world) => void states.delete(world),
 });
 
 function stateOf(world: World): NewsState {

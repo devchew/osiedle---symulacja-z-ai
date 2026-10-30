@@ -30,6 +30,7 @@ import {
   talkStatusFactor,
   tickGatherings,
 } from '../src/agents/groups';
+import { onStartUse } from '../src/agents/narration';
 
 const T = REL_TUNING;
 /** game tick for a given hour of day 1 (the simulation starts at 07:00) */
@@ -160,6 +161,20 @@ describe('romance', () => {
 });
 
 describe('rivalry', () => {
+  it('a quarrel over the TV remote counts at once, whatever the gossip says', () => {
+    const { world, a, b } = worldWithPair(true);
+    world.rng.chance = () => true;
+    onStartUse(world, a, world.objectDefs.tv, [b]);
+    const ev = world.events.find((e) => e.gossip?.aboutIds.length === 2);
+    expect(ev).toBeDefined();
+    ev!.gossip!.text = 'zmieniony tekst';
+    const view = relationOf(world, a.id, b.id);
+    expect(view.rivalry).toBeGreaterThan(0);
+    expect(view.history.some((h) => h.text.includes('pilota'))).toBe(true);
+    updateRelations(world);
+    expect(relationOf(world, a.id, b.id).history.filter((h) => h.text.includes('pilota'))).toHaveLength(1);
+  });
+
   it('repeated quarrels make rivals, time and nice chats heal it', () => {
     const world = createWorld(5, { agentCount: 6 });
     const [a, b] = world.agents;

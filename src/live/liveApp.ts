@@ -12,7 +12,7 @@ import '../ui/debug';
 import { PLACES, placeById, LIVE_TIME_ZONE, type LiveFrame, type LiveMeta, type PlaceId } from './protocol';
 import { connectLive, fetchChronicle, fetchPlaces, type LiveStream } from './client';
 import { applyFrame } from './frames';
-import { livePath, parseRoute, sandboxPath } from './routes';
+import { livePath, parseRoute } from './routes';
 import { bindHashSelection } from './hashSelect';
 
 // Live view (the main experience): one of the four server worlds, as it is right now.
@@ -69,8 +69,6 @@ export function startLive(initialPlace: PlaceId): void {
     current: place,
     href: livePath,
     onSelect: (id) => switchPlace(id, true),
-    forkHref: sandboxPath,
-    onFork: (id) => location.assign(sandboxPath(id)),
   });
 
   const controls: SimControls = {
@@ -203,7 +201,7 @@ export function startLive(initialPlace: PlaceId): void {
   }
 
   window.addEventListener('popstate', () => {
-    const r = parseRoute(location.pathname, location.search);
+    const r = parseRoute(location.pathname);
     if (r.kind === 'live') switchPlace(r.place, false);
     else location.reload();
   });

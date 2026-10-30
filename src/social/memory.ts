@@ -148,6 +148,7 @@ registerWorldState('memory', {
     }
     stores.set(world, s);
   },
+  clear: (world) => void stores.delete(world),
 });
 
 function store(world: World): Store {

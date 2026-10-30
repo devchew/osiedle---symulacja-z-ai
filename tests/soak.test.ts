@@ -10,7 +10,7 @@ import { GOAL_KINDS, QUIET_GOALS, type GoalRecord } from '../src/agents/goals';
 
 const DAYS = 7;
 /** SOAK_SEEDS=1,2,…,20 to explore more seeds */
-const SEEDS = process.env.SOAK_SEEDS ? process.env.SOAK_SEEDS.split(',').map(Number) : [1, 2, 3, 4, 5, 6];
+const SEEDS = process.env.SOAK_SEEDS ? process.env.SOAK_SEEDS.split(',').map(Number) : [1, 2, 3, 4, 5, 6, 11];
 const MIN_CONVERSATIONS = 3;
 const MIN_DISTINCT_ACTIVITIES = 6;
 /** consecutive ticks with some need at <= 1 */

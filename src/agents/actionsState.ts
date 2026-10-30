@@ -13,4 +13,5 @@ registerWorldState('actions', {
     return empty ? null : (JSON.parse(JSON.stringify(s)) as Json);
   },
   load: (world, data) => loadActionsState(world, data as unknown as ActionsSnapshot),
+  clear: (world) => loadActionsState(world, null),
 });
