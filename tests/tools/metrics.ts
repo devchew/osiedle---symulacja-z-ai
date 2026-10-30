@@ -4,7 +4,7 @@ import { NEED_KEYS } from '../../src/types';
 import type { Agent, NeedKey, Traits, World } from '../../src/types';
 import { setCalendar, timeOf } from '../../src/core/calendar';
 import { isAgentSleeping } from '../../src/agents/actions';
-import { residentsOf } from '../../src/agents/role';
+import { isGuest, residentsOf } from '../../src/agents/role';
 import { goalHistory, type GoalRecord } from '../../src/agents/goals';
 import { gatheringTotals, type GatheringKind } from '../../src/agents/groups';
 import { jointLog, type JointRecord } from '../../src/agents/joint';
@@ -88,6 +88,8 @@ export interface RunMetrics {
   /** relationship status events ("… są parą", "… zostają rywalami") */
   statusEvents: string[];
   eventCounts: Record<string, number>;
+  /** outside visitors (agents/guests.ts): visits started, most on the map at once, guest-minutes on the map */
+  guests: { visits: number; maxPresent: number; minutes: number };
   /** fingerprint for determinism checks */
   fingerprint: string;
   world: World;
@@ -168,10 +170,17 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
   const statusEvents: string[] = [];
   const eventCounts: Record<string, number> = {};
   let lastEventTick = -1;
+  const guests = { visits: 0, maxPresent: 0, minutes: 0 };
+  let guestsBefore = new Set<number>();
 
   for (let i = 0; i < ticks; i++) {
     tickWorld(world);
     const time = timeOf(world);
+    const here = world.agents.filter(isGuest);
+    for (const g of here) if (!guestsBefore.has(g.id)) guests.visits++;
+    guestsBefore = new Set(here.map((g) => g.id));
+    guests.maxPresent = Math.max(guests.maxPresent, here.length);
+    guests.minutes += here.length;
     const holders = world.objects.flatMap((o) => o.reservedBy.filter((r) => r !== null));
     if (new Set(holders).size !== holders.length) doubleBookings++;
 
@@ -292,6 +301,7 @@ export function runMetrics(seed: number, days: number, agentCount = 6): RunMetri
     compatiblePairs,
     statusEvents,
     eventCounts,
+    guests,
     fingerprint: JSON.stringify([world.rng.state(), world.agents.map((a) => [a.pos, a.needs, a.stats])]),
     world,
   };
@@ -357,6 +367,7 @@ export function formatMetrics(m: RunMetrics): string {
   out.push(`joint: ${m.joint.length} sessions (${m.jointCalledOff} called off), avg ${Math.round(jm)} min; ${m.joint.map((r) => `${r.kind}/${r.game}×${r.ids.length} ${r.minutes}m`).join(', ')}`);
   out.push(`statuses: ${JSON.stringify(Object.fromEntries(Object.entries(m.statuses).filter(([, v]) => v > 0)))} everCouples=${m.everCouples} everRivals=${m.everRivals} everRomance=${m.everRomance} compatible=${m.compatiblePairs}`);
   out.push(`status events: ${m.statusEvents.join(' | ')}`);
+  out.push(`guests: ${m.guests.visits} guest arrivals (${r1(m.guests.visits / m.days)}/day), max ${m.guests.maxPresent} at once, ${Math.round(m.guests.minutes / 60)} guest-hours`);
   out.push(`events: ${JSON.stringify(m.eventCounts)}`);
   return out.join('\n');
 }

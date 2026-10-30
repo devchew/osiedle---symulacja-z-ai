@@ -115,6 +115,11 @@ export function setGuestsEnabled(world: World, enabled: boolean): void {
   stateOf(world).enabled = enabled;
 }
 
+/** the map-edge tile each guest on the map came in through (and leaves by) */
+export function guestEntrances(world: World): { id: number; at: Vec2 }[] {
+  return stateOf(world).visits.map((v) => ({ id: v.id, at: { ...v.exit } }));
+}
+
 const identityOf = (id: number): Identity | undefined => POOL.find((g) => g.id === id);
 
 export function guestKindOf(agent: Agent): GuestKind | undefined {
@@ -156,7 +161,8 @@ export function tuneVisitChat(conv: Conversation, a: Agent, b: Agent, chance: (p
 
 // ---------------------------------------------------------------- the visit lifecycle
 
-function createGuest(g: Identity, pos: Vec2): Agent {
+/** a guest agent standing at `pos` (also used by the replay player to bring a recorded guest back) */
+export function createGuest(g: Pick<Identity, 'id' | 'name' | 'color' | 'traits'>, pos: Vec2): Agent {
   const needs: Needs = { hunger: 80, energy: 80, fun: 55, social: 40, hygiene: 80, comfort: 80 };
   return {
     id: g.id,

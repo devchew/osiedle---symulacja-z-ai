@@ -1,6 +1,7 @@
 import { it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createWorld, tickWorld } from '../../src/world/world';
+import { isGuestId } from '../../src/agents/role';
 import { formatTrace, formatTraceEntry, traceOf, type TraceEntry } from '../../src/world/trace';
 
 // Behaviour analysis: runs a world headlessly and looks for "chaotic" patterns in the trace.
@@ -104,6 +105,14 @@ it('trace analysis', () => {
     used.set(k, (used.get(k) ?? 0) + 1);
   }
   section('użycia obiektów', [...used].sort((a, b) => b[1] - a[1]).map(([r, n]) => `${String(n).padStart(5)}×  ${r}`));
+
+  // 9. guests: visits and what the visitors did while here
+  const visits = w.events.filter((e) => e.text.startsWith('Wizyta: '));
+  const guestRows = all.filter((e) => isGuestId(e.agentId));
+  const guestKinds = new Map<string, number>();
+  for (const e of guestRows) guestKinds.set(`${e.kind}: ${e.text.replace(/#.*/, '').slice(0, 40)}`, (guestKinds.get(`${e.kind}: ${e.text.replace(/#.*/, '').slice(0, 40)}`) ?? 0) + 1);
+  section('wizyty gości (z ostatnich zdarzeń)', visits.map((e) => `${e.tick}  ${e.text}`));
+  section('co robią goście', [...guestKinds].sort((a, b) => b[1] - a[1]).map(([r, n]) => `${String(n).padStart(5)}×  ${r}`));
 
   mkdirSync('test-results', { recursive: true });
   writeFileSync(`test-results/trace-analysis-${seed}.txt`, `# seed ${seed}, ${ticks} ticks, ${all.length} trace entries\n${out.join('\n')}\n`);

@@ -4,6 +4,8 @@ import { applySnapshot, restoreWorld, snapshotWorld, NETWORK_SNAPSHOT, type Json
 import '../world/world'; // registers the world base and every module's state codec
 import { setWeatherOverride, type WeatherSample } from '../world/incidents';
 import { petsOf } from '../agents/pets';
+import { createGuest } from '../agents/guests';
+import { isGuest } from '../agents/role';
 import { markRealtime, realtimeStatus, updateRealtimeStatus } from '../realtime/state';
 import type { ReplayActionLite, ReplayAgentTrack, ReplayBubbleLite, ReplayPetTrack, ReplayResponse } from './protocol';
 
@@ -185,9 +187,29 @@ export function createReplayPlayer(live: World, data: ReplayResponse): ReplayPla
     world.conversations.splice(0, world.conversations.length, ...byId.values());
   }
 
+  /** visitors come and go in a recording: the replay world has exactly those on the map at `t` */
+  function visitors(t: number): void {
+    for (const track of data.agents) {
+      if (!track.guest) continue;
+      const row = rowAt(track.pres ?? [], t);
+      const here = !!row && row[0] <= t && row[1] === 1;
+      const i = world.agents.findIndex((a) => a.id === track.id);
+      if (here && i < 0) {
+        const p = rowAt(track.pos, t);
+        world.agents.push(createGuest({ id: track.id, ...track.guest }, { x: p?.[1] ?? 0, y: p?.[2] ?? 0 }));
+      } else if (!here && i >= 0) world.agents.splice(i, 1);
+    }
+    // a visitor of "now" that the recording does not know cannot be shown
+    for (let i = world.agents.length - 1; i >= 0; i--) {
+      const a = world.agents[i];
+      if (isGuest(a) && !agentTracks.get(a.id)?.guest) world.agents.splice(i, 1);
+    }
+  }
+
   function seek(to: number): void {
     const t = Math.max(data.fromTick, Math.min(data.toTick, Math.round(to)));
     structural(t);
+    visitors(t);
     world.tick = t;
     tick = t;
     for (const a of world.agents) {
