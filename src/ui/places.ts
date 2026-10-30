@@ -4,8 +4,7 @@ import type { PlaceDef, PlaceId, PlaceSummary } from '../live/protocol';
 import { el, setText } from './dom';
 
 // Live-view chrome: the place switcher (4 fixed places, the current highlight and temperature
-// from /api/live/places), the "🔮 Co będzie dalej?" fork button, the connection banner, and the
-// sandbox banner with "↩ Wróć na żywo".
+// from /api/live/places) and the connection banner.
 
 const PLACE_ICON: Record<PlaceId, string> = { dom: '🏡', kamienica: '🏛️', jezioro: '🛶', akademik: '🎓' };
 
@@ -24,9 +23,6 @@ export interface PlaceBarOptions {
   /** href of a place (real links: middle-click / new tab work) */
   href(id: PlaceId): string;
   onSelect(id: PlaceId): void;
-  /** "Co będzie dalej?" */
-  forkHref(id: PlaceId): string;
-  onFork(id: PlaceId): void;
 }
 
 /** "18°C" / "" */
@@ -70,16 +66,7 @@ export function createPlaceBar(opts: PlaceBarOptions): PlaceBar {
     list.append(el('li', '', [a]));
   }
 
-  const fork = el('a', 'places-fork', [el('span', 'places-fork-icon', ['🔮']), el('span', 'places-fork-text', ['Co będzie dalej?'])]);
-  fork.setAttribute('aria-label', 'Co będzie dalej? Przewiń czas na własnej kopii');
-  fork.title = 'Skopiuj ten świat do swojej przeglądarki i przewiń czas do przodu — świat na żywo się nie zmieni';
-  fork.addEventListener('click', (e) => {
-    if (!plainClick(e)) return;
-    e.preventDefault();
-    opts.onFork(current);
-  });
-
-  root.append(title, list, fork);
+  root.append(title, list);
   document.body.append(root);
 
   function setCurrent(id: PlaceId): void {
@@ -90,7 +77,6 @@ export function createPlaceBar(opts: PlaceBarOptions): PlaceBar {
       if (on) it.a.setAttribute('aria-current', 'page');
       else it.a.removeAttribute('aria-current');
     }
-    fork.href = opts.forkHref(id);
     // phones: keep the current tab in view
     items.get(id)?.a.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
@@ -146,38 +132,4 @@ export function createConnBanner(): ConnBanner {
       else show();
     },
   };
-}
-
-export interface SandboxBarOptions {
-  placeName: string;
-  /** "dzień 3, 14:05" — when the copy was taken */
-  forkedAt: string;
-  backHref: string;
-  onBack(): void;
-  /** take a fresh copy of the live world */
-  onRefork(): void;
-}
-
-/** sandbox: clear banner that this is a private copy, with the way back */
-export function createSandboxBar(opts: SandboxBarOptions): void {
-  const back = el('a', 'sbx-back', ['↩ Wróć na żywo']);
-  back.href = opts.backHref;
-  back.addEventListener('click', (e) => {
-    if (!plainClick(e)) return;
-    e.preventDefault();
-    opts.onBack();
-  });
-  const refork = el('button', 'sbx-refork', ['⟳ Nowa kopia']);
-  refork.type = 'button';
-  refork.title = 'Zacznij od nowa od obecnego stanu świata na żywo';
-  refork.addEventListener('click', () => opts.onRefork());
-  const root = el('aside', 'ui-panel ui-sandbox', [
-    el('div', 'sbx-head', [el('span', 'sbx-icon', ['🔮']), el('strong', 'sbx-title', ['Co będzie dalej?'])]),
-    el('p', 'sbx-text', ['Symulacja w Twojej przeglądarce — świat na żywo toczy się dalej bez zmian.']),
-    el('p', 'sbx-from', [`Kopia: ${opts.placeName}, ${opts.forkedAt}`]),
-    el('div', 'sbx-actions', [back, refork]),
-  ]);
-  root.id = 'sandbox-bar';
-  root.setAttribute('role', 'note');
-  document.body.append(root);
 }

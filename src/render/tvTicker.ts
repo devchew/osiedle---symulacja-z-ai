@@ -1,5 +1,5 @@
 // What the TV news shows, decoupled from the simulation's headline rotation (world/news.ts rotates by
-// game ticks, which is far too fast for reading in the sandbox). Real-time presentation state lives
+// game ticks, which is far too fast for reading in the lab). Real-time presentation state lives
 // here, in render/, so the simulation stays deterministic: a headline is held on screen until it has
 // been scrolled through (and for a minimum time), then replaced by the newest one the simulation has aired.
 
