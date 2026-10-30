@@ -220,11 +220,14 @@ test('chronicle panel: real endpoint, empty state and error state; phone layout'
   const panel = page.locator('#chronicle-panel');
   await expect(panel).toContainText('Kronika jest jeszcze pusta');
   await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
   await page.unroute('**/api/live/akademik/chronicle');
 
   await page.route('**/api/live/akademik/chronicle', (route) => route.fulfill({ json: { ...MOCK_CHRONICLE, place: 'akademik' } }));
   await page.keyboard.press('k');
-  await expect(panel.locator('.chr-day')).toHaveCount(2);
+  await expect(panel).toBeVisible();
+  // the panel first shows the previous (empty) answer and swaps in the new one when it arrives
+  await expect(panel.locator('.chr-day')).toHaveCount(2, { timeout: 10_000 });
   const box = await panel.boundingBox();
   expect(box && box.x >= 0 && box.x + box.width <= 390).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);

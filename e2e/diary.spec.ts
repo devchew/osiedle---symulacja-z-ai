@@ -1,21 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { SHOTS, mockLive, openLive, trackErrors, type LiveMock } from './support/live';
+import { frameFor } from './support/worldFixtures';
 
-// Wave 8: residents' diaries — inspector entry point, overview (P), notebook view, .txt export.
-// Shots land in test-results/shots/diary-*.png.
+// Residents' diaries in the live view (fixture world from e2e/support): inspector entry point,
+// overview (P), notebook view, .txt export. Shots land in test-results/shots/diary-*.png.
 
-const SHOTS = 'test-results/shots';
+const DOM = { place: 'dom' } as const;
+/** day 1, 23:40 — everyone has gone to bed and written about the day */
+const TICK_DAY1 = 1000;
 
-function trackErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  return errors;
-}
-
-async function open(page: Page, query: string): Promise<void> {
-  await page.goto(`/lab${query}`);
-  await page.waitForFunction(() => !!window.__sim?.diary, undefined, { timeout: 30_000 });
+async function open(page: Page, tick: number): Promise<LiveMock> {
+  const live = await mockLive(page, frameFor(DOM, tick));
+  await openLive(page, '/dom');
+  return live;
 }
 
 /** resident with the most diary entries (ties: lowest id) */
@@ -30,8 +28,7 @@ async function writer(page: Page): Promise<{ id: number; name: string; count: nu
 
 test('day 1 evening: inspector opens the diary with a written entry; download and overview work', async ({ page }) => {
   const errors = trackErrors(page);
-  // tick 1000 = day 1, 23:40 — everyone has gone to bed and written about the day
-  await open(page, '?seed=7&tick=1000&paused');
+  await open(page, TICK_DAY1);
   const w = await writer(page);
   expect(w.count, 'someone wrote a diary entry on day 1').toBeGreaterThan(0);
 
@@ -62,7 +59,7 @@ test('day 1 evening: inspector opens the diary with a written entry; download an
 
   // export via formatDiary
   const [download] = await Promise.all([page.waitForEvent('download'), panel.locator('.diary-download').click()]);
-  expect(download.suggestedFilename()).toMatch(/^pamietnik-[a-z0-9-]+-seed7-dzien1\.txt$/);
+  expect(download.suggestedFilename()).toMatch(/^pamietnik-[a-z0-9-]+-seed2026-dzien1\.txt$/);
   const file = await readFile((await download.path())!, 'utf8');
   expect(file.length).toBeGreaterThan(40);
   expect(file).toContain(w.name);
@@ -81,7 +78,7 @@ test('day 1 evening: inspector opens the diary with a written entry; download an
 
   // overview "download all"
   const [all] = await Promise.all([page.waitForEvent('download'), panel.locator('.diary-download').click()]);
-  expect(all.suggestedFilename()).toMatch(/^pamietnik-wszyscy-seed7-dzien1\.txt$/);
+  expect(all.suggestedFilename()).toMatch(/^pamietnik-wszyscy-seed2026-dzien1\.txt$/);
 
   // Esc closes the diary but keeps the inspector open; P toggles the overview
   await page.keyboard.press('Escape');
@@ -103,13 +100,13 @@ test('day 1 evening: inspector opens the diary with a written entry; download an
 
 test('day 2: new entry toast, unread dot, ← / → switch days without panning the camera', async ({ page }) => {
   const errors = trackErrors(page);
-  await open(page, '?seed=7&tick=1000&paused');
+  const live = await open(page, TICK_DAY1);
   const w = await writer(page);
   await page.evaluate((id) => window.__sim.diary.openFor(id), w.id);
   await page.keyboard.press('Escape');
 
-  // through day 2's evening (synchronous ticks: the UI picks up onDiaryChange)
-  await page.evaluate(() => window.__sim.tick(1440));
+  // through day 2's evening: the next frame arrives (the UI picks up onDiaryChange)
+  await live.push(frameFor(DOM, TICK_DAY1 + 1440));
   await expect(page.locator('.ui-toast', { hasText: '📔' }).first()).toBeVisible({ timeout: 5000 });
   const count = await page.evaluate((id) => window.__sim.diary.entryCount(id), w.id);
   expect(count).toBeGreaterThan(1);
@@ -137,7 +134,7 @@ test('day 2: new entry toast, unread dot, ← / → switch days without panning 
 
 test('empty diary at the start of the day', async ({ page }) => {
   const errors = trackErrors(page);
-  await open(page, '?seed=7&paused');
+  await open(page, 0);
   const name = await page.evaluate(() => {
     window.__sim.select(window.__sim.world.agents[0].id);
     return window.__sim.world.agents[0].name;
@@ -158,7 +155,7 @@ test('empty diary at the start of the day', async ({ page }) => {
 test('mobile: the diary is a full-screen sheet with readable text', async ({ page }) => {
   const errors = trackErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await open(page, '?seed=7&tick=1000&paused');
+  await open(page, TICK_DAY1);
   const w = await writer(page);
   expect(w.count).toBeGreaterThan(0);
   await page.evaluate((id) => window.__sim.select(id), w.id);

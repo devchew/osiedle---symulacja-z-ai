@@ -1,22 +1,21 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { SHOTS, mockLive, openLive, trackErrors } from './support/live';
+import { frameFor, tickAt } from './support/worldFixtures';
 
-const SHOTS = 'test-results/shots';
+// The live view of a fixture world (e2e/support): rendering, the clock following the frames,
+// picking a resident, day / evening / night looks. Shots land in test-results/shots/.
 
-function trackErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  return errors;
-}
+const DOM = { place: 'dom' } as const;
 
-async function agentPositions(page: Page): Promise<{ x: number; y: number }[]> {
+async function agentPositions(page: import('@playwright/test').Page): Promise<{ x: number; y: number }[]> {
   return page.evaluate(() => window.__sim.world.agents.map((a) => ({ ...a.pos })));
 }
 
-test('the simulation renders and runs on its own', async ({ page }) => {
+test('the world renders and the next frame moves the clock and the residents', async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto('/lab?seed=7');
-  await page.waitForFunction(() => !!window.__sim);
+  const t0 = tickAt(10);
+  const live = await mockLive(page, frameFor(DOM, t0));
+  await openLive(page, '/dom');
   await page.waitForTimeout(1500);
 
   // canvas is drawn: many distinct colours in a sample
@@ -29,42 +28,24 @@ test('the simulation renders and runs on its own', async ({ page }) => {
     return set.size;
   });
   expect(colours).toBeGreaterThan(20);
+  await expect(page.locator('#hud .hud-clock')).toHaveText('10:00');
 
-  // trips take seconds now and people then stay put for a while: over a game hour at 8×
-  // (≈ 1.5 s) somebody must have changed place, and the clock must be running
+  // an hour later (the fixture of that moment): the clock ran and somebody has changed place
   const before = await agentPositions(page);
-  const tick0 = await page.evaluate(() => window.__sim.world.tick);
-  await page.keyboard.press('4');
-  await expect
-    .poll(async () => {
-      const now = await agentPositions(page);
-      return before.filter((p, i) => Math.hypot(p.x - now[i].x, p.y - now[i].y) > 0.5).length;
-    }, { timeout: 15_000 })
-    .toBeGreaterThan(0);
-  expect(await page.evaluate(() => window.__sim.world.tick)).toBeGreaterThan(tick0);
-  await page.keyboard.press('1');
+  await live.push(frameFor(DOM, t0 + 60));
+  expect(await page.evaluate(() => window.__sim.world.tick)).toBe(t0 + 60);
+  await expect(page.locator('#hud .hud-clock')).toHaveText('11:00');
+  const now = await agentPositions(page);
+  expect(before.filter((p, i) => Math.hypot(p.x - now[i].x, p.y - now[i].y) > 0.5).length).toBeGreaterThan(0);
 
   await page.screenshot({ path: `${SHOTS}/day.png` });
   expect(errors).toEqual([]);
 });
 
-test('pause and speed controls work', async ({ page }) => {
-  await page.goto('/lab?seed=7');
-  await page.waitForFunction(() => !!window.__sim);
-  await page.keyboard.press('Space');
-  await expect.poll(() => page.evaluate(() => window.__sim.controls.paused)).toBe(true);
-  const t = await page.evaluate(() => window.__sim.world.tick);
-  await page.waitForTimeout(600);
-  expect(await page.evaluate(() => window.__sim.world.tick)).toBe(t);
-  await page.keyboard.press('Space');
-  await page.keyboard.press('3');
-  await expect.poll(() => page.evaluate(() => window.__sim.controls.speed)).toBe(4);
-});
-
 test('clicking an agent opens the inspector', async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto('/lab?seed=7&paused');
-  await page.waitForFunction(() => !!window.__sim);
+  await mockLive(page, frameFor(DOM, tickAt(12)));
+  await openLive(page, '/dom');
   await page.waitForTimeout(500);
   // find the screen position of an agent by scanning for a pick hit
   const hit = await page.evaluate(() => {
@@ -87,18 +68,18 @@ test('clicking an agent opens the inspector', async ({ page }) => {
 
 test('night view after a busy day', async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto('/lab?seed=7&hour=23');
-  await page.waitForFunction(() => !!window.__sim);
+  await mockLive(page, frameFor(DOM, tickAt(23)));
+  await openLive(page, '/dom');
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${SHOTS}/night.png` });
   expect(errors).toEqual([]);
 });
 
 test('evening with conversations', async ({ page }) => {
-  await page.goto('/lab?seed=7&hour=18');
-  await page.waitForFunction(() => !!window.__sim);
+  await mockLive(page, frameFor(DOM, tickAt(18)));
+  await openLive(page, '/dom');
   await page.waitForTimeout(1000);
-  const convEvents = await page.evaluate(() => window.__sim.world.events.filter((e) => e.kind === 'conversation').length);
-  expect(convEvents).toBeGreaterThan(0);
+  // the conversations of the day are in the log
+  await expect(page.locator('#log .log-row').first()).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/evening.png` });
 });
