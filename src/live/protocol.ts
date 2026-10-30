@@ -1,4 +1,5 @@
 import type { WorldSnapshot } from '../core/state';
+import type { WeatherSample } from '../world/incidents';
 
 export type { ChronicleDayView, ChronicleItem, ChronicleKind, ChronicleResponse } from '../social/chronicle';
 
@@ -58,8 +59,14 @@ export interface LiveMeta {
   /** server wall clock (ms since epoch) when the frame was produced */
   serverTime: number;
   tick: number;
-  /** real weather source for the place */
-  weather: { city: string; temperature: number | null; source: 'open-meteo' | 'plan'; updatedAt: number | null };
+  /** real weather source for the place; `sample` = the exact weather the server shows now (weatherOf) */
+  weather: {
+    city: string;
+    temperature: number | null;
+    source: 'open-meteo' | 'plan';
+    updatedAt: number | null;
+    sample?: WeatherSample;
+  };
   /** AI dialogue/diaries active on the server for this world */
   ai: boolean;
   /** real headlines feed active */

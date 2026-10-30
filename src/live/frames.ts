@@ -3,7 +3,7 @@ import { restoreWorld, applySnapshot } from '../core/state';
 import '../world/world'; // registers the world base and every module's state codec (restoreWorld needs them)
 import { setWeatherOverride, type WeatherKind, type WeatherSample } from '../world/incidents';
 import { markRealtime } from '../realtime/state';
-import { placeById, type LiveFrame, type LiveMeta } from './protocol';
+import { placeById, type LiveFrame } from './protocol';
 
 // Turning live frames into a World the renderer and the panels can show.
 //
@@ -45,7 +45,7 @@ const DEFAULT_INTENSITY: Record<WeatherKind, number> = { sunny: 0, cloudy: 0.5, 
  * else the kind the server's incidents module saw last (in the snapshot), else null (seeded plan)
  */
 export function liveWeatherSample(frame: LiveFrame): WeatherSample | null {
-  const w = frame.meta.weather as LiveMeta['weather'] & { sample?: WeatherSample | null };
+  const w = frame.meta.weather;
   if (w?.sample && KINDS.includes(w.sample.kind)) return { ...w.sample };
   const inc = frame.snapshot.modules?.incidents as { last?: unknown } | null | undefined;
   const last = inc && typeof inc === 'object' ? inc.last : null;
