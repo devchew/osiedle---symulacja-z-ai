@@ -155,6 +155,17 @@ describe('house pets: worlds saved before #9', () => {
     expect(snapshotWorld(b)).toEqual(snapshotWorld(a));
   });
 
+  it('take the pet name from the map, keeping the rest of its state', () => {
+    const w = createWorld(7, { mapId: 'kamienica' });
+    for (let i = 0; i < 300; i++) tickWorld(w);
+    const snap = JSON.parse(JSON.stringify(snapshotWorld(w))) as WorldSnapshot;
+    const saved = (snap.modules.pets as unknown as { pets: { name: string; needs: unknown }[] }).pets[0];
+    saved.name = 'Mruczek';
+    const r = restoreWorld(snap);
+    expect(petsOf(r)[0].name).toBe('Popiołek');
+    expect(petsOf(r)[0].needs).toEqual(saved.needs);
+  });
+
   it('still reject snapshots that miss a required module', () => {
     const snap = oldSnapshot('dom');
     delete snap.modules.diary;

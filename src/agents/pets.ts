@@ -155,6 +155,14 @@ export function ensurePets(world: World, map?: MapData): void {
   });
 }
 
+const specCache = new Map<string, PetSpec | undefined>();
+
+/** the pet a house layout describes (cached: building a layout on every live frame is wasteful) */
+function mapPetSpec(mapId: string): PetSpec | undefined {
+  if (!specCache.has(mapId)) specCache.set(mapId, getMap(mapId).create().pet);
+  return specCache.get(mapId);
+}
+
 // ---------------------------------------------------------------- residents' side
 
 export interface PetBias {
@@ -490,6 +498,9 @@ registerWorldState('pets', {
       complained: d.complained,
     });
     for (const p of d.pets) loadWalkerMove(p, d.moves[p.id]);
+    // a pet renamed in the map keeps its state in saved worlds, only the name follows the map
+    const spec = mapPetSpec(mapIdOf(world));
+    for (const p of d.pets) if (spec && spec.species === p.species) p.name = spec.name;
   },
   clear: (world) => void stores.delete(world),
   missing: (world) => ensurePets(world),
