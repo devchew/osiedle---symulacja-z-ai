@@ -26,16 +26,18 @@ export const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completion
 export const OPENROUTER_KEY_URL = 'https://openrouter.ai/api/v1/key';
 
 /**
- * Default model fallback chain: free models only (":free", price 0), chosen from the live
- * model list (2026-10-28) for multilingual quality + `response_format` support. OpenRouter
- * tries them in order via the `models` array. A paid model is used only when the user lists
- * it explicitly in OPENROUTER_MODELS.
+ * Default model fallback chain: free models only (":free", price 0), chosen by comparing 8 free
+ * models on the same requests (scripts/compare-models.mjs, 2026-10-30, #28): blind naturalness
+ * rating + validators + availability. OpenRouter tries them in order via the `models` array.
+ * A paid model is used only when the user lists it explicitly in OPENROUTER_MODELS.
  */
 export const DEFAULT_MODELS: readonly string[] = [
-  // answered every smoke-test call in ~1 s; Gemma's free pool (Google AI Studio) was often 429 upstream
+  // most natural in the blind rating, 23/23 answered, p50 ~0.9 s
   'nvidia/nemotron-3.5-super-vl:free',
+  // close second, livelier but more gendered slips; never 429, but p90 ~15 s (> LLM_TIMEOUT_MS)
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  // good when it answers; its free pool (Google AI Studio) was 429 upstream for 21/23 calls
   'google/gemma-4-31b-it:free',
-  'google/gemma-4-26b-a4b-it:free',
 ];
 /** OpenRouter's `models` routing list; longer env lists are cut */
 export const MAX_MODELS = 3;

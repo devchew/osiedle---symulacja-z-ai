@@ -8,3 +8,5 @@ dist-new
 dist-server
 # live world snapshots (DATA_DIR)
 data
+# scripts/compare-models.mjs output (raw model answers; outside test-results, which Playwright wipes)
+model-results
