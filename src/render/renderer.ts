@@ -7,7 +7,7 @@ import { Camera, type Insets } from './camera';
 import { UI_FONT, EMOJI_FONT, rr } from './colors';
 import { createBubblePresenter, drawBubbles, type BubbleItem, type Obstacle } from './bubbles';
 import { Lighting, lightStateAt } from './lighting';
-import { AGENT_SCALE, drawAgent, drawPet, drawPetSelection, drawSelection, headTop, petTop, type AgentPose, type PetPose, type PoseMode } from './sprites';
+import { AGENT_SCALE, drawAgent, drawJointBadges, drawPet, drawPetSelection, drawSelection, headTop, petTop, type AgentPose, type PetPose, type PoseMode } from './sprites';
 import { buildStaticLayer, staticSignature, type StaticLayer } from './tiles';
 import { WeatherFx, drawIncidentBadges, drawIncidents, weatherDim } from './weather';
 import { drawProjectBadges } from './projects';
@@ -575,6 +575,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     weather.drawScreen(c, cam.viewW, cam.viewH);
     drawIncidentBadges(c, world, (x, y) => cam.toScreen(x, y), z, now);
     drawProjectBadges(c, world, (x, y) => cam.toScreen(x, y), z, now);
+    drawJointBadges(c, world, (x, y) => cam.toScreen(x, y), z);
     const tvPanels = drawTvNews(c, world, (x, y) => cam.toScreen(x, y), z, now, cam.viewW, cam.viewH);
     const ui = Math.max(0.85, Math.min(1.2, z / 34));
     const convOf = new Map<number, number>();

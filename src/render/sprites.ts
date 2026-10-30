@@ -2,7 +2,7 @@
 // The figure is designed around its feet at (x, y + FEET) and scaled by
 // AGENT_SCALE so characters stay readable at the fitted zoom.
 
-import type { Agent } from '../types';
+import type { Agent, World } from '../types';
 import { UI_FONT, EMOJI_FONT, circle, ellipse, hash2, rr, shade, withAlpha } from './colors';
 import { fishingCastOf, jointViewOf } from '../agents/joint';
 import type { Pet } from '../agents/pets';
@@ -95,8 +95,6 @@ export function drawAgent(ctx: Ctx, a: Agent, p: AgentPose, now: number): void {
     else if (prop === 'cards') drawCards(ctx, a);
   }
   ctx.restore();
-  const badge = jointViewOf(a)?.badge;
-  if (badge) drawJointBadge(ctx, badge.text, badge.x, badge.y);
 }
 
 // ---------------------------------------------------------------- activity props
@@ -192,33 +190,45 @@ function drawRod(ctx: Ctx, a: Agent, now: number): void {
   ctx.fill();
 }
 
-/** score pill above a group playing together ("🎮 2:1", "🎣 3 ryby"); drawn in world units at a fixed screen size */
-export function drawJointBadge(ctx: Ctx, text: string, x: number, y: number): void {
-  const m = ctx.getTransform();
-  const k = Math.hypot(m.a, m.b) || 1;
+/** below this zoom (px per tile) the score badges are hidden */
+const JOINT_BADGE_MIN_ZOOM = 12;
+
+/**
+ * score pills above groups playing together ("🎮 2:1", "🎣 3 ryby"); screen-space overlay (CSS px, dpr
+ * transform), so night lighting does not dim them. `toScreen` maps world tiles to CSS px.
+ */
+export function drawJointBadges(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  toScreen: (x: number, y: number) => { x: number; y: number },
+  zoom: number,
+): void {
+  if (zoom < JOINT_BADGE_MIN_ZOOM) return;
+  const ui = Math.max(0.8, Math.min(1.2, zoom / 34));
+  const size = Math.round(12.5 * ui);
   ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(1 / k, 1 / k);
-  // ~12 css px tall whatever the zoom (k includes the device pixel ratio)
-  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-  const size = Math.round(12.5 * Math.min(3, dpr));
   ctx.font = `700 ${size}px ${UI_FONT}, ${EMOJI_FONT}`;
-  const w = ctx.measureText(text).width + size * 1.1;
-  const h = size * 1.65;
-  ctx.shadowColor = 'rgba(20,20,40,0.35)';
-  ctx.shadowBlur = size * 0.4;
-  ctx.shadowOffsetY = size * 0.08;
-  rr(ctx, -w / 2, -h / 2, w, h, h / 2);
-  ctx.fillStyle = 'rgba(255,250,236,0.96)';
-  ctx.fill();
-  ctx.shadowColor = 'transparent';
-  ctx.lineWidth = Math.max(1, size * 0.1);
-  ctx.strokeStyle = '#e0a526';
-  ctx.stroke();
-  ctx.fillStyle = '#3a2a10';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, 0, size * 0.06);
+  for (const a of world.agents) {
+    const badge = jointViewOf(a)?.badge;
+    if (!badge) continue;
+    const p = toScreen(badge.x, badge.y);
+    const w = ctx.measureText(badge.text).width + size * 1.1;
+    const h = size * 1.65;
+    ctx.shadowColor = 'rgba(20,20,40,0.35)';
+    ctx.shadowBlur = size * 0.4;
+    ctx.shadowOffsetY = size * 0.08;
+    rr(ctx, p.x - w / 2, p.y - h / 2, w, h, h / 2);
+    ctx.fillStyle = 'rgba(255,250,236,0.96)';
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.lineWidth = Math.max(1, size * 0.1);
+    ctx.strokeStyle = '#e0a526';
+    ctx.stroke();
+    ctx.fillStyle = '#3a2a10';
+    ctx.fillText(badge.text, p.x, p.y + size * 0.06);
+  }
   ctx.restore();
 }
 
