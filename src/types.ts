@@ -40,7 +40,16 @@ export interface GameTime {
   phase: DayPhase;
   /** 0 = darkest night, 1 = full daylight; smooth across dawn/dusk */
   daylight: number;
+  /** calendar of the world's local date (core/calendar.ts); absent in hand-made times = neutral */
+  season?: Season;
+  /** 0 = Monday … 6 = Sunday */
+  weekday?: number;
+  /** sunrise / sunset of the date in local clock hours */
+  sunrise?: number;
+  sunset?: number;
 }
+
+export type Season = 'winter' | 'spring' | 'summer' | 'autumn';
 
 // ---------------------------------------------------------------- world
 

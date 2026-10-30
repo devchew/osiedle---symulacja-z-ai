@@ -2,7 +2,7 @@ import type { Agent, DialogueProvider, NeedKey, World } from '../types';
 import { NEED_ICONS } from '../types';
 import { createRng } from '../core/rng';
 import { registerWorldBase } from '../core/state';
-import { timeFromTick } from '../core/time';
+import { timeOf } from '../core/calendar';
 import { getMap, setMapId } from './maps';
 import { tickNews } from './news';
 import { WORLD_OBJECT_DEFS } from './objects';
@@ -88,7 +88,7 @@ function thinkAloud(world: World, agent: Agent): void {
 
 export function tickWorld(world: World): void {
   world.tick++;
-  const time = timeFromTick(world.tick);
+  const time = timeOf(world);
 
   for (const agent of world.agents) {
     agent.prevPos = { x: agent.pos.x, y: agent.pos.y };

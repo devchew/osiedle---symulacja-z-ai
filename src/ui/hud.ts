@@ -1,6 +1,6 @@
 import './ui.css';
 import { formatClock } from '../core/time';
-import type { DayPhase, SimControls, World } from '../types';
+import type { DayPhase, Season, SimControls, World } from '../types';
 import { el, isTypingTarget, moodEmoji, setText } from './dom';
 import type { WeatherOfFn } from './extras';
 import '../realtime/realtime.css';
@@ -10,6 +10,8 @@ export const SPEEDS = [1, 2, 4, 8] as const;
 
 const PHASE_ICON: Record<DayPhase, string> = { morning: '🌅', day: '☀️', evening: '🌇', night: '🌙' };
 const PHASE_LABEL: Record<DayPhase, string> = { morning: 'Ranek', day: 'Dzień', evening: 'Wieczór', night: 'Noc' };
+const WEEKDAY_LABEL = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela'];
+const SEASON_LABEL: Record<Season, string> = { winter: 'zima', spring: 'wiosna', summer: 'lato', autumn: 'jesień' };
 
 export interface HudButton {
   id: string;
@@ -203,7 +205,8 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
     setText(phaseIcon, PHASE_ICON[t.phase]);
     phaseIcon.title = PHASE_LABEL[t.phase];
     setText(clock, formatClock(t));
-    setText(day, `Dzień ${t.day}`);
+    setText(day, t.weekday === undefined ? `Dzień ${t.day}` : `Dzień ${t.day} · ${WEEKDAY_LABEL[t.weekday]}`);
+    day.title = t.season ? SEASON_LABEL[t.season] : '';
     const w = opts.weatherOf?.(world);
     weather.hidden = !w;
     if (w) {

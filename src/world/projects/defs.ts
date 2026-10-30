@@ -8,7 +8,7 @@ import type { ObjectDef, ObjectSlot, RectArea } from '../../types';
 // type *length* changes (render/tiles.ts staticSignature), so consecutive stage types — and the
 // last stage vs the finished building — must differ in length (checked in tests/projects.test.ts).
 
-export type ProjectKindId = 'altana' | 'warzywnik';
+export type ProjectKindId = 'altana' | 'warzywnik' | 'domek_na_drzewie' | 'pomost';
 
 export interface StageDef {
   /** object type of the construction site during this stage */
@@ -37,6 +37,8 @@ export interface ProjectKind {
   accusative: string;
   icon: string;
   size: { w: number; h: number };
+  /** terrain under the footprint: 'grass' (garden) or 'water' (e.g. a pier; work spots stay on land) */
+  site: 'grass' | 'water';
   /** work slots (stand tiles around the footprint) */
   slots: ObjectSlot[];
   /** effective worker-minutes needed (team minutes count ×TEAM_BONUS) */
@@ -83,6 +85,14 @@ const ALTANA_SLOTS: ObjectSlot[] = [
 
 const WARZYWNIK_SLOTS: ObjectSlot[] = [{ stand: { x: 0, y: 2 } }, { stand: { x: 1, y: 2 } }, { stand: { x: 2, y: 2 } }];
 
+// the tree house is built around a tree of its own (drawn with the site), the work spots are the
+// gazebo's: the four sides of the 3x3 footprint
+const DOMEK_SLOTS: ObjectSlot[] = ALTANA_SLOTS;
+
+// the pier runs east from a west shore: all footprint tiles are water, the work spots are the shore
+// tiles next to its west end (one of them diagonal)
+const POMOST_SLOTS: ObjectSlot[] = [{ stand: { x: -1, y: 0 } }, { stand: { x: -1, y: 1 } }, { stand: { x: -1, y: -1 } }];
+
 export const PROJECT_KINDS: Record<ProjectKindId, ProjectKind> = {
   altana: {
     id: 'altana',
@@ -93,6 +103,7 @@ export const PROJECT_KINDS: Record<ProjectKindId, ProjectKind> = {
     accusative: 'altanę',
     icon: '🛖',
     size: { w: 3, h: 3 },
+    site: 'grass',
     slots: ALTANA_SLOTS,
     work: 2200,
     plannedDays: 13,
@@ -140,6 +151,7 @@ export const PROJECT_KINDS: Record<ProjectKindId, ProjectKind> = {
     accusative: 'warzywnik',
     icon: '🥕',
     size: { w: 3, h: 2 },
+    site: 'grass',
     slots: WARZYWNIK_SLOTS,
     work: 800,
     plannedDays: 5,
@@ -171,10 +183,99 @@ export const PROJECT_KINDS: Record<ProjectKindId, ProjectKind> = {
     pitch: 'A może własny warzywnik? 🥕',
     doneText: 'Warzywnik gotowy!',
   },
+  domek_na_drzewie: {
+    id: 'domek_na_drzewie',
+    name: 'Domek na drzewie',
+    short: 'Domek na drzewie',
+    genitive: 'domku na drzewie',
+    locative: 'domku na drzewie',
+    accusative: 'domek na drzewie',
+    icon: '🌳',
+    size: { w: 3, h: 3 },
+    site: 'grass',
+    slots: DOMEK_SLOTS,
+    work: 1200,
+    plannedDays: 7,
+    stages: [
+      {
+        type: 'domek_belki',
+        label: 'Belki',
+        until: 0.25,
+        verb: 'Mocuje belki w koronie drzewa',
+        startText: 'Pod rozłożystym drzewem leżą belki i drabina',
+      },
+      {
+        type: 'domek_platforma',
+        label: 'Platforma',
+        until: 0.5,
+        verb: 'Układa podłogę platformy',
+        startText: 'Belki trzymają mocno — czas na platformę 🪵',
+      },
+      {
+        type: 'domek_sciany',
+        label: 'Ściany',
+        until: 0.78,
+        verb: 'Stawia ściany domku',
+        startText: 'Platforma w koronie gotowa — czas na ściany 🏗️',
+      },
+      {
+        type: 'domek_dach',
+        label: 'Dach',
+        until: 1,
+        verb: 'Kładzie dach domku',
+        startText: 'Ściany domku stoją — czas na dach 🏗️',
+      },
+    ],
+    finishedType: 'domek_na_drzewie',
+    proposal: 'proponuje budowę domku na drzewie',
+    pitch: 'Zbudujmy domek na drzewie! 🌳',
+    doneText: 'Domek na drzewie gotowy!',
+  },
+  pomost: {
+    id: 'pomost',
+    name: 'Pomost nad wodą',
+    short: 'Pomost',
+    genitive: 'pomostu',
+    locative: 'pomoście',
+    accusative: 'pomost',
+    icon: '⚓',
+    size: { w: 3, h: 2 },
+    site: 'water',
+    slots: POMOST_SLOTS,
+    work: 900,
+    plannedDays: 6,
+    stages: [
+      {
+        type: 'pomost_pale',
+        label: 'Pale',
+        until: 0.35,
+        verb: 'Wbija pale w dno',
+        startText: 'Na brzegu leżą pale, sznur i młotek',
+      },
+      {
+        type: 'pomost_deski',
+        label: 'Deski',
+        until: 0.75,
+        verb: 'Przybija deski pomostu',
+        startText: 'Pale stoją w wodzie — czas na deski 🪵',
+      },
+      {
+        type: 'pomost_barierki',
+        label: 'Barierki',
+        until: 1,
+        verb: 'Montuje barierki pomostu',
+        startText: 'Deski położone — czas na barierki 🔨',
+      },
+    ],
+    finishedType: 'pomost',
+    proposal: 'proponuje budowę pomostu nad wodą',
+    pitch: 'Przydałby się własny pomost! 🎣',
+    doneText: 'Pomost gotowy!',
+  },
 };
 
 /** order in which projects are proposed (the next one after the previous is finished) */
-export const PROJECT_ORDER: readonly ProjectKindId[] = ['altana', 'warzywnik'];
+export const PROJECT_ORDER: readonly ProjectKindId[] = ['altana', 'warzywnik', 'domek_na_drzewie', 'pomost'];
 
 /**
  * what the brain sees per minute of construction work: only the good side (fun, company), so the
@@ -235,6 +336,45 @@ const FINISHED: Record<string, ObjectDef> = {
     slots: WARZYWNIK_SLOTS,
     effects: { fun: 0.5, comfort: 0.1 },
     duration: [25, 45],
+    tags: ['outdoor', 'quiet', 'project_done'],
+  },
+  domek_na_drzewie: {
+    id: 'domek_na_drzewie',
+    name: 'Domek na drzewie',
+    verb: 'Siedzi w domku na drzewie',
+    icon: '🌳',
+    color: '#8fae6a',
+    size: { w: 3, h: 3 },
+    blocking: true,
+    // seats on the platform in the crown, drawn on the deck
+    slots: [
+      { stand: { x: 1, y: 3 }, use: { x: 1, y: 1.65 } },
+      { stand: { x: -1, y: 1 }, use: { x: 0.15, y: 1.3 } },
+      { stand: { x: 3, y: 1 }, use: { x: 1.85, y: 1.3 } },
+      { stand: { x: 1, y: -1 }, use: { x: 1, y: 0.95 } },
+    ],
+    effects: { fun: 0.5, comfort: 0.3, social: 0.3 },
+    duration: [30, 60],
+    social: true,
+    tags: ['outdoor', 'project_done'],
+  },
+  pomost: {
+    id: 'pomost',
+    name: 'Pomost',
+    verb: 'Łowi ryby z pomostu',
+    icon: '🎣',
+    color: '#b98a57',
+    size: { w: 3, h: 2 },
+    blocking: true,
+    // anglers at the pier head and in the middle, drawn on the deck
+    slots: [
+      { stand: { x: -1, y: 0 }, use: { x: 1.9, y: 0 } },
+      { stand: { x: -1, y: 1 }, use: { x: 1.9, y: 1 } },
+      { stand: { x: -1, y: -1 }, use: { x: 0.9, y: 0.5 } },
+    ],
+    effects: { fun: 0.6, comfort: 0.3 },
+    duration: [45, 90],
+    social: true,
     tags: ['outdoor', 'quiet', 'project_done'],
   },
 };
