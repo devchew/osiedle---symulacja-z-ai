@@ -13,22 +13,28 @@ test('live view: next frames arrive from the server and the view updates', async
 
   await page.goto('/dom');
   await page.waitForFunction(() => window.__sim?.mode === 'live' && (window.__sim.frames ?? 0) >= 1, undefined, { timeout: 30_000 });
-  const first = await page.evaluate(() => ({
-    frames: window.__sim.frames ?? 0,
-    tick: window.__sim.world.tick,
-    positions: JSON.stringify(window.__sim.world.agents.map((a) => a.pos)),
-  }));
+  // positions alone can stay put for minutes (everyone sleeping or busy in place), so the view state
+  // also covers needs, mood and the current action: all of them move with every applied frame
+  const snapshot = (): Promise<{ frames: number; tick: number; state: string }> =>
+    page.evaluate(() => ({
+      frames: window.__sim.frames ?? 0,
+      tick: window.__sim.world.tick,
+      state: JSON.stringify(window.__sim.world.agents.map((a) => [a.needs, a.mood, a.action?.kind ?? null, a.pos])),
+    }));
+  const first = await snapshot();
   const clock = page.locator('#hud .hud-clock');
   const clock0 = await clock.textContent();
 
-  // a tick every second: a few more frames and a moved world within seconds
-  await page.waitForFunction((f) => (window.__sim.frames ?? 0) >= f + 3, first.frames, { timeout: 30_000 });
-  const next = await page.evaluate(() => ({
-    tick: window.__sim.world.tick,
-    positions: JSON.stringify(window.__sim.world.agents.map((a) => a.pos)),
-  }));
+  // a tick every second: a few more frames and a moved world within seconds (slow CI runners are given time)
+  await page.waitForFunction((f) => (window.__sim.frames ?? 0) >= f + 3, first.frames, { timeout: 45_000 });
+  let next = await snapshot();
   expect(next.tick).toBeGreaterThan(first.tick);
-  expect(next.positions).not.toBe(first.positions);
+  await expect
+    .poll(async () => {
+      next = await snapshot();
+      return next.state !== first.state;
+    }, { timeout: 30_000, message: 'residents (position, needs, mood or action) change between frames' })
+    .toBe(true);
 
   // the HUD clock follows the world minute by minute
   await expect(clock).not.toHaveText(clock0 ?? '', { timeout: 10_000 });

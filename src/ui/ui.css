@@ -657,6 +657,20 @@
     min-width: 30px;
     padding: 0 6px;
   }
+  /* a long day label (weekday, season, wider fallback fonts) is cut with an ellipsis instead of pushing the buttons off screen */
+  .hud-time,
+  .hud-time-text {
+    min-width: 0;
+  }
+  .hud-day {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hud-tools,
+  .hud-live,
+  .hud-controls {
+    flex-shrink: 0;
+  }
   .ui-inspector {
     top: auto;
     left: 0;
