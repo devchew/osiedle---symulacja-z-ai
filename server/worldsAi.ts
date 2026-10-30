@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import type { ConversationContext, DialogueLine, DialogueProvider, Rng } from '../src/types';
 import { createLlmProvider } from '../src/social/llmProvider';
 import { createDiaryAiClient, DiaryAiError, type DiaryAiClient } from '../src/social/diaryAi';
+import { createChronicleAiClient, type ChronicleAiClient } from '../src/social/chronicleAi';
 
 // AI for the live worlds, server-side.
 //
@@ -167,6 +168,17 @@ export function createGatedDiaryClient(place: string, gate: AiGate, fetchImpl: t
     write(req, allow) {
       if (!gate.tryAcquire(place)) return Promise.reject(new DiaryAiError('live world budget share used', 429, 'daily budget share'));
       return inner.write(req, allow);
+    },
+  };
+}
+
+/** chronicle summary client gated by the world's budget share (a refusal keeps the procedural summary) */
+export function createGatedChronicleClient(place: string, gate: AiGate, fetchImpl: typeof fetch): ChronicleAiClient {
+  const inner = createChronicleAiClient({ fetch: fetchImpl, baseUrl: 'http://live.internal' });
+  return {
+    write(req) {
+      if (!gate.tryAcquire(place)) return Promise.reject(new DiaryAiError('live world budget share used', 429, 'daily budget share'));
+      return inner.write(req);
     },
   };
 }

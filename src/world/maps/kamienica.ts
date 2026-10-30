@@ -13,7 +13,8 @@ export const KAMIENICA_HEIGHT = 34;
  Legend: # wall, D door, ' ' wood floor, . tile floor, , grass, : path, ~ water, @ spawn
  B bed, F fridge, S stove, T dining_table, = counter, H shower, U bathtub, W toilet, K sink,
  V tv, O sofa, R bookshelf, P piano, C computer, E exercise_bike, M treadmill, L bench,
- G grill, * flowerbed, f fishing_spot, Z wardrobe, p plant, l lamp, r rug, Y tree, b bush
+ G grill, * flowerbed, f fishing_spot, Z wardrobe, p plant, l lamp, r rug, Y tree, b bush,
+ m pet_bowl, c pet_cushion, y pet_toy, w dog_walk
  (regenerate: DUMP_MAPS=1 npx vitest run tests/maps.test.ts -> test-results/maps.txt)
 
  ::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -40,13 +41,13 @@ export const KAMIENICA_HEIGHT = 34;
  ,,# rrr  #:,,,,,,,,,,,:,,,,,,,,,,,,,,,,:# rrr  #,,
  ,,#p    l#b,,,,,,,,,,,:,,,,,,,,,,,,,,,,b#     p#,,
  ,,##########D###D####:::#########D##############,,
- ,,#.VVV..PP......RR.#:::#FSS= RR            ZZp#,,
- ,,#.rrr.............#:::#                      #,,
- ,,#.rrr......TTT....#:::#   VVV    ##D###      #,,
- ,,#.OOO......TTT....#:::#     @    #H.W.# BlB  #,,
- ,,#.......@.........#:::#      rrr #....# B B  #,,
- ,,#.................#:::#   OOOrrr #...K#      #,,
- ,,#l.......l.......p#:::#p         #....#      #,,
+ ,,# VVV  PP      RR #:::#FSS= RR            ZZp#,,
+ ,,# rrr             #:::#                      #,,
+ ,,# rrr      TTT    #:::#   VVV    ##D###      #,,
+ ,,# OOO     yTTT    #:::#     @    #H.W.# BlB  #,,
+ ,,#       @       g #:::#      rrr #....# B B  #,,
+ ,,#              c  #:::#   OOOrrr #...K#      #,,
+ ,,#lm XX   l       p#:::#p         #....#      #,,
  ,,###################:::########################,,
  ::::::::::::::::::::::::::::::::::::::::::::::::::
  ::::Y:::::::::Y:::::::::::::::Y:::::::::Y::::::Y::
@@ -216,5 +217,10 @@ export function createKamienicaMap(): MapData {
     { x: 7, y: 9 }, { x: 22, y: 9 }, { x: 37, y: 9 }, { x: 15, y: 17 }, { x: 28, y: 16 },
     { x: 34, y: 18 }, { x: 10, y: 28 }, { x: 30, y: 27 }, { x: 6, y: 14 }, { x: 43, y: 15 },
   ];
-  return { grid: g, objects, spawnPoints };
+  // house pet (cat of the residents' club: bowl, cushion and toy corner there, never goes out); placed last so the uids of older objects stay the same
+  put('pet_bowl', 4, 30);
+  put('pet_cushion', 17, 29);
+  put('pet_toy', 12, 27);
+
+  return { grid: g, objects, spawnPoints, pet: { species: 'cat', name: 'Popiołek' } };
 }

@@ -1,5 +1,5 @@
 import { loadEnv, runnerImport, type Connect, type Plugin } from 'vite';
-import type { LiveRuntime } from './worldsSetup';
+import type { LiveRuntime } from './worldsSetup.ts';
 
 // Vite plugin wrapper: the live worlds (/api/live/*) on the dev and preview servers, so `npm run dev`
 // and Playwright's `vite preview` have them too. The production server mounts the same handler.

@@ -55,7 +55,7 @@ const NOT_PAST = new Set([
   'mała', 'mały', 'cała', 'cały', 'biała', 'biały', 'wesoła', 'wesoły', 'ciepła', 'ciepły', 'miła', 'miły', 'zła', 'zły',
   'siła', 'siły', 'skała', 'skały', 'szkoła', 'szkoły', 'pszczoła', 'pszczoły', 'mgła', 'mgły', 'igła', 'strzała', 'chała',
   'dojrzała', 'dojrzały', 'okrągła', 'okrągły', 'śmiała', 'śmiały', 'trwała', 'trwały', 'doskonała', 'doskonały', 'stała', 'stały',
-  'gała', 'pała', 'zgniły', 'zgniła', 'spleśniały', 'zapał', 'upał', 'kanał', 'materiał',
+  'gała', 'pała', 'zgniły', 'zgniła', 'zwykły', 'zwykła', 'zwykłe', 'spleśniały', 'zapał', 'upał', 'kanał', 'materiał',
   'ideał', 'szał', 'pedał', 'pedały', 'sandał', 'sandały', 'kryształ', 'generał', 'kapitał', 'rytuał', 'potencjał', 'sygnał',
   'sygnały', 'kanały', 'materiały', 'ideały', 'upały', 'zapały', 'działa', 'mydła', 'koła', 'koły', 'stoły', 'doły', 'kościoły',
 ]);

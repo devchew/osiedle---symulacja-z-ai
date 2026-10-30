@@ -25,6 +25,8 @@ import { createLiveHandler } from '../server/worldsHttp';
 import { AI_IDLE_SHARE, aiAllowed, createAiGate, createGatedDialogue, inProcessFetch } from '../server/worldsAi';
 import { startLiveWorlds } from '../server/worldsSetup';
 import { createDailyBudget, createLlmHandler } from '../server/llm';
+import { chroniclePath } from '../server/chronicle';
+import type { ChronicleResponse } from '../src/social/chronicle';
 import type { ConversationContext } from '../src/types';
 
 const WARSAW = 'Europe/Warsaw';
@@ -481,4 +483,122 @@ describe('AI budget split', () => {
 
 it('fresh worlds use the clock anchor of the day they start', () => {
   expect(baseDayFor(lt('2026-10-29T06:59'))).toBe(lt('2026-10-28T00:00').dayNumber);
+});
+
+describe('chronicle', () => {
+  const DAY = 86_400_000;
+  const dom = [PLACES[0]];
+
+  async function twoDays(dir: string, extra: Partial<Parameters<typeof createLiveHost>[0]> = {}) {
+    let now = Date.UTC(2026, 9, 29, 9, 0);
+    const h = host({ dataDir: dir, now: () => now, places: dom, ...extra });
+    await h.ready;
+    now += 2 * DAY;
+    await h.sync();
+    return { h, now: () => now };
+  }
+
+  it('collects the important events of past days and survives a restart', async () => {
+    const dir = tmp();
+    const { h, now } = await twoDays(dir);
+    const view = JSON.parse(h.chronicle('dom')!.json) as ChronicleResponse;
+    expect(view.place).toBe('dom');
+    expect(view.days.length).toBeGreaterThanOrEqual(2);
+    expect(view.days[0].date > view.days[1].date).toBe(true);
+    expect(view.days.every((d) => d.items.length > 0 && d.summary.length > 0)).toBe(true);
+    await h.saveAll();
+    expect(existsSync(chroniclePath(dir, 'dom'))).toBe(true);
+    expect(existsSync(`${chroniclePath(dir, 'dom')}.tmp`)).toBe(false);
+    const b = host({ dataDir: dir, now, places: dom });
+    await b.ready;
+    expect(b.get('dom')!.restored).toBe(true);
+    expect(b.get('dom')!.chronicle.days).toEqual(h.get('dom')!.chronicle.days);
+    expect(JSON.parse(b.chronicle('dom')!.json)).toEqual(view);
+  });
+
+  it('catches up what a crash left out of the file and drops what the restored world has not seen yet', async () => {
+    const dir = tmp();
+    const { h, now } = await twoDays(dir);
+    await h.saveAll();
+    const full = JSON.parse(readFileSync(chroniclePath(dir, 'dom'), 'utf8'));
+    const items = (store: { days: { items: { tick: number }[] }[] }) => store.days.flatMap((d) => d.items).length;
+    const world = h.get('dom')!.world;
+    // chronicle behind the snapshot: the events still in world.events come back
+    const behind = { ...full, lastTick: world.tick - 100, days: full.days.map((d: { items: { tick: number }[] }) => ({ ...d, items: d.items.filter((i) => i.tick <= world.tick - 100) })) };
+    writeFileSync(chroniclePath(dir, 'dom'), JSON.stringify(behind));
+    const b = host({ dataDir: dir, now, places: dom });
+    await b.ready;
+    expect(items(b.get('dom')!.chronicle)).toBe(items(full));
+    // chronicle ahead of the snapshot: later items are replayed by the world, not kept twice
+    const ahead = { ...full, lastTick: world.tick + 500, days: [...full.days, { date: '2099-01-01', items: [{ tick: world.tick + 400, kind: 'moment', icon: '✨', text: 'Z przyszłości', agentIds: [], weight: 1 }] }] };
+    writeFileSync(chroniclePath(dir, 'dom'), JSON.stringify(ahead));
+    const c = host({ dataDir: dir, now, places: dom });
+    await c.ready;
+    expect(c.get('dom')!.chronicle.days.some((d) => d.date === '2099-01-01')).toBe(false);
+    expect(items(c.get('dom')!.chronicle)).toBe(items(full));
+  });
+
+  it('keeps an unusable chronicle file as .bak and starts a new one', async () => {
+    const dir = tmp();
+    writeFileSync(chroniclePath(dir, 'dom'), '{"format":1,"place":"dom"');
+    const logs: string[] = [];
+    const h = host({ dataDir: dir, fixedTime: lt('2026-10-29T08:00'), places: dom, log: (m) => logs.push(m) });
+    await h.ready;
+    expect(readFileSync(`${chroniclePath(dir, 'dom')}.bak`, 'utf8')).toBe('{"format":1,"place":"dom"');
+    expect(logs.some((l) => /dom: cannot read .*chronicle/.test(l))).toBe(true);
+    expect(h.chronicle('dom')).toBeDefined();
+    await h.saveAll();
+    expect(JSON.parse(readFileSync(chroniclePath(dir, 'dom'), 'utf8')).format).toBe(1);
+  });
+
+  it('serves GET /api/live/:place/chronicle (plain, gzip, 304, HEAD, 404, 503 while starting)', async () => {
+    const dir = tmp();
+    const { h } = await twoDays(dir);
+    const handler = createLiveHandler(h);
+    const r = call(handler, fakeReq('/api/live/dom/chronicle'));
+    expect(r.status).toBe(200);
+    expect(r.headers['Cache-Control']).toBe('no-cache');
+    expect((JSON.parse(r.body().toString()) as ChronicleResponse).days.length).toBeGreaterThan(0);
+    const gz = call(handler, fakeReq('/api/live/dom/chronicle', { 'accept-encoding': 'gzip' }));
+    expect(gz.headers['Content-Encoding']).toBe('gzip');
+    expect(gunzipSync(gz.body()).toString()).toBe(r.body().toString());
+    expect(call(handler, fakeReq('/api/live/dom/chronicle', { 'if-none-match': r.headers.ETag })).status).toBe(304);
+    const head = call(handler, Object.assign(fakeReq('/api/live/dom/chronicle'), { method: 'HEAD' }));
+    expect(head.status).toBe(200);
+    expect(head.body().length).toBe(0);
+    expect(call(handler, fakeReq('/api/live/mars/chronicle')).status).toBe(404);
+    handler.close();
+  });
+
+  it('writes one AI summary per finished day through the budget, falling back to the procedural text on refusal', async () => {
+    const calls: string[] = [];
+    const answer = 'Spokojny dzień na osiedlu: rano wspólne śniadanie, w południe jedna drobna naprawa. Wieczorem wszyscy odpoczywają przed telewizorem i cieszą się ciszą.';
+    const fetchImpl = (async (url: RequestInfo | URL) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.endsWith('/api/llm/chronicle')) return new Response(JSON.stringify({ text: answer, model: 'm/x:free' }), { status: 200 });
+      return new Response('{}', { status: 503 });
+    }) as typeof fetch;
+    const dir = tmp();
+    const { h } = await twoDays(dir, { ai: { fetch: fetchImpl, budget: { limit: 100, used: 0 } } });
+    await vi.waitFor(() => expect(h.get('dom')!.chronicle.days.some((d) => d.ai)).toBe(true));
+    const done = h.get('dom')!.chronicle.days.filter((d) => d.ai);
+    expect(done).toHaveLength(1);
+    expect(done[0].ai).toBe(answer);
+    const view = JSON.parse(h.chronicle('dom')!.json) as ChronicleResponse;
+    expect(view.days.find((d) => d.date === done[0].date)).toMatchObject({ summarySource: 'ai', summary: answer });
+    expect(calls.filter((u) => u.endsWith('/api/llm/chronicle'))).toHaveLength(1);
+    // one more finished day within two days gets its turn, then nothing is asked twice
+    await h.sync();
+    await vi.waitFor(() => expect(h.get('dom')!.chronicle.days.filter((d) => d.ai)).toHaveLength(2));
+    await h.sync();
+    await h.sync();
+    expect(calls.filter((u) => u.endsWith('/api/llm/chronicle'))).toHaveLength(2);
+
+    // the budget share is used up: no request, a procedural summary stays
+    const refused = host({ fixedTime: lt('2026-10-29T08:00'), places: dom, ai: { fetch: fetchImpl, budget: { limit: 0, used: 0 } } });
+    await refused.ready;
+    expect(refused.chronicle('dom')).toBeDefined();
+    expect(refused.get('dom')!.chronicle.days.every((d) => !d.ai)).toBe(true);
+  });
 });

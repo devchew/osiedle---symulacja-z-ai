@@ -3,8 +3,9 @@
 // AGENT_SCALE so characters stay readable at the fitted zoom.
 
 import type { Agent } from '../types';
-import { UI_FONT, EMOJI_FONT, circle, ellipse, hash2, rr, shade } from './colors';
+import { UI_FONT, EMOJI_FONT, circle, ellipse, hash2, rr, shade, withAlpha } from './colors';
 import { fishingCastOf, jointViewOf } from '../agents/joint';
+import type { Pet } from '../agents/pets';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -467,4 +468,279 @@ function drawSleeping(ctx: Ctx, a: Agent, p: AgentPose): void {
   ctx.fillStyle = 'rgba(255,255,255,0.12)';
   ctx.fill();
   ctx.restore();
+}
+
+// ---------------------------------------------------------------- pets (#9)
+
+export interface PetPose {
+  x: number;
+  y: number;
+  moving: boolean;
+  /** walk cycle phase, radians */
+  phase: number;
+  facing: -1 | 1;
+}
+
+/** pet feet below the tile centre (side view) */
+const PET_FEET = 0.24;
+/** like AGENT_SCALE: a little larger than life so the pet reads next to the residents */
+const PET_SCALE = 1.3;
+const CAT_COATS = ['#e8913a', '#6f6f78', '#2c2c32', '#f1ede4', '#a8794f', '#b9a58c'];
+const DOG_COATS = ['#c99a5c', '#6b4a2e', '#2d2723', '#ece2cf', '#d9b27a', '#a0522d'];
+
+function nameHash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return h;
+}
+
+/** fixed coat colour per species and name */
+export function petCoat(pet: Pet): string {
+  const coats = pet.species === 'cat' ? CAT_COATS : DOG_COATS;
+  return coats[Math.floor(hash2(nameHash(pet.name), pet.species === 'cat' ? 7 : 9, 23) * coats.length)];
+}
+
+/** screen-space top of the drawn pet above its tile centre, in tiles (for the name label) */
+export function petTop(pet: Pet): number {
+  return PET_FEET - (pet.activity === 'sleep' ? 0.3 : pet.species === 'cat' ? 0.44 : 0.42) * PET_SCALE;
+}
+
+export function drawPetSelection(ctx: Ctx, p: PetPose, now: number): void {
+  const pulse = 0.5 + 0.5 * Math.sin(now * 0.005);
+  ellipse(ctx, p.x, p.y + PET_FEET, 0.38 + pulse * 0.03, 0.15 + pulse * 0.015);
+  ctx.fillStyle = 'rgba(255,214,90,0.3)';
+  ctx.fill();
+  ctx.lineWidth = 0.045;
+  ctx.strokeStyle = '#ffd65a';
+  ctx.stroke();
+}
+
+/** a cat (~0.45 tile, upright tail, pointy ears) or a dog (~0.55 tile, floppy ears), side view */
+export function drawPet(ctx: Ctx, pet: Pet, p: PetPose, now: number): void {
+  const coat = petCoat(pet);
+  ctx.save();
+  ctx.translate(p.x, p.y + PET_FEET);
+  ctx.scale(PET_SCALE, PET_SCALE);
+  if (pet.activity === 'sleep' && !p.moving) drawPetCurled(ctx, pet, coat, now);
+  else drawPetStanding(ctx, pet, coat, p, now);
+  ctx.restore();
+}
+
+function petEye(ctx: Ctx, x: number, y: number, r: number, closed: boolean): void {
+  if (closed) {
+    ctx.beginPath();
+    ctx.arc(x, y - r * 0.4, r * 1.3, 0.2 * Math.PI, 0.8 * Math.PI);
+    ctx.strokeStyle = '#2a2420';
+    ctx.lineWidth = 0.012;
+    ctx.stroke();
+    return;
+  }
+  circle(ctx, x, y, r);
+  ctx.fillStyle = '#1e1a18';
+  ctx.fill();
+  circle(ctx, x + r * 0.3, y - r * 0.35, r * 0.35);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+}
+
+function drawPetStanding(ctx: Ctx, pet: Pet, coat: string, p: PetPose, now: number): void {
+  const cat = pet.species === 'cat';
+  const f = p.facing;
+  const dark = shade(coat, -0.35);
+  const belly = shade(coat, 0.3);
+  const swing = p.moving ? Math.sin(p.phase) : 0;
+  const t = now / 1000 + pet.id;
+  // playing: little hops; eating: head down at the bowl
+  const hop = pet.activity === 'play' && !p.moving ? -Math.abs(Math.sin(t * 6)) * 0.05 : 0;
+  const bob = p.moving ? -Math.abs(Math.cos(p.phase)) * 0.02 : 0;
+  const eating = pet.activity === 'eat' && !p.moving;
+  const len = cat ? 0.17 : 0.2;
+  const legH = cat ? 0.1 : 0.12;
+  const bodyY = -legH - (cat ? 0.06 : 0.07) + bob;
+
+  ellipse(ctx, 0, 0, len + 0.03, 0.05);
+  ctx.fillStyle = 'rgba(30,25,20,0.24)';
+  ctx.fill();
+  ctx.translate(0, hop);
+
+  // tail (behind the body)
+  const tailX = -f * len * 0.9;
+  const tailY = bodyY - 0.02;
+  ctx.beginPath();
+  ctx.moveTo(tailX, tailY);
+  if (cat) {
+    const sway = Math.sin(t * 1.6) * 0.05 + swing * 0.03;
+    ctx.bezierCurveTo(tailX - f * 0.12, tailY - 0.02, tailX - f * 0.08 + sway, tailY - 0.2, tailX - f * 0.02 + sway, tailY - 0.24);
+  } else {
+    // wagging, faster when happy or busy with someone
+    const wag = Math.sin(t * (pet.mood > 60 || pet.withId !== null ? 14 : 4)) * 0.05;
+    ctx.quadraticCurveTo(tailX - f * 0.1, tailY - 0.04, tailX - f * 0.12 + wag, tailY - 0.14);
+  }
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = cat ? 0.05 : 0.055;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  ctx.strokeStyle = coat;
+  ctx.lineWidth = cat ? 0.03 : 0.035;
+  ctx.stroke();
+
+  // legs: far pair darker, near pair in front; diagonal pairs swing together
+  for (const [k, far] of [[0, true], [1, true], [0, false], [1, false]] as const) {
+    const lx = (k === 0 ? -1 : 1) * len * 0.62 + (far ? f * 0.025 : -f * 0.01);
+    const s = (k === 0) === far ? swing : -swing;
+    const lift = Math.max(0, s) * 0.03;
+    ctx.save();
+    ctx.translate(lx, bodyY + 0.03);
+    ctx.rotate(s * 0.35);
+    rr(ctx, -0.022, 0, 0.044, -bodyY - 0.03 - lift, 0.02);
+    ctx.fillStyle = far ? dark : coat;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // body
+  ellipse(ctx, 0, bodyY, len, cat ? 0.075 : 0.09);
+  ctx.fillStyle = coat;
+  ctx.fill();
+  ctx.lineWidth = 0.018;
+  ctx.strokeStyle = dark;
+  ctx.stroke();
+  ellipse(ctx, f * 0.02, bodyY + 0.035, len * 0.6, 0.03);
+  ctx.fillStyle = withAlpha(belly, 0.7);
+  ctx.fill();
+  if (cat && (coat === '#e8913a' || coat === '#a8794f' || coat === '#6f6f78')) {
+    // tabby stripes
+    ctx.strokeStyle = withAlpha(dark, 0.55);
+    ctx.lineWidth = 0.016;
+    for (const dx of [-0.07, 0, 0.07]) {
+      ctx.beginPath();
+      ctx.moveTo(dx - 0.015, bodyY - 0.07);
+      ctx.lineTo(dx + 0.01, bodyY - 0.02);
+      ctx.stroke();
+    }
+  }
+
+  // head
+  const hr = cat ? 0.085 : 0.095;
+  const hx = f * (len + (cat ? 0.02 : 0.04));
+  const hy = eating ? bodyY + 0.06 : bodyY - (cat ? 0.09 : 0.08) + (p.moving ? 0 : Math.sin(t * 1.3) * 0.006);
+  if (cat) {
+    // pointy ears
+    for (const s of [-1, 1]) {
+      const ex = hx + s * 0.045 + f * 0.005;
+      ctx.beginPath();
+      ctx.moveTo(ex - 0.035, hy - 0.05);
+      ctx.lineTo(ex + s * 0.01, hy - 0.13);
+      ctx.lineTo(ex + 0.035, hy - 0.05);
+      ctx.closePath();
+      ctx.fillStyle = coat;
+      ctx.fill();
+      ctx.lineWidth = 0.014;
+      ctx.strokeStyle = dark;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ex - 0.016, hy - 0.06);
+      ctx.lineTo(ex + s * 0.008, hy - 0.105);
+      ctx.lineTo(ex + 0.016, hy - 0.06);
+      ctx.closePath();
+      ctx.fillStyle = '#f2a7a7';
+      ctx.fill();
+    }
+  }
+  circle(ctx, hx, hy, hr);
+  ctx.fillStyle = coat;
+  ctx.fill();
+  ctx.lineWidth = 0.018;
+  ctx.strokeStyle = dark;
+  ctx.stroke();
+  if (!cat) {
+    // snout + nose
+    ellipse(ctx, hx + f * 0.075, hy + 0.025, 0.05, 0.038);
+    ctx.fillStyle = belly;
+    ctx.fill();
+    circle(ctx, hx + f * 0.118, hy + 0.012, 0.018);
+    ctx.fillStyle = '#231d1a';
+    ctx.fill();
+    // floppy ear hanging at the back of the head
+    ellipse(ctx, hx - f * 0.035, hy + 0.02, 0.035, 0.07);
+    ctx.fillStyle = dark;
+    ctx.fill();
+  } else {
+    circle(ctx, hx + f * 0.06, hy + 0.025, 0.012);
+    ctx.fillStyle = '#e88a8a';
+    ctx.fill();
+    // whiskers
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = 0.007;
+    for (const dy of [0.015, 0.04]) {
+      ctx.beginPath();
+      ctx.moveTo(hx + f * 0.05, hy + 0.03);
+      ctx.lineTo(hx + f * 0.14, hy + dy);
+      ctx.stroke();
+    }
+  }
+  petEye(ctx, hx + f * (cat ? 0.035 : 0.04), hy - 0.015, 0.016, eating);
+}
+
+/** asleep on the cushion: curled up, tail around the nose, breathing */
+function drawPetCurled(ctx: Ctx, pet: Pet, coat: string, now: number): void {
+  const cat = pet.species === 'cat';
+  const dark = shade(coat, -0.35);
+  const breath = Math.sin(now * 0.0018 + pet.id) * 0.008;
+  const rx = (cat ? 0.17 : 0.2) + breath;
+  const ry = (cat ? 0.11 : 0.12) + breath;
+  const cy = -ry;
+  ellipse(ctx, 0, 0, rx + 0.02, 0.05);
+  ctx.fillStyle = 'rgba(30,25,20,0.2)';
+  ctx.fill();
+  ellipse(ctx, 0, cy, rx, ry);
+  ctx.fillStyle = coat;
+  ctx.fill();
+  ctx.lineWidth = 0.018;
+  ctx.strokeStyle = dark;
+  ctx.stroke();
+  // fold of the back
+  ctx.beginPath();
+  ctx.arc(0.02, cy + 0.02, rx * 0.6, 1.1 * Math.PI, 1.75 * Math.PI);
+  ctx.strokeStyle = withAlpha(dark, 0.6);
+  ctx.lineWidth = 0.014;
+  ctx.stroke();
+  // head tucked in on the left, tail wrapped along the front
+  const hx = -rx * 0.45;
+  const hy = cy + 0.02;
+  if (cat)
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(hx + s * 0.04 - 0.025, hy - 0.04);
+      ctx.lineTo(hx + s * 0.05, hy - 0.11);
+      ctx.lineTo(hx + s * 0.04 + 0.025, hy - 0.04);
+      ctx.closePath();
+      ctx.fillStyle = coat;
+      ctx.fill();
+      ctx.lineWidth = 0.012;
+      ctx.strokeStyle = dark;
+      ctx.stroke();
+    }
+  circle(ctx, hx, hy, cat ? 0.075 : 0.085);
+  ctx.fillStyle = coat;
+  ctx.fill();
+  ctx.lineWidth = 0.016;
+  ctx.strokeStyle = dark;
+  ctx.stroke();
+  if (!cat) {
+    ellipse(ctx, hx + 0.06, hy + 0.01, 0.03, 0.06);
+    ctx.fillStyle = dark;
+    ctx.fill();
+  }
+  for (const s of [-1, 1]) petEye(ctx, hx + s * 0.03, hy + 0.005, 0.012, true);
+  ctx.beginPath();
+  ctx.moveTo(rx * 0.85, cy + 0.04);
+  ctx.quadraticCurveTo(rx * 0.6, cy + ry + 0.02, hx + 0.03, cy + ry * 0.8);
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = cat ? 0.05 : 0.045;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  ctx.strokeStyle = coat;
+  ctx.lineWidth = cat ? 0.03 : 0.028;
+  ctx.stroke();
 }

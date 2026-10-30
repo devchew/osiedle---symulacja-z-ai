@@ -1,4 +1,4 @@
-import type { Rng } from '../types';
+import type { Rng } from '../types.ts';
 
 /**
  * mulberry32 — small, fast, deterministic PRNG. The whole state is one uint32, so a

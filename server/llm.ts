@@ -1,8 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Connect } from 'vite';
-import type { LlmGossip, LlmLineRequest, LlmLineResponse } from '../src/social/llmProvider';
-import type { LlmDiaryRequest } from '../src/social/diaryAi';
-import { DIARY_AI_MAX_WORDS, LLM_DIARY_URL, checkDiaryText, validateDiaryRequest } from '../src/social/diaryAi';
+import type { LlmGossip, LlmLineRequest, LlmLineResponse } from '../src/social/llmProvider.ts';
+import type { LlmDiaryRequest } from '../src/social/diaryAi.ts';
+import { DIARY_AI_MAX_WORDS, LLM_DIARY_URL, checkDiaryText, validateDiaryRequest } from '../src/social/diaryAi.ts';
+import type { LlmChronicleRequest } from '../src/social/chronicleAi.ts';
+import { CHRONICLE_AI_MAX_WORDS, LLM_CHRONICLE_URL, checkChronicleText, validateChronicleRequest } from '../src/social/chronicleAi.ts';
 import {
   LLM_HISTORY_LINES,
   LLM_LINE_URL,
@@ -14,7 +16,7 @@ import {
   isGossipIndex,
   isTone,
   sanitizeLine,
-} from '../src/social/llmProvider';
+} from '../src/social/llmProvider.ts';
 
 // Server-side proxy for LLM dialogue lines via OpenRouter (chat completions).
 // Runs inside the Vite dev / preview server (via the plugin) or the production server (server/prod.ts), so OPENROUTER_API_KEY stays in
@@ -310,7 +312,7 @@ export const DIARY_SYSTEM_PROMPT = [
   '- opisuj WYŁĄCZNIE podane fakty, nie wymyślaj zdarzeń, osób, miejsc, rozmów, cytatów ani szczegółów; możesz dodać uczucia i komentarze autora zgodne z jego charakterem i nastrojem; nie musisz użyć wszystkich faktów;',
   '- pisz w czasie teraźniejszym (np. "Rano łowię ryby", "Ola mówi, że…", "Bartek i ja kłócimy się o politykę");',
   '- NIGDY nie używaj czasu przeszłego ani trybu przypuszczającego z rodzajem (np. "zrobiłem/zrobiłam", "poszedł/poszła", "rozmawialiśmy", "chciałbym/chciałabym") ani przymiotników zdradzających płeć autora (np. "jestem zmęczony/zmęczona", "byłem szczęśliwy") — zamiast tego czas teraźniejszy, formy bezosobowe lub rzeczowniki ("zmęczenie", "padam z nóg", "co za radość");',
-  '- imiona innych osób zawsze w mianowniku, bez odmiany i bez przyimków przed imieniem (np. "Ola i ja…", "Bartek: miła rozmowa", "Kasia mówi, że…", "wspólny obiad: Staś, Marek i ja"), nigdy "z Olą", "ze Staś", "Bartka";',
+  '- imiona innych osób zawsze w mianowniku, bez odmiany i bez przyimków przed imieniem (np. "Ola i ja…", "Bartek: miła rozmowa", "Kasia mówi, że…", "wspólny obiad: Staś, Marek i ja"), nigdy "z Olą", "ze Staś", "Bartka"; tak samo imię zwierzaka domowego (np. "spacer z psem — Burek ciągnie smycz", nigdy "z Burkiem");',
   '- nagłówki z telewizji możesz przytoczyć tylko dosłownie w cudzysłowie „…” albo pominąć; nie dodawaj do nich żadnych faktów ani interpretacji; innych cytatów w „…” nie używaj;',
   '- bez daty, bez nagłówka, bez podpisu; najwyżej 3 emoji; treści przyjazne rodzinie.',
   'Przykład stylu (inne fakty): "Pobudka o 7:10. Rano długie wędkowanie — i jest szczupak! 🎣\\n\\nKasia i ja: świetna rozmowa o muzyce. Tomek nie ma czasu na pogawędkę. Trudno.\\n\\nCel dnia zaliczony. Co za dzień!"',
@@ -362,6 +364,65 @@ export function parseDiaryCompletion(body: unknown, r: LlmDiaryRequest, why?: (r
   const data = extractJson(content);
   const raw = data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>).text : null;
   const checked = checkDiaryText(raw, { name: r.name, news: r.news, allow: [r.name] });
+  if ('reason' in checked) {
+    why?.(checked.reason);
+    return null;
+  }
+  return { text: checked.text, model: typeof b.model === 'string' ? b.model : '?' };
+}
+
+// ------------------------------------------------------------ chronicle prompt
+
+export const CHRONICLE_MAX_TOKENS = 400;
+export const CHRONICLE_TEMPERATURE = 0.7;
+
+export const CHRONICLE_SYSTEM_PROMPT = [
+  'Piszesz krótkie podsumowania dnia w kronice miejsca w symulacji życia w stylu The Sims.',
+  'Dostajesz nazwę miejsca, datę i listę FAKTÓW z tego dnia. Napisz jeden krótki akapit w trzeciej osobie, w stylu lokalnej kroniki.',
+  'Zasady:',
+  `- naturalna polszczyzna, 2–4 zdania, łącznie najwyżej ${Math.min(70, CHRONICLE_AI_MAX_WORDS)} słów;`,
+  '- opisuj WYŁĄCZNIE podane fakty, nie wymyślaj zdarzeń, osób, miejsc, rozmów ani cytatów; nie musisz użyć wszystkich faktów, wybierz najciekawsze;',
+  '- pisz w czasie teraźniejszym (np. "Ola i Bartek zostają parą", "Wieczorem pada deszcz");',
+  '- NIGDY nie używaj czasu przeszłego z rodzajem (np. "poszedł/poszła", "zrobili") ani przymiotników zdradzających płeć;',
+  '- imiona zawsze w mianowniku, bez odmiany i bez przyimków przed imieniem (nigdy "z Olą", "ze Staś", "Bartka");',
+  '- bez cytatów w cudzysłowie, bez daty, bez nagłówka; najwyżej 2 emoji; treści przyjazne rodzinie.',
+  'Odpowiedz WYŁĄCZNIE obiektem JSON, bez komentarzy i bez bloku kodu:',
+  '{"text": "<podsumowanie dnia>"}',
+].join('\n');
+
+export function buildChroniclePrompt(r: LlmChronicleRequest): string {
+  return [`Miejsce: ${r.place}. Data: ${r.date}. Fakty z dnia:`, ...r.facts.map((f) => `- ${f}`), 'Napisz podsumowanie dnia: jeden akapit, czas teraźniejszy, bez form z rodzajem.'].join('\n');
+}
+
+export function buildChronicleChatRequest(r: LlmChronicleRequest, models: readonly string[] = DEFAULT_MODELS): ChatRequestBody {
+  return {
+    models: [...models],
+    messages: [
+      { role: 'system', content: CHRONICLE_SYSTEM_PROMPT },
+      { role: 'user', content: buildChroniclePrompt(r) },
+    ],
+    response_format: { type: 'json_object' },
+    max_tokens: CHRONICLE_MAX_TOKENS,
+    temperature: CHRONICLE_TEMPERATURE,
+    reasoning: { enabled: false },
+    stream: false,
+  };
+}
+
+/** extracts + sanitizes the summary from a chat-completions body; null when unusable (`why` gets the reason) */
+export function parseChronicleCompletion(body: unknown, r: LlmChronicleRequest, why?: (reason: string) => void): { text: string; model: string } | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, unknown>;
+  if (b.error) return null;
+  const choice = Array.isArray(b.choices) ? (b.choices[0] as Record<string, unknown> | undefined) : undefined;
+  if (!choice || choice.error) return null;
+  const finish = choice.finish_reason;
+  if (finish !== 'stop' && finish !== null && finish !== undefined) return null;
+  const content = (choice.message as Record<string, unknown> | undefined)?.content;
+  if (typeof content !== 'string') return null;
+  const data = extractJson(content);
+  const raw = data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>).text : null;
+  const checked = checkChronicleText(raw, r);
   if ('reason' in checked) {
     why?.(checked.reason);
     return null;
@@ -527,7 +588,8 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
       return;
     }
     const diary = path === LLM_DIARY_URL;
-    if (path !== LLM_LINE_URL && !diary) {
+    const chronicle = path === LLM_CHRONICLE_URL;
+    if (path !== LLM_LINE_URL && !diary && !chronicle) {
       next();
       return;
     }
@@ -548,10 +610,11 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
           return sendJson(res, 400, { error: 'bad json' });
         }
         const diaryRequest = diary ? validateDiaryRequest(body) : null;
-        const request = diary ? null : validateLineRequest(body);
-        if (!request && !diaryRequest) return sendJson(res, 400, { error: 'invalid request' });
-        // diary entries are optional: keep a reserve of today's budget for dialogue lines
-        if (diaryRequest && daily.limit - daily.used <= diaryReserve(daily.limit)) return sendJson(res, 429, { error: 'daily budget low' });
+        const chronicleRequest = chronicle ? validateChronicleRequest(body) : null;
+        const request = diary || chronicle ? null : validateLineRequest(body);
+        if (!request && !diaryRequest && !chronicleRequest) return sendJson(res, 400, { error: 'invalid request' });
+        // diary entries and chronicle summaries are optional: keep a reserve of today's budget for dialogue lines
+        if ((diaryRequest || chronicleRequest) && daily.limit - daily.used <= diaryReserve(daily.limit)) return sendJson(res, 429, { error: 'daily budget low' });
         // counted only for requests that actually go upstream
         if (!daily.tryAcquire()) return sendJson(res, 429, { error: 'daily limit reached' });
 
@@ -560,7 +623,9 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
           upstream = await doFetch(OPENROUTER_CHAT_URL, {
             method: 'POST',
             headers: buildHeaders(opts.apiKey!),
-            body: JSON.stringify(diaryRequest ? buildDiaryChatRequest(diaryRequest, models) : buildChatRequest(request!, models)),
+            body: JSON.stringify(
+              chronicleRequest ? buildChronicleChatRequest(chronicleRequest, models) : diaryRequest ? buildDiaryChatRequest(diaryRequest, models) : buildChatRequest(request!, models),
+            ),
             signal: AbortSignal.timeout(timeoutMs),
           });
         } catch (err) {
@@ -596,6 +661,16 @@ export function createLlmHandler(opts: LlmHandlerOptions): Connect.NextHandleFun
           const name = (err as Error).name;
           if (name === 'TimeoutError' || name === 'AbortError') return sendJson(res, 504, { error: 'timeout' });
           return sendJson(res, 503, { error: 'unusable model output' });
+        }
+        if (chronicleRequest) {
+          let reason = 'bad completion';
+          const summary = parseChronicleCompletion(completion, chronicleRequest, (r) => (reason = r));
+          if (!summary) {
+            const c = completion as { choices?: { finish_reason?: unknown }[]; model?: unknown };
+            log(`unusable chronicle output (model=${String(c?.model ?? '?')}, finish=${String(c?.choices?.[0]?.finish_reason ?? '-')}, ${reason})`);
+            return sendJson(res, 503, { error: 'unusable model output' });
+          }
+          return sendJson(res, 200, summary);
         }
         if (diaryRequest) {
           let reason = 'bad completion';

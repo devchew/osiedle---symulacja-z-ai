@@ -1,0 +1,120 @@
+/* Place chronicle panel (key K, live view). Same footprint as the projects panel. */
+
+.ui-chronicle {
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+  background: rgba(14, 18, 29, 0.92);
+  z-index: 14;
+  scrollbar-width: thin;
+  animation: ui-pop-center 0.16s ease-out;
+}
+.ui-chronicle[hidden] {
+  display: none;
+}
+.chr-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chr-note {
+  margin: 12px 0;
+  text-align: center;
+  color: var(--ui-muted);
+}
+.chr-day {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.chr-day-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 750;
+}
+.chr-day-date {
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.chr-summary {
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+.chr-ai {
+  display: inline-block;
+  margin-left: 8px;
+  color: var(--ui-accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.chr-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chr-item {
+  display: grid;
+  grid-template-columns: 22px 42px 1fr auto;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 2px;
+  border-radius: 6px;
+}
+.chr-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.chr-time {
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.chr-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chr-links {
+  display: flex;
+  gap: 2px;
+}
+.chr-link {
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+}
+.chr-link:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.chr-more {
+  margin: 6px 0 0;
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .ui-chronicle {
+    inset: 0;
+    width: auto;
+    max-height: none;
+    transform: none;
+    border-radius: 0;
+    border: 0;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 12px calc(14px + env(safe-area-inset-bottom, 0px));
+    z-index: 20;
+    animation: none;
+  }
+}

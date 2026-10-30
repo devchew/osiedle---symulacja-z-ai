@@ -1,9 +1,9 @@
 import { loadEnv, type Connect, type Plugin } from 'vite';
-import { createNewsHandler, createNewsService, parseFeedList } from './news';
+import { createNewsHandler, createNewsService, parseFeedList } from './news.ts';
 
 // Vite plugin wrapper: mounts the handler from ./news.ts on the dev and preview servers.
 // The production server (server/prod.ts) mounts the same handler without Vite.
-export * from './news';
+export * from './news.ts';
 
 export function newsProxy(): Plugin {
   let handler: Connect.NextHandleFunction | null = null;

@@ -257,6 +257,11 @@
 .ui-icon-btn:hover {
   background: rgba(255, 255, 255, 0.2);
 }
+/* resident or pet (#9) in the same panel */
+.ui-inspector.is-pet .insp-agent-only,
+.ui-inspector:not(.is-pet) .insp-pet-only {
+  display: none !important;
+}
 .insp-traits {
   display: flex;
   flex-wrap: wrap;

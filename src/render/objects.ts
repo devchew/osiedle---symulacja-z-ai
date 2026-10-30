@@ -828,6 +828,127 @@ const gameTable: Drawer = (ctx, b) => {
   }
 };
 
+// ---------------------------------------------------------------- pets (#9)
+
+/** a paw print (pad + four toes) centred at (cx, cy) */
+function paw(ctx: Ctx, cx: number, cy: number, s: number, color: string): void {
+  ctx.fillStyle = color;
+  ellipse(ctx, cx, cy + s * 0.25, s * 0.42, s * 0.34);
+  ctx.fill();
+  for (const [dx, dy] of [[-0.5, -0.22], [-0.18, -0.52], [0.18, -0.52], [0.5, -0.22]]) {
+    circle(ctx, cx + dx * s, cy + dy * s, s * 0.17);
+    ctx.fill();
+  }
+}
+
+/** food bowl with kibble and a smaller water bowl on a little mat */
+const petBowl: Drawer = (ctx, b) => {
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  rr(ctx, cx - 0.38, cy - 0.2, 0.76, 0.46, 0.1);
+  ctx.fillStyle = '#d8cfbf';
+  ctx.fill();
+  const bowl = (x: number, r: number, rim: string, inside: string): void => {
+    ctx.fillStyle = 'rgba(50,35,20,0.18)';
+    ellipse(ctx, x + 0.02, cy + 0.07, r, r * 0.62);
+    ctx.fill();
+    ellipse(ctx, x, cy + 0.03, r, r * 0.62);
+    ctx.fillStyle = rim;
+    ctx.fill();
+    ctx.lineWidth = 0.025;
+    ctx.strokeStyle = shade(rim, -0.35);
+    ctx.stroke();
+    ellipse(ctx, x, cy + 0.01, r * 0.7, r * 0.42);
+    ctx.fillStyle = inside;
+    ctx.fill();
+  };
+  bowl(cx - 0.12, 0.19, b.color, '#9a6a3c');
+  // kibble
+  ctx.fillStyle = '#6e4423';
+  for (const [dx, dy] of [[-0.05, -0.02], [0.03, 0.02], [-0.01, 0.04], [0.05, -0.01], [-0.08, 0.02]]) {
+    circle(ctx, cx - 0.12 + dx, cy + 0.01 + dy, 0.022);
+    ctx.fill();
+  }
+  bowl(cx + 0.2, 0.13, '#5b8fc9', '#a9d6f2');
+};
+
+/** round pet bed: a soft rim around a lighter hollow with a paw print */
+const petCushion: Drawer = (ctx, b) => {
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  const c = b.color;
+  ctx.fillStyle = 'rgba(50,35,20,0.16)';
+  ellipse(ctx, cx + 0.04, cy + 0.07, 0.4, 0.34);
+  ctx.fill();
+  ellipse(ctx, cx, cy, 0.4, 0.34);
+  ctx.fillStyle = c;
+  ctx.fill();
+  ctx.lineWidth = OUTLINE;
+  ctx.strokeStyle = shade(c, -0.38);
+  ctx.stroke();
+  ellipse(ctx, cx, cy + 0.03, 0.27, 0.22);
+  ctx.fillStyle = shade(c, 0.45);
+  ctx.fill();
+  ctx.lineWidth = 0.02;
+  ctx.strokeStyle = shade(c, -0.15);
+  ctx.stroke();
+  paw(ctx, cx, cy + 0.03, 0.11, withAlpha(shade(c, -0.1), 0.45));
+};
+
+/** toy corner: a small round mat with a ball of yarn and a ball */
+const petToy: Drawer = (ctx, b) => {
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  ellipse(ctx, cx, cy + 0.04, 0.42, 0.32);
+  ctx.fillStyle = '#7fb2a0';
+  ctx.fill();
+  ellipse(ctx, cx, cy + 0.04, 0.33, 0.24);
+  ctx.lineWidth = 0.02;
+  ctx.strokeStyle = shade('#7fb2a0', 0.35);
+  ctx.stroke();
+  // yarn ball with a loose thread
+  const yx = cx - 0.1;
+  const yy = cy;
+  ctx.beginPath();
+  ctx.moveTo(yx + 0.1, yy + 0.06);
+  ctx.bezierCurveTo(yx + 0.2, yy + 0.2, yx + 0.3, yy - 0.02, yx + 0.36, yy + 0.12);
+  ctx.strokeStyle = b.color;
+  ctx.lineWidth = 0.02;
+  ctx.stroke();
+  circle(ctx, yx, yy, 0.13);
+  ctx.fillStyle = b.color;
+  ctx.fill();
+  ctx.lineWidth = 0.022;
+  ctx.strokeStyle = shade(b.color, -0.3);
+  ctx.stroke();
+  ctx.lineWidth = 0.014;
+  for (const a of [-0.6, 0, 0.6]) {
+    ctx.beginPath();
+    ctx.ellipse(yx, yy, 0.11, 0.05, a, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // small rubber ball
+  circle(ctx, cx + 0.2, cy + 0.1, 0.07);
+  ctx.fillStyle = '#e0574f';
+  ctx.fill();
+  ctx.fillStyle = '#fff4e0';
+  ctx.fillRect(cx + 0.13, cy + 0.09, 0.14, 0.02);
+};
+
+/** start of the dog walk: a low wooden post with a paw sign */
+const dogWalk: Drawer = (ctx, b) => {
+  const cx = b.x + b.w / 2 + 0.22;
+  const cy = b.y + b.h / 2 + 0.05;
+  ctx.fillStyle = 'rgba(40,40,20,0.2)';
+  ellipse(ctx, cx + 0.05, cy + 0.22, 0.12, 0.05);
+  ctx.fill();
+  block(ctx, cx - 0.03, cy - 0.12, 0.06, 0.36, 0.02, '#8a6440', false);
+  block(ctx, cx - 0.16, cy - 0.3, 0.32, 0.2, 0.04, '#b98c5a');
+  paw(ctx, cx, cy - 0.19, 0.07, '#5a3d22');
+  // paw prints along the path
+  for (const [dx, dy] of [[-0.5, 0.18], [-0.32, 0.06]]) paw(ctx, cx + dx, cy + dy, 0.06, 'rgba(90,61,34,0.35)');
+};
+
 const fallback: Drawer = (ctx, b) => {
   const [x, y, w, h] = inset(b, 0.1);
   block(ctx, x, y, w, h, 0.14, b.color);
@@ -835,6 +956,11 @@ const fallback: Drawer = (ctx, b) => {
 };
 
 const MATCHERS: [RegExp, Drawer][] = [
+  // pet objects first: "pet_cushion" must not end up a bed or a sofa
+  [/^pet_bowl$/, petBowl],
+  [/^pet_cushion$/, petCushion],
+  [/^pet_toy$/, petToy],
+  [/^dog_walk$/, dogWalk],
   [/console|konsol/, gameConsole],
   [/board_game|card_table|planszow/, gameTable],
   [/fridge|lodow/, fridge],
