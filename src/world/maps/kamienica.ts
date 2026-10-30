@@ -222,5 +222,5 @@ export function createKamienicaMap(): MapData {
   put('pet_cushion', 17, 29);
   put('pet_toy', 12, 27);
 
-  return { grid: g, objects, spawnPoints, pet: { species: 'cat', name: 'Mruczek' } };
+  return { grid: g, objects, spawnPoints, pet: { species: 'cat', name: 'Popiołek' } };
 }
