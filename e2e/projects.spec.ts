@@ -216,6 +216,14 @@ test('tree house and pier: every stage is drawn, the pier stands on the pond', a
       }, kindId);
       await zoomTo(page, kindId);
       await page.screenshot({ path: `${SHOTS}/project-${type}.png` });
+      const c = await page.evaluate((k) => {
+        const g = window.__sim.projectList().find((x) => x.kindId === k)!;
+        return window.__sim.renderer.toScreen(g.pos.x + (g.size.w - 1) / 2, g.pos.y + (g.size.h - 1) / 2);
+      }, kindId);
+      await page.screenshot({
+        path: `${SHOTS}/crop-${type}.png`,
+        clip: { x: Math.max(0, c.x - 200), y: Math.max(0, c.y - 170), width: 400, height: 340 },
+      });
     }
     const p = await page.evaluate((k) => window.__sim.projectList().find((x) => x.kindId === k)!, kindId);
     expect(p.status).toBe('done');
