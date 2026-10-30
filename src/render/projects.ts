@@ -2,6 +2,7 @@ import type { ObjectDef, ObjectInstance, World } from '../types';
 import { EMOJI_FONT, UI_FONT, circle, ellipse, hash2, rr, shade } from './colors';
 import { projectTypeInfo, projectsOf, type ProjectView } from '../world/projects';
 import { timeFromTick } from '../core/time';
+import { PLANK_TONES } from './pier';
 
 // Drawing of construction sites and finished project buildings (world/projects).
 // Stage sprites are drawn into the static layer through render/objects.ts drawObject (each stage
@@ -460,6 +461,318 @@ function warzywnikGotowy(ctx: Ctx, b: Box): void {
   fillRR(ctx, b.x + 0.06, b.y + 0.05, 0.3, 0.16, 0.03, '#efe3c5', WOOD_DARK);
 }
 
+// ------------------------------------------------------------------ tree house
+// Top view: a tree of its own (leaf ring around the box), a platform in the crown on the south
+// side and the cabin on the north side. The ladder and the work spots are on the ground below.
+
+const BARK = '#7a5230';
+const LEAVES = ['#4f9a45', '#5aa84e', '#43873d', '#62b055'];
+
+function treeShadow(ctx: Ctx, b: Box): void {
+  ellipse(ctx as CanvasRenderingContext2D, b.x + b.w / 2 + 0.1, b.y + b.h / 2 + 0.15, 1.45, 1.35);
+  ctx.fillStyle = 'rgba(30,50,25,0.2)';
+  ctx.fill();
+}
+
+/** ring of leaf clusters around the edge of the box; `inner` adds the ones above the platform */
+function canopyRing(ctx: Ctx, b: Box, inner: boolean): void {
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  const n = 11;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + hash2(b.uid, 5) * 0.4;
+    const r = 1.0 + hash2(b.uid, i, 21) * 0.1;
+    dot(ctx, cx + Math.cos(a) * r, cy + Math.sin(a) * r, 0.5 + hash2(i, b.uid, 22) * 0.12, LEAVES[i % LEAVES.length]);
+  }
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + 0.2;
+    dot(ctx, cx + Math.cos(a) * 1.08, cy + Math.sin(a) * 1.05, 0.14, shade(LEAVES[(i + 1) % LEAVES.length], 0.18));
+  }
+  if (inner) for (const [x, y] of [[-0.95, -0.95], [0.95, -0.95]]) dot(ctx, cx + x, cy + y, 0.34, LEAVES[2]);
+}
+
+function trunk(ctx: Ctx, b: Box, withBranches: boolean): void {
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  if (withBranches) for (let i = 0; i < 5; i++) line(ctx, cx, cy, cx + Math.cos(i * 1.3 + 0.4) * 0.95, cy + Math.sin(i * 1.3 + 0.4) * 0.95, BARK, 0.13);
+  dot(ctx, cx, cy, 0.3, BARK);
+  dot(ctx, cx - 0.04, cy - 0.04, 0.2, shade(BARK, 0.12));
+  dot(ctx, cx, cy, 0.09, shade(BARK, -0.2));
+}
+
+const DECK = { x: 0.3, y: 1.15, w: 2.4, h: 1.3 };
+
+/** platform planks (vertical boards); `share` of them laid, the beams below it always */
+function platform(ctx: Ctx, b: Box, share: number, color = WOOD_LIGHT): void {
+  const { x, y, w, h } = DECK;
+  shadow(ctx, b.x + x, b.y + y, w, h, 0.04);
+  fillRR(ctx, b.x + x, b.y + y, w, h, 0.04, WOOD_DARK, shade(WOOD_DARK, -0.4));
+  for (const by of [0.18, h - 0.18]) line(ctx, b.x + x + 0.04, b.y + y + by, b.x + x + w - 0.04, b.y + y + by, WOOD, 0.1);
+  const n = 10;
+  const bw = w / n;
+  for (let i = 0; i < Math.round(n * share); i++) {
+    ctx.fillStyle = hash2(b.uid, i, 31) < 0.5 ? color : shade(color, 0.07);
+    ctx.fillRect(b.x + x + i * bw, b.y + y, bw - 0.014, h);
+  }
+  fillRR(ctx, b.x + x, b.y + y, w, h, 0.04, 'rgba(0,0,0,0)', shade(WOOD_DARK, -0.3));
+}
+
+const CABIN = { x: 0.55, y: 0.2, w: 1.9, h: 1.0 };
+
+function cabinWalls(ctx: Ctx, b: Box, sides: number): void {
+  const { x, y, w, h } = CABIN;
+  fillRR(ctx, b.x + x, b.y + y, w, h, 0.03, shade(WOOD_LIGHT, 0.08));
+  const t = 0.12;
+  const x0 = b.x + x;
+  const y0 = b.y + y;
+  const x1 = x0 + w;
+  const y1 = y0 + h;
+  const walls: [number, number, number, number][] = [
+    [x0, y0, x1, y0],
+    [x0, y0, x0, y1],
+    [x1, y0, x1, y1],
+  ];
+  for (const [ax, ay, bx, by] of walls.slice(0, sides)) line(ctx, ax, ay, bx, by, WOOD, t);
+  // front wall with the doorway
+  if (sides >= 3) {
+    line(ctx, x0, y1, x0 + w * 0.32, y1, WOOD, t);
+    line(ctx, x0 + w * 0.68, y1, x1, y1, WOOD, t);
+  }
+  // window in the back wall
+  if (sides >= 1) fillRR(ctx, x0 + w * 0.4, y0 - 0.05, w * 0.2, 0.1, 0.02, '#9ed0e6', WOOD_DARK);
+}
+
+function gableRoof(ctx: Ctx, b: Box, share: number, trim: string | null): void {
+  const x0 = b.x + CABIN.x - 0.1;
+  const x1 = b.x + CABIN.x + CABIN.w + 0.1;
+  const y0 = b.y + CABIN.y - 0.1;
+  const y1 = b.y + CABIN.y + CABIN.h + 0.12;
+  const ym = (y0 + y1) / 2;
+  const slopes: [number, number, string][] = [[y0, ym, shade(ROOF, -0.06)], [ym, y1, ROOF]];
+  slopes.slice(0, share >= 1 ? 2 : 1).forEach(([ya, yb, c]) => {
+    fillRR(ctx, x0, ya, x1 - x0, yb - ya, 0.03, c, shade(ROOF, -0.4));
+    for (let yy = ya + 0.14; yy < yb - 0.05; yy += 0.14) line(ctx, x0 + 0.02, yy, x1 - 0.02, yy, shade(c, -0.18), 0.02);
+  });
+  if (share >= 1) line(ctx, x0, ym, x1, ym, shade(ROOF, -0.45), 0.05);
+  else for (let i = 0; i < 6; i++) line(ctx, x0 + 0.15 + i * ((x1 - x0 - 0.3) / 5), ym, x0 + 0.15 + i * ((x1 - x0 - 0.3) / 5), y1, WOOD_DARK, 0.05);
+  if (trim) {
+    ctx.strokeStyle = trim;
+    ctx.lineWidth = 0.05;
+    ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+  }
+}
+
+function deckRail(ctx: Ctx, b: Box, color: string): void {
+  const { x, y, w, h } = DECK;
+  const x0 = b.x + x + 0.04;
+  const x1 = b.x + x + w - 0.04;
+  const y1 = b.y + y + h - 0.04;
+  line(ctx, x0, b.y + y + 0.3, x0, y1, color, 0.05);
+  line(ctx, x1, b.y + y + 0.3, x1, y1, color, 0.05);
+  // front rail with a gap above the ladder
+  line(ctx, x0, y1, b.x + 1.15, y1, color, 0.05);
+  line(ctx, b.x + 1.85, y1, x1, y1, color, 0.05);
+  for (const [px, py] of [[x0, y1], [x1, y1], [b.x + 1.15, y1], [b.x + 1.85, y1], [x0, b.y + y + 0.3], [x1, b.y + y + 0.3]]) post(ctx, px, py, color, 0.1);
+}
+
+function domekBelki(ctx: Ctx, b: Box): void {
+  treeShadow(ctx, b);
+  canopyRing(ctx, b, false);
+  trunk(ctx, b, true);
+  // three of four frame beams on the branches, the fourth still on the ground
+  const { x, y, w, h } = DECK;
+  const x0 = b.x + x;
+  const y0 = b.y + y;
+  line(ctx, x0, y0, x0 + w, y0, WOOD, 0.12);
+  line(ctx, x0, y0 + h, x0 + w, y0 + h, WOOD, 0.12);
+  line(ctx, x0, y0, x0, y0 + h, WOOD, 0.12);
+  line(ctx, x0 + w * 0.5, y0, x0 + w * 0.5, y0 + h, WOOD_LIGHT, 0.08);
+  for (const [px, py] of [[x0, y0], [x0 + w, y0], [x0, y0 + h], [x0 + w, y0 + h]]) peg(ctx, px, py);
+  lumber(ctx, b.x + 1.75, b.y + 2.62, 3, 0.95);
+  ladder(ctx, b.x + 0.75, b.y + 2.98, 0.75, Math.PI);
+}
+
+function domekPlatforma(ctx: Ctx, b: Box): void {
+  treeShadow(ctx, b);
+  canopyRing(ctx, b, false);
+  trunk(ctx, b, true);
+  platform(ctx, b, 0.6);
+  dot(ctx, b.x + 1.5, b.y + 1.5, 0.3, BARK);
+  dot(ctx, b.x + 1.46, b.y + 1.46, 0.19, shade(BARK, 0.12));
+  lumber(ctx, b.x + 1.75, b.y + 2.62, 4, 0.95);
+  ladder(ctx, b.x + 0.75, b.y + 2.98, 1.0, Math.PI);
+  // saw horse
+  line(ctx, b.x + 0.15, b.y + 0.55, b.x + 0.85, b.y + 0.55, WOOD_DARK, 0.07);
+  line(ctx, b.x + 0.2, b.y + 0.45, b.x + 0.2, b.y + 0.7, WOOD_DARK, 0.04);
+  line(ctx, b.x + 0.8, b.y + 0.45, b.x + 0.8, b.y + 0.7, WOOD_DARK, 0.04);
+}
+
+function domekSciany(ctx: Ctx, b: Box): void {
+  treeShadow(ctx, b);
+  canopyRing(ctx, b, false);
+  platform(ctx, b, 1);
+  cabinWalls(ctx, b, 3);
+  deckRail(ctx, b, WOOD_DARK);
+  ladder(ctx, b.x + 0.75, b.y + 2.98, 1.0, Math.PI);
+  lumber(ctx, b.x + 1.9, b.y + 2.62, 3, 0.85);
+  canopyOverhang(ctx, b);
+}
+
+function domekDach(ctx: Ctx, b: Box): void {
+  treeShadow(ctx, b);
+  canopyRing(ctx, b, false);
+  platform(ctx, b, 1);
+  cabinWalls(ctx, b, 3);
+  deckRail(ctx, b, WOOD_DARK);
+  gableRoof(ctx, b, 0.5, null);
+  ladder(ctx, b.x + 2.4, b.y + 1.0, 1.0, Math.PI);
+  for (let i = 0; i < 3; i++) fillRR(ctx, b.x + 0.2 + i * 0.03, b.y + 2.7 - i * 0.06, 0.45, 0.2, 0.03, shade(ROOF, -0.05 * i), shade(ROOF, -0.4));
+  canopyOverhang(ctx, b);
+}
+
+/** a few leaf clusters over the corners of the deck, so the house sits inside the tree */
+function canopyOverhang(ctx: Ctx, b: Box): void {
+  for (const [x, y, r] of [[0.1, 0.15, 0.3], [2.9, 0.12, 0.3], [0.05, 2.1, 0.22], [2.95, 2.15, 0.22]]) {
+    dot(ctx, b.x + x, b.y + y, r, LEAVES[(Math.round(x * 3) + b.uid) % LEAVES.length]);
+    dot(ctx, b.x + x + 0.05, b.y + y + 0.05, r * 0.5, shade(LEAVES[1], 0.15));
+  }
+}
+
+function domekGotowy(ctx: Ctx, b: Box): void {
+  treeShadow(ctx, b);
+  canopyRing(ctx, b, false);
+  platform(ctx, b, 1, '#c4915c');
+  cabinWalls(ctx, b, 3);
+  deckRail(ctx, b, PAINT);
+  gableRoof(ctx, b, 1, PAINT);
+  // pennant on the ridge and a lantern at the entrance
+  const rx = b.x + CABIN.x + CABIN.w - 0.15;
+  const ry = b.y + CABIN.y + CABIN.h / 2 + 0.06;
+  line(ctx, rx, ry, rx, ry - 0.4, '#3b3b3b', 0.025);
+  ctx.beginPath();
+  ctx.moveTo(rx, ry - 0.4);
+  ctx.lineTo(rx - 0.26, ry - 0.32);
+  ctx.lineTo(rx, ry - 0.24);
+  ctx.closePath();
+  ctx.fillStyle = '#e5483b';
+  ctx.fill();
+  fillRR(ctx, b.x + 2.38, b.y + 1.22, 0.14, 0.18, 0.03, '#2f2f33');
+  fillRR(ctx, b.x + 2.41, b.y + 1.26, 0.08, 0.1, 0.02, '#ffd77a');
+  ladder(ctx, b.x + 1.5, b.y + 2.98, 1.0, Math.PI);
+  canopyOverhang(ctx, b);
+  // a few flowers by the ladder
+  for (let i = 0; i < 4; i++) {
+    const x = b.x + 0.35 + i * 0.28;
+    dot(ctx, x, b.y + 2.75, 0.07, LEAF);
+    dot(ctx, x, b.y + 2.75, 0.035, ['#f28b82', '#fdd663', '#c58af9', '#ffffff'][i]);
+  }
+}
+
+// ------------------------------------------------------------------ pier
+// Drawn over the water (the footprint is water): boards run along the pier, like pier tiles in
+// render/tiles.ts. The shore is on the west side.
+
+const PIER_BEAM = '#7a5530';
+
+function waterShadow(ctx: Ctx, b: Box): void {
+  ctx.fillStyle = 'rgba(20,55,85,0.28)';
+  ctx.fillRect(b.x + 0.04, b.y + 0.1, b.w, b.h);
+}
+
+/** one pile in the water with ripples around it */
+function pile(ctx: Ctx, x: number, y: number, h = 1): void {
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = 0.025;
+  ellipse(ctx as CanvasRenderingContext2D, x, y + 0.04, 0.17, 0.12);
+  ctx.stroke();
+  dot(ctx, x + 0.03, y + 0.04, 0.1 * h, 'rgba(20,55,85,0.35)');
+  dot(ctx, x, y, 0.095, WOOD_DARK);
+  dot(ctx, x - 0.02, y - 0.02, 0.05, WOOD);
+}
+
+/** decking of whole tiles from the shore: 4 boards across the walking direction per tile, gaps, nails */
+function pierDeck(ctx: Ctx, b: Box, tiles: number): void {
+  const boards = 4;
+  for (let tx = 0; tx < tiles; tx++) {
+    for (let ty = 0; ty < b.h; ty++) {
+      const x = b.x + tx;
+      const y = b.y + ty;
+      for (let i = 0; i < boards; i++) {
+        const tone = PLANK_TONES[Math.floor(hash2(tx * 4 + i, ty, b.uid + 5) * PLANK_TONES.length)];
+        ctx.fillStyle = shade(tone, (hash2(ty, tx * 4 + i, b.uid + 6) - 0.5) * 0.1);
+        ctx.fillRect(x + i / boards, y, 1 / boards + 0.002, 1.002);
+      }
+      ctx.fillStyle = 'rgba(70,45,20,0.5)';
+      for (let i = 0; i < boards; i++) ctx.fillRect(x + i / boards, y, 0.025, 1);
+      for (let i = 0; i < boards; i++) for (const e of [0.1, 0.9]) dot(ctx, x + (i + 0.5) / boards, y + e, 0.018, 'rgba(60,40,20,0.55)');
+    }
+  }
+  // edge beams on both long sides
+  ctx.fillStyle = PIER_BEAM;
+  ctx.fillRect(b.x, b.y, tiles, 0.07);
+  ctx.fillRect(b.x, b.y + b.h - 0.07, tiles, 0.07);
+}
+
+function stringers(ctx: Ctx, b: Box): void {
+  for (const y of [0.2, b.h - 0.2]) line(ctx, b.x, b.y + y, b.x + b.w, b.y + y, WOOD, 0.1);
+}
+
+function pomostPale(ctx: Ctx, b: Box): void {
+  waterShadow(ctx, b);
+  // piles driven in from the shore side, the last column only started
+  for (const x of [0.2, 1.0, 1.8]) for (const y of [0.2, b.h - 0.2]) pile(ctx, b.x + x, b.y + y);
+  pile(ctx, b.x + 2.6, b.y + 0.2, 0.8);
+  // string along the first row of piles
+  line(ctx, b.x + 0.2, b.y + 0.2, b.x + 2.6, b.y + 0.2, 'rgba(255,255,255,0.85)', 0.02);
+  // raft with a stack of piles waiting to go in
+  fillRR(ctx, b.x + 1.35, b.y + 0.7, 1.35, 0.6, 0.05, WOOD_LIGHT, WOOD_DARK);
+  for (let i = 0; i < 3; i++) dot(ctx, b.x + 1.65 + i * 0.3, b.y + 1.0, 0.09, WOOD_DARK);
+  line(ctx, b.x + 2.3, b.y + 0.82, b.x + 2.3, b.y + 1.15, WOOD_DARK, 0.04);
+  fillRR(ctx, b.x + 2.2, b.y + 0.78, 0.22, 0.1, 0.03, '#8c939c', '#5d636b');
+}
+
+function pomostDeski(ctx: Ctx, b: Box): void {
+  waterShadow(ctx, b);
+  for (const x of [0.2, 1.0, 1.8, 2.6]) for (const y of [0.2, b.h - 0.2]) pile(ctx, b.x + x, b.y + y);
+  stringers(ctx, b);
+  line(ctx, b.x + 2.5, b.y + 0.2, b.x + 2.5, b.y + b.h - 0.2, WOOD, 0.08);
+  pierDeck(ctx, b, 2);
+  // planks waiting at the unfinished end
+  lumber(ctx, b.x + 2.1, b.y + 0.5, 4, 0.8);
+  line(ctx, b.x + 1.7, b.y + 1.65, b.x + 1.95, b.y + 1.4, WOOD_DARK, 0.04);
+  fillRR(ctx, b.x + 1.85, b.y + 1.32, 0.2, 0.1, 0.03, '#8c939c', '#5d636b');
+}
+
+function railSegment(ctx: Ctx, b: Box, y: number, from: number, to: number, color: string): void {
+  line(ctx, b.x + from, b.y + y, b.x + to, b.y + y, color, 0.05);
+  const n = Math.round((to - from) / 0.75);
+  for (let i = 0; i <= n; i++) post(ctx, b.x + from + (i * (to - from)) / n, b.y + y, color, 0.1);
+}
+
+function pomostBarierki(ctx: Ctx, b: Box): void {
+  waterShadow(ctx, b);
+  for (const x of [0.2, 1.0, 1.8, 2.6]) for (const y of [0.2, b.h - 0.2]) pile(ctx, b.x + x, b.y + y);
+  pierDeck(ctx, b, b.w);
+  // rail on the north side done, the south side only posts
+  railSegment(ctx, b, 0.1, 0.1, 2.9, WOOD_DARK);
+  for (const x of [0.1, 1.0, 1.9]) post(ctx, b.x + x, b.y + b.h - 0.1, WOOD_DARK, 0.1);
+  lumber(ctx, b.x + 1.45, b.y + 1.1, 3, 0.8);
+  bucket(ctx, b.x + 0.5, b.y + 1.3, '#d9a873');
+}
+
+function pomostGotowy(ctx: Ctx, b: Box): void {
+  waterShadow(ctx, b);
+  for (const x of [0.2, 1.0, 1.8, 2.6]) for (const y of [0.2, b.h - 0.2]) pile(ctx, b.x + x, b.y + y);
+  pierDeck(ctx, b, b.w);
+  railSegment(ctx, b, 0.1, 0.1, 2.9, PAINT);
+  railSegment(ctx, b, b.h - 0.1, 0.1, 2.9, PAINT);
+  // bollard with a rope coil and a lantern post at the head
+  post(ctx, b.x + 2.85, b.y + 1.0, '#3b3b3b', 0.12);
+  dot(ctx, b.x + 2.85, b.y + 1.0, 0.07, '#ffd77a');
+  dot(ctx, b.x + 0.35, b.y + 1.7, 0.09, '#d8c08a');
+  dot(ctx, b.x + 0.35, b.y + 1.7, 0.05, WOOD_DARK);
+}
+
 const DRAWERS: Record<string, (ctx: Ctx, b: Box) => void> = {
   altana_fundament: altanaFundament,
   altana_konstrukcja: altanaKonstrukcja,
@@ -470,6 +783,15 @@ const DRAWERS: Record<string, (ctx: Ctx, b: Box) => void> = {
   warzywnik_grzadki: warzywnikGrzadki,
   warzywnik_sadzenie: warzywnikSadzenie,
   warzywnik: warzywnikGotowy,
+  domek_belki: domekBelki,
+  domek_platforma: domekPlatforma,
+  domek_sciany: domekSciany,
+  domek_dach: domekDach,
+  domek_na_drzewie: domekGotowy,
+  pomost_pale: pomostPale,
+  pomost_deski: pomostDeski,
+  pomost_barierki: pomostBarierki,
+  pomost: pomostGotowy,
 };
 
 export function drawProjectObject(ctx: Ctx, def: ObjectDef | undefined, inst: ObjectInstance, _T: number): void {

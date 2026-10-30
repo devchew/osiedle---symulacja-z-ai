@@ -781,7 +781,7 @@ const ACT_NOUN: Record<string, string> = {
   fishing_spot: 'wędkowanie', bookshelf: 'książka', computer: 'gry na komputerze', piano: 'pianino', exercise_bike: 'rowerek',
   treadmill: 'bieżnia', tv: 'telewizja', bench: 'ławka w ogrodzie', flowerbed: 'praca w ogródku', bathtub: 'kąpiel w wannie',
   shower: 'prysznic', nap: 'drzemka', repair: 'naprawy', grill: 'grill', stove: 'gotowanie', altana: 'altana w ogrodzie',
-  warzywnik: 'praca w warzywniku', console: 'granie na konsoli', board_game_table: 'planszówki',
+  warzywnik: 'praca w warzywniku', domek_na_drzewie: 'domek na drzewie', pomost: 'nowy pomost', console: 'granie na konsoli', board_game_table: 'planszówki',
   pet_bowl: 'karmienie zwierzaka', pet_toy: 'zabawa ze zwierzakiem', dog_walk: 'spacer z psem',
 };
 const ACT_VERB: Record<string, readonly string[]> = {
@@ -801,6 +801,8 @@ const ACT_VERB: Record<string, readonly string[]> = {
   stove: ['Gotuję', 'Pichcę coś w kuchni'],
   altana: ['Odpoczywam w altanie', 'Siedzę w altanie w ogrodzie'],
   warzywnik: ['Pielę warzywnik', 'Doglądam grządek w warzywniku'],
+  domek_na_drzewie: ['Siedzę w domku na drzewie', 'Wspinam się do domku na drzewie'],
+  pomost: ['Łowię ryby z nowego pomostu', 'Siedzę na pomoście nad wodą'],
   console: ['Gram na konsoli', 'Siedzę z padem przed telewizorem'],
   board_game_table: ['Gram w planszówki', 'Siedzę nad planszą i kartami'],
   pet_toy: ['Bawię się ze zwierzakiem', 'Spędzam czas ze zwierzakiem'],
@@ -808,14 +810,14 @@ const ACT_VERB: Record<string, readonly string[]> = {
 };
 const ACT_ICON: Record<string, string> = {
   fishing_spot: '🎣', bookshelf: '📖', computer: '🎮', piano: '🎹', exercise_bike: '🚴', treadmill: '🏃', tv: '📺', bench: '🪑',
-  flowerbed: '🌷', bathtub: '🛁', nap: '💤', repair: '🔧', grill: '🌭', stove: '🍳', altana: '🛖', warzywnik: '🥕',
+  flowerbed: '🌷', bathtub: '🛁', nap: '💤', repair: '🔧', grill: '🌭', stove: '🍳', altana: '🛖', warzywnik: '🥕', domek_na_drzewie: '🌳', pomost: '🎣',
   console: '🎮', board_game_table: '🎲', pet_bowl: '🥣', pet_toy: '🧶', dog_walk: '🐕',
 };
 const EXERCISE = new Set(['exercise_bike', 'treadmill', 'dog_walk']);
 /** told by the pet lines when the facts have a pet (not repeated in the activity summary) */
 const PET_TYPES = new Set(Object.keys(PET_CARE));
-const LOUNGE = new Set(['tv', 'bench', 'nap', 'altana']);
-const QUIET = new Set(['bookshelf', 'fishing_spot', 'piano', 'flowerbed', 'computer', 'warzywnik']);
+const LOUNGE = new Set(['tv', 'bench', 'nap', 'altana', 'domek_na_drzewie']);
+const QUIET = new Set(['bookshelf', 'fishing_spot', 'piano', 'flowerbed', 'computer', 'warzywnik', 'pomost']);
 const HYGIENE = new Set(['bathtub', 'shower']);
 const SUMMARY_SKIP = new Set(['toilet', 'sink', 'fridge', 'dining_table', 'stove', 'grill']);
 const MEAL_ORDER: MealFact['kind'][] = ['śniadanie', 'obiad', 'kolacja', 'przekąska'];
@@ -1053,7 +1055,7 @@ const GOAL_PARTNER: Record<'friend' | 'reconcile' | 'meet', { done: readonly str
 // building projects (world/projects): {A} accusative, {G} genitive, {L} locative, {D} duration, {W} co-workers
 const PROJECT_PROPOSE: Pools = {
   pos: ['Proponuję wszystkim: budujemy razem {A}! Już nie mogę się doczekać.', 'Rzucam hasło: wspólnie budujemy {A}. Będzie pięknie!'],
-  neu: ['Proponuję wspólną budowę. Cel: {N} w ogrodzie. Zobaczymy, kto pomoże.', 'Pora na coś nowego — proponuję, by razem zrobić {A}.'],
+  neu: ['Proponuję wspólną budowę. Cel: {n}. Zobaczymy, kto pomoże.', 'Pora na coś nowego — proponuję, by razem zrobić {A}.'],
   neg: ['Proponuję, by razem zrobić {A}. Ciekawe, czy ktoś w ogóle ruszy palcem.'],
 };
 const PROJECT_WORK_WITH = [

@@ -11,6 +11,8 @@ import { statusOf } from '../social/relationships';
 import { jointBlocksChat, jointKindOf, jointMemberOf, jointObjectBias } from './joint';
 import { isMealTime } from './meals';
 import { petObjectBias } from './pets';
+import { bedtimeHour, outdoorDaylightFactor, outdoorEveningEnd, outdoorSeasonFactor, SEASON_TUNING, wakeHour } from './seasons';
+import { isFreeEvening, isWeekend } from '../core/time';
 
 import { availability } from '../world/incidents';
 import { projectAppeal } from '../world/projects';
@@ -174,14 +176,14 @@ function withGoal(score: number, bias: GoalBias, calm: number): number {
   return bias.add === 0 && bias.mult === 1 ? score : score * bias.mult + bias.add * calm;
 }
 
-/** appeal of leisure in the evening (18–22) even when needs are met: films, games, books, talks */
+/** appeal of leisure in the evening (from 18 until bedtime) even when needs are met: films, games, books, talks */
 const EVENING_LEISURE = 6;
 
 function eveningLeisure(agent: Agent, def: ObjectDef, time: GameTime): number {
-  if (time.hour < 18 || time.hour >= 22 || agent.needs.energy <= 30) return 0;
+  if (time.hour < 18 || time.hour >= bedtimeHour(time) || agent.needs.energy <= 30) return 0;
   const tags = def.tags ?? [];
   if (isSleepingObject(def) || tags.includes('food') || tags.includes('repair')) return 0;
-  if (tags.includes('outdoor') && time.hour >= 20) return 0;
+  if (tags.includes('outdoor') && time.hour >= outdoorEveningEnd(time)) return 0;
   const leisure = (def.effects.fun ?? 0) > 0 || (def.effects.social ?? 0) > 0;
   return leisure ? EVENING_LEISURE : 0;
 }
@@ -214,8 +216,9 @@ function scoreObject(agent: Agent, def: ObjectDef, time: GameTime): number {
 
   const h = time.hour;
   if (isSleepingObject(def)) {
-    const night = h >= 22 || h < 6;
-    const evening = h >= 20 && h < 22;
+    const bed = bedtimeHour(time);
+    const night = h >= bed || h < wakeHour(time);
+    const evening = h >= bed - 2 && h < bed;
     if (night) score *= agent.needs.energy < 85 ? 2.5 : 1;
     // evenings are for films, games and talks: bed only when really tired
     else if (evening) score *= agent.needs.energy < 25 ? 1.3 : agent.needs.energy < 40 ? 0.3 : 0.08;
@@ -224,13 +227,10 @@ function scoreObject(agent: Agent, def: ObjectDef, time: GameTime): number {
     // take care of a pressing need before turning in, unless exhausted
     if (agent.needs.energy > 20 && (agent.needs.hunger < 25 || agent.needs.social < 20 || agent.needs.hygiene < 25)) score *= 0.5;
   } else {
-    // the garden is for daytime
-    if (tags.includes('outdoor')) {
-      if (h >= 21 || h < 6) score *= 0.12;
-      else if (h >= 20 || h < 7) score *= 0.5;
-    }
-    // the night belongs to sleep unless something is urgent
-    if (h >= 23 || h < 5) score *= 0.6;
+    // the garden is for daytime (and for its season: winter gardens are quiet, summer ones last late)
+    if (tags.includes('outdoor')) score *= outdoorDaylightFactor(time) * outdoorSeasonFactor(def, time);
+    // the night belongs to sleep unless something is urgent (before a free day it is milder)
+    if (h >= bedtimeHour(time) + 1 || h < 5) score *= isFreeEvening(time) ? SEASON_TUNING.NIGHT_FACTOR_FREE : SEASON_TUNING.NIGHT_FACTOR;
   }
   return score;
 }
@@ -332,6 +332,8 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
     }
     // broken objects, rain outside: caps every bonus too
     base *= availability(world, obj, def) * projectAppeal(world, obj, def, agent);
+    // people have time for building on weekends
+    if (isWeekend(time) && def.tags?.includes('project')) base *= SEASON_TUNING.WEEKEND_PROJECT;
     if (base <= 0) continue;
     if (isSleepingObject(def) && own !== undefined) {
       if (obj.uid === own) base *= OWN_BED_BONUS;
