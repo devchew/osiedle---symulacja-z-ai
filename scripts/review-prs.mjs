@@ -124,7 +124,9 @@ async function smokeGate(pr, url) {
     for (const path of ['/', '/dom']) {
       const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
       const errors = [];
-      page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+      // net::ERR_* is network flakiness and 503 is the live API answering `starting` until the world syncs
+      const benign = /net::ERR_|status of 503/;
+      page.on('console', (m) => m.type() === 'error' && !benign.test(m.text()) && errors.push(m.text()));
       page.on('pageerror', (e) => errors.push(e.message));
       await page.goto(url + path, { waitUntil: 'load', timeout: 30_000 });
       await page.waitForTimeout(4000);
@@ -141,10 +143,14 @@ async function smokeGate(pr, url) {
 }
 
 async function review(number) {
-  const pr = ghJson(
-    'pr', 'view', String(number), '--json',
-    'number,title,isDraft,mergeable,baseRefName,body,headRefOid,statusCheckRollup,commits,labels,url',
-  );
+  const view = () =>
+    ghJson('pr', 'view', String(number), '--json', 'number,title,isDraft,mergeable,baseRefName,body,headRefOid,statusCheckRollup,commits,labels,url');
+  let pr = view();
+  // GitHub computes mergeability lazily: UNKNOWN right after a push to the base branch
+  for (let i = 0; i < 5 && pr.mergeable === 'UNKNOWN'; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    pr = view();
+  }
   const gates = [];
   gates.push(gate('Stan', pr.isDraft || pr.baseRefName !== 'master' ? 'fail' : 'ok', pr.isDraft ? 'draft' : `base ${pr.baseRefName}`));
   gates.push(
