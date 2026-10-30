@@ -5,7 +5,7 @@ import type { Grid, Room, TileKind, World } from '../types';
 import { UI_FONT, circle, hash2, rr, shade } from './colors';
 import { drawObject, isFlatObject, isTallObject } from './objects';
 import { baseTypeOf } from '../world/incidents';
-import { pierTiles } from './pier';
+import { PLANK_TONES, pierTiles } from './pier';
 
 export interface StaticLayer {
   canvas: HTMLCanvasElement;
@@ -201,8 +201,6 @@ function drawPath(ctx: Ctx, x: number, y: number, seed: number): void {
     ctx.fill();
   }
 }
-
-const PLANK_TONES = ['#b98a57', '#a97b4a', '#c39563', '#b08052'];
 
 /** boards across the walking direction, a shadow on the water and side beams */
 function drawPier(ctx: Ctx, g: Grid, pier: Set<number>, seed: number): void {

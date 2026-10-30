@@ -1,6 +1,7 @@
 import type { SimControls } from '../types';
 import { createLoop } from '../core/loop';
-import { formatClock, timeFromTick } from '../core/time';
+import { setCalendar, timeOf } from '../core/calendar';
+import { formatClock } from '../core/time';
 import { snapshotWorld, NETWORK_SNAPSHOT } from '../core/state';
 import { createWorld, tickWorld } from '../world/world';
 import { bedCount, getMap } from '../world/maps';
@@ -22,7 +23,7 @@ import { projectsOf } from '../world/projects';
 
 // /lab — hidden developer and test route: the standalone simulation as before wave 10
 // (URL: ?seed, ?agents (≤ beds), ?map, ?tick (replay to that tick) or ?hour, ?check, ?paused,
-// ?mode=real, ?news=off), with saves, links, the new-world dialog and the LLM toggle.
+// ?mode=real, ?news=off, ?date=2026-12-20 = calendar date of day 1: season and weekday), with saves, links, the new-world dialog and the LLM toggle.
 // Not linked anywhere in the public UI.
 
 export async function startLab(): Promise<void> {
@@ -32,6 +33,8 @@ export async function startLab(): Promise<void> {
   const beds = bedCount(mapDef);
   const start = parseStartParams(params, beds, randomSeed);
   const world = createWorld(start.seed, { agentCount: start.agentCount, mapId: mapDef.id });
+  const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(params.get('date') ?? '');
+  if (date) setCalendar(world, Math.round(Date.UTC(+date[1], +date[2] - 1, +date[3]) / 86_400_000));
   // ?mode=real: clock and weather follow the real world (no deterministic replay)
   const realtimeMode = params.get('mode') === 'real';
   const history = createMoodHistory();
@@ -65,7 +68,7 @@ export async function startLab(): Promise<void> {
     },
     setPaused: (p) => loop.setPaused(p),
     setSpeed: (s) => loop.setSpeed(s),
-    time: () => timeFromTick(world.tick),
+    time: () => timeOf(world),
   };
 
   if (start.paused && !realtimeMode) loop.setPaused(true);
@@ -127,7 +130,7 @@ export async function startLab(): Promise<void> {
 
   loop.start();
   if (mismatch) toast('Odtworzony stan różni się od zapisu (inna wersja gry albo dialogi AI).', 'warn', 6000);
-  else if (start.tick > 0 && params.has('tick')) toast(`Wczytano: dzień ${timeFromTick(world.tick).day}, ${formatClock(timeFromTick(world.tick))}`);
+  else if (start.tick > 0 && params.has('tick')) toast(`Wczytano: dzień ${timeOf(world).day}, ${formatClock(timeOf(world))}`);
 
   window.__sim = {
     mode: 'lab',

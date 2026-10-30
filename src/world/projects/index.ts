@@ -11,7 +11,8 @@ import { brokenObjects, weatherOf } from '../incidents';
 import { PROJECT_DEFS, PROJECT_KINDS, PROJECT_ORDER, SITE_HINTS, WORK_COSTS, projectTypeInfo, type ProjectKind, type ProjectKindId } from './defs';
 
 // Multi-day building projects: residents build a garden gazebo ("altana") together over about
-// two weeks, then a small vegetable garden ("warzywnik").
+// two weeks, then a small vegetable garden ("warzywnik"), a tree house ("domek na drzewie") and,
+// where there is water, a pier ("pomost").
 //
 // How it works without touching the agents: the construction site is an ordinary object whose
 // "use" is working on it (def effects: fun and company; the costs — energy, hygiene, comfort —
@@ -261,19 +262,28 @@ interface Candidate {
 }
 
 /**
- * a free grass area for the site: footprint on grass only, away from doors, paths, other objects
- * and their use spots, with walkable work spots, and blocking it keeps every reachable tile reachable
+ * a free area for the site: footprint on grass only (water for kinds with site 'water'), away from
+ * doors, paths, other objects and their use spots, with walkable work spots, and blocking it keeps
+ * every reachable tile reachable
  */
 export function findSite(world: World, kind: ProjectKind, rng: Rng | null = null): Vec2 | null {
   const g = world.grid;
   const { w, h } = kind.size;
+  const onWater = kind.site === 'water';
+  const ground = onWater ? 'water' : 'grass';
   const occupied = new Set<number>();
+  // a pier may use the shore tiles of fishing spots (non-blocking) as work spots
+  const solidOccupied = new Set<number>();
   const stands = new Set<number>();
   let source: Vec2 | null = null;
   for (const o of world.objects) {
     const def = world.objectDefs[o.type];
     if (!def) continue;
-    for (let dy = 0; dy < def.size.h; dy++) for (let dx = 0; dx < def.size.w; dx++) occupied.add(key(o.pos.x + dx, o.pos.y + dy));
+    for (let dy = 0; dy < def.size.h; dy++)
+      for (let dx = 0; dx < def.size.w; dx++) {
+        occupied.add(key(o.pos.x + dx, o.pos.y + dy));
+        if (def.blocking) solidOccupied.add(key(o.pos.x + dx, o.pos.y + dy));
+      }
     for (const sl of def.slots) {
       const sx = o.pos.x + sl.stand.x;
       const sy = o.pos.y + sl.stand.y;
@@ -295,7 +305,7 @@ export function findSite(world: World, kind: ProjectKind, rng: Rng | null = null
       for (let dy = 0; dy < h && ok; dy++)
         for (let dx = 0; dx < w && ok; dx++) {
           const k = key(x + dx, y + dy);
-          if (tile(x + dx, y + dy) !== 'grass' || g.solid[(y + dy) * g.width + x + dx] || occupied.has(k) || stands.has(k) || agentTiles.has(k)) ok = false;
+          if (tile(x + dx, y + dy) !== ground || (!onWater && g.solid[(y + dy) * g.width + x + dx]) || occupied.has(k) || stands.has(k) || agentTiles.has(k)) ok = false;
         }
       if (!ok) continue;
       let crowd = 0;
@@ -304,7 +314,7 @@ export function findSite(world: World, kind: ProjectKind, rng: Rng | null = null
         for (let xx = x - 1; xx <= x + w && ok; xx++) {
           const t = tile(xx, yy);
           if (t === 'door' || t === 'wall') ok = false;
-          if (t === 'water') wet = true;
+          if (t === 'water' && !onWater) wet = true;
           if (occupied.has(key(xx, yy))) crowd++;
         }
       if (!ok) continue;
@@ -312,7 +322,7 @@ export function findSite(world: World, kind: ProjectKind, rng: Rng | null = null
         const sx = x + sl.stand.x;
         const sy = y + sl.stand.y;
         const t = tile(sx, sy);
-        if ((t !== 'grass' && t !== 'path') || g.solid[sy * g.width + sx] || occupied.has(key(sx, sy))) ok = false;
+        if ((t !== 'grass' && t !== 'path') || g.solid[sy * g.width + sx] || (onWater ? solidOccupied : occupied).has(key(sx, sy))) ok = false;
       }
       if (!ok) continue;
       const cx = x + (w - 1) / 2;
@@ -333,8 +343,8 @@ export function findSite(world: World, kind: ProjectKind, rng: Rng | null = null
     if (good.length >= 3 || (good.length > 0 && c.score < good[0].score - 1.5)) break;
     const blocked = new Set<number>();
     for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) blocked.add(key(c.x + dx, c.y + dy));
-    // no tile reachable before may be cut off: only the footprint itself goes
-    if (reach(world, source, blocked) !== before - w * h) continue;
+    // no tile reachable before may be cut off: only the footprint itself goes (nothing, on water)
+    if (reach(world, source, blocked) !== before - (onWater ? 0 : w * h)) continue;
     if (!reaches(world, source, kind.slots.map((sl) => ({ x: c.x + sl.stand.x, y: c.y + sl.stand.y })), blocked)) continue;
     good.push(c);
   }

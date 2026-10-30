@@ -1,5 +1,6 @@
 import type { SimControls, World } from '../types';
 import { createLoop } from '../core/loop';
+import { timeOf } from '../core/calendar';
 import { timeFromTick } from '../core/time';
 import { snapshotWorld, NETWORK_SNAPSHOT } from '../core/state';
 import { formatTrace } from '../world/trace';
@@ -79,7 +80,7 @@ export function startLive(initialPlace: PlaceId): void {
     speed: 1,
     setPaused: () => {},
     setSpeed: () => {},
-    time: () => timeFromTick(view?.world.tick ?? 0),
+    time: () => (view ? timeOf(view.world) : timeFromTick(0)),
   };
 
   const hash = bindHashSelection(

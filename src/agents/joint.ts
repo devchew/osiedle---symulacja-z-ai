@@ -1,5 +1,6 @@
 import type { Agent, GameTime, Gossip, ObjectInstance, Traits, Vec2, World } from '../types';
-import { timeFromTick } from '../core/time';
+import { timeOf } from '../core/calendar';
+import { isWeekend } from '../core/time';
 import { fromJson, loadByAgent, registerWorldState, saveByAgent, toJson, type Json } from '../core/state';
 import { slotStandTile } from '../world/objects';
 import { pushEvent } from '../world/events';
@@ -12,6 +13,7 @@ import { LINE_TTL } from '../social/conversation';
 import { JOINT_LINES } from '../social/dialogueProvider';
 import type { GoalBias } from './goals';
 import { callGathering, gatheringOf, invitationsOf } from './groups';
+import { fishingOpen, SEASON_TUNING } from './seasons';
 
 // Joint activities: long sessions that two to four residents do together on one object
 // (console, card table) or on neighbouring objects (fishing spots side by side).
@@ -491,7 +493,7 @@ function availablePartners(world: World, agent: Agent, kind: JointKind): number 
   const key = `${agent.id}:${kind}`;
   const hit = c.byKey.get(key);
   if (hit !== undefined) return hit;
-  const h = hourOf(timeFromTick(world.tick));
+  const h = hourOf(timeOf(world));
   let n = 0;
   for (const o of world.agents) if (!cannotCome(world, agent, o) && !needsFirst(o, h) && !recentlyPlayed(world, o.id)) n++;
   c.byKey.set(key, n);
@@ -541,13 +543,15 @@ export function jointObjectBias(world: World, agent: Agent, obj: ObjectInstance,
   const partners = availablePartners(world, agent, kind);
   if (partners === 0) return solo;
   const fit = timeFit(kind, hourOf(time));
-  if (fit <= 0) return solo;
+  if (fit <= 0 || (kind === 'fishing' && !fishingOpen(time))) return solo;
   // somebody calls everyone to a film or a grill: that wins over a new game
   if (kind !== 'fishing' && invitationsOf(world).some((i) => i.kind !== 'meal' && i.hostId !== agent.id)) return solo;
   const taste = jointTaste(kind, agent.traits);
   // more friends around: a bit more tempting (an extrovert's console evening)
   const crowd = kind === 'console' ? 1 + 0.15 * Math.min(3, partners - 1) * Math.max(0, agent.traits.sociability + 0.3) : 1;
-  return { mult: T.BIAS_MULT, add: T.BIAS_ADD * taste * fit * crowd };
+  // weekends are for doing things together; the winter lake is less inviting
+  const calendar = (isWeekend(time) ? SEASON_TUNING.WEEKEND_JOINT : 1) * (kind === 'fishing' && time.season === 'winter' ? SEASON_TUNING.WINTER_OUTDOOR : 1);
+  return { mult: T.BIAS_MULT, add: T.BIAS_ADD * taste * fit * crowd * calendar };
 }
 
 // ---------------------------------------------------------------- starting a session
@@ -616,6 +620,7 @@ export function onJointHeadingTo(world: World, agent: Agent, obj: ObjectInstance
   const T = JOINT_TUNING;
   const h = hourOf(time);
   if (sessionOf(world, agent.id) || recentlyPlayed(world, agent.id) || jointWindow(kind, time) < T.MIN_DURATION + T.WALK_MARGIN || timeFit(kind, h) <= 0) return;
+  if (kind === 'fishing' && !fishingOpen(time)) return;
   if (agent.needs.energy < (h >= 21 ? 40 : 30) || agent.needs.hunger < 30 || agent.needs.hygiene < 18) return;
   const seats = freeSeats(world, obj, kind);
   if (seats.length === 0) return;
@@ -757,7 +762,7 @@ const avg = (xs: Agent[], f: (a: Agent) => number): number => xs.reduce((s, a) =
 
 function startPlaying(world: World, session: Session, here: Agent[]): void {
   const T = JOINT_TUNING;
-  const time = timeFromTick(world.tick);
+  const time = timeOf(world);
   const [lo, hi] = T.DURATION[session.kind];
   const taste = avg(here, (p) => jointTaste(session.kind, p.traits));
   let d = Math.round(world.rng.int(lo, hi) * clamp(0.8 + 0.25 * taste, 0.8, 1.2));
@@ -1015,7 +1020,7 @@ function finish(world: World, s: Store, session: Session, endAction: (w: World, 
     close(world, s, session, false, 'za krótko');
     return;
   }
-  const time = timeFromTick(world.tick);
+  const time = timeOf(world);
   const outcome = describeOutcome(session, players, agents, minutes, time);
 
   // sympathy for every pair: time well spent, minus clashing temperaments
@@ -1057,7 +1062,7 @@ function finish(world: World, s: Store, session: Session, endAction: (w: World, 
 
 /** the fisher with the best catch calls everybody to the nearest working grill (groups.callGathering) */
 function grillTheCatch(world: World, fishers: Agent[], host: Agent): void {
-  const h = hourOf(timeFromTick(world.tick));
+  const h = hourOf(timeOf(world));
   if (!((h >= 11 && h < 14) || (h >= 16.5 && h < 19.5))) return;
   let best: ObjectInstance | null = null;
   let bestD = Infinity;

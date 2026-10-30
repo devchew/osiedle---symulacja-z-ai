@@ -8,7 +8,7 @@ export const DEFAULT_LOCATION = { lat: 52.23, lon: 21.01, name: 'Warszawa' } as 
 
 /**
  * WMO weather interpretation code (Open-Meteo `weather_code`) → simulation weather.
- * Snow and freezing precipitation count as 'rain' (keeps people indoors) with their own label.
+ * Snow and freezing precipitation count as 'rain' (keeps people indoors) with their own label; snow is flagged.
  * `cloudCover` (0..100) sets the intensity of cloudy weather when given.
  */
 export function mapWmo(code: number, cloudCover?: number): WeatherSample {
@@ -18,7 +18,13 @@ export function mapWmo(code: number, cloudCover?: number): WeatherSample {
     ...(label ? { label } : {}),
     ...(icon ? { icon } : {}),
   });
-  const wet = (kind: 'rain' | 'storm', intensity: number, label: string, icon: string): WeatherSample => ({ kind, intensity, label, icon });
+  const wet = (kind: 'rain' | 'storm', intensity: number, label: string, icon: string, snow = false): WeatherSample => ({
+    kind,
+    intensity,
+    label,
+    icon,
+    ...(snow ? { snow } : {}),
+  });
   switch (code) {
     case 0:
       return { kind: 'sunny', intensity: 0, label: 'Bezchmurnie' };
@@ -52,13 +58,13 @@ export function mapWmo(code: number, cloudCover?: number): WeatherSample {
     case 67:
       return wet('rain', 0.85, 'Marznący deszcz', '🌧️');
     case 71:
-      return wet('rain', 0.4, 'Lekki śnieg', '🌨️');
+      return wet('rain', 0.4, 'Lekki śnieg', '🌨️', true);
     case 73:
-      return wet('rain', 0.6, 'Śnieg', '🌨️');
+      return wet('rain', 0.6, 'Śnieg', '🌨️', true);
     case 75:
-      return wet('rain', 0.85, 'Śnieżyca', '❄️');
+      return wet('rain', 0.85, 'Śnieżyca', '❄️', true);
     case 77:
-      return wet('rain', 0.35, 'Ziarna śniegu', '🌨️');
+      return wet('rain', 0.35, 'Ziarna śniegu', '🌨️', true);
     case 80:
       return wet('rain', 0.5, 'Przelotny deszcz', '🌦️');
     case 81:
@@ -66,9 +72,9 @@ export function mapWmo(code: number, cloudCover?: number): WeatherSample {
     case 82:
       return wet('rain', 1, 'Gwałtowna ulewa', '🌧️');
     case 85:
-      return wet('rain', 0.5, 'Przelotny śnieg', '🌨️');
+      return wet('rain', 0.5, 'Przelotny śnieg', '🌨️', true);
     case 86:
-      return wet('rain', 0.8, 'Przelotny śnieg', '🌨️');
+      return wet('rain', 0.8, 'Przelotny śnieg', '🌨️', true);
     case 95:
       return wet('storm', 0.9, 'Burza', '⛈️');
     case 96:
