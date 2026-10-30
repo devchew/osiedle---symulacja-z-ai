@@ -100,4 +100,13 @@ describe('live frames', () => {
     const sent = { ...f, meta: { ...f.meta, weather: { ...f.meta.weather, sample: { kind: 'storm', intensity: 1 } } } } as LiveFrame;
     expect(weatherOf(applyFrame(null, null, sent).world).kind).toBe('storm');
   });
+
+  it('shows the exact weather sample the server sent (intensity, label, icon)', () => {
+    const server = createWorld(1410, { agentCount: 4, mapId: 'jezioro' });
+    tickWorld(server);
+    const f = frameOf(server);
+    const drizzle = { kind: 'rain', intensity: 0.17, label: 'Mżawka', icon: '🌦️' } as const;
+    const sent = { ...f, meta: { ...f.meta, weather: { ...f.meta.weather, sample: drizzle } } } as LiveFrame;
+    expect(weatherOf(applyFrame(null, null, sent).world)).toMatchObject({ ...drizzle, raining: true });
+  });
 });
