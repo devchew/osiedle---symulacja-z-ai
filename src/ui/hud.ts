@@ -68,6 +68,8 @@ export const HELP_KEYS: [string, string][] = [
   ['kółko / szczypnięcie', 'przybliż i oddal'],
   ['klik', 'szczegóły postaci'],
   ['dwuklik', 'śledź postać kamerą'],
+  ['[ / ]', 'poprzednia / następna postać'],
+  ['Tab', 'przejście po przyciskach i liście mieszkańców'],
   ['Esc', 'zamknij panel'],
 ];
 
@@ -303,6 +305,7 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
       if (!b || !btn) return;
       b.classList.toggle('has-badge', on);
       b.title = on && title ? `${btn.title} — ${title}` : btn.title;
+      b.setAttribute('aria-label', b.title);
     },
     setWorld(w) {
       world = w;
