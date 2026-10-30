@@ -1,21 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
+import { SHOTS, mockLive, openLive, trackErrors } from './support/live';
+import { frameFor, tickAt, type WorldSpec } from './support/worldFixtures';
 
-// Visual smoke tests: screenshots of the main states (for human review) plus a
-// few layout invariants. Shots land in test-results/shots/visual-*.png.
+// Visual smoke tests of the live view (fixture world from e2e/support): screenshots of the main
+// states (for human review) plus a few layout invariants. Shots land in test-results/shots/visual-*.png.
 
-const SHOTS = 'test-results/shots';
-
-function trackErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  return errors;
-}
-
-async function open(page: Page, query: string): Promise<void> {
-  await page.goto(`/lab${query}`);
-  await page.waitForFunction(() => !!window.__sim);
+async function open(page: Page, hour: number, spec: WorldSpec = { place: 'dom' }): Promise<Awaited<ReturnType<typeof mockLive>>> {
+  const live = await mockLive(page, frameFor(spec, tickAt(hour)));
+  await openLive(page, `/${spec.place}`);
   await page.waitForTimeout(1200);
+  return live;
 }
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -49,7 +43,7 @@ test.describe('desktop 1400×900', () => {
 
   test('day: house fully visible, not covered by HUD or log', async ({ page }) => {
     const errors = trackErrors(page);
-    await open(page, '?seed=7&hour=12');
+    await open(page, 12);
     const house = await houseRect(page);
     expect(house.x).toBeGreaterThanOrEqual(0);
     expect(house.y).toBeGreaterThanOrEqual(0);
@@ -62,25 +56,26 @@ test.describe('desktop 1400×900', () => {
 
   test('dusk', async ({ page }) => {
     const errors = trackErrors(page);
-    await open(page, '?seed=7&hour=20');
+    await open(page, 20);
     await page.screenshot({ path: `${SHOTS}/visual-dusk.png` });
     expect(errors).toEqual([]);
   });
 
   test('night', async ({ page }) => {
     const errors = trackErrors(page);
-    await open(page, '?seed=7&hour=23');
+    await open(page, 23);
     await page.screenshot({ path: `${SHOTS}/visual-night.png` });
     expect(errors).toEqual([]);
   });
 
   test('winter: snow on the ground, early dusk', async ({ page }) => {
     const errors = trackErrors(page);
-    // seed 3 snows on the first winter day (tick 480 = 15:00, an hour before the sunset)
-    await open(page, '?seed=3&date=2026-12-21&tick=480&paused');
+    // seed 3 snows on the first winter day (15:00, an hour before the sunset)
+    const spec = { place: 'dom', seed: 3, date: '2026-12-21' } as const;
+    const live = await open(page, 15, spec);
     await expect(page.locator('.hud-day')).toContainText('poniedziałek');
     await page.screenshot({ path: `${SHOTS}/visual-winter-snow.png` });
-    await page.evaluate(() => window.__sim.tick(75));
+    await live.push(frameFor(spec, tickAt(15) + 75));
     await page.waitForTimeout(800);
     await page.screenshot({ path: `${SHOTS}/visual-winter-dusk.png` });
     expect(errors).toEqual([]);
@@ -88,7 +83,7 @@ test.describe('desktop 1400×900', () => {
 
   test('summer: long light evening', async ({ page }) => {
     const errors = trackErrors(page);
-    await open(page, '?seed=7&date=2026-06-20&hour=20.5&paused');
+    await open(page, 20.5, { place: 'dom', seed: 7, date: '2026-06-20' });
     await expect(page.locator('.hud-day')).toContainText('sobota');
     await page.screenshot({ path: `${SHOTS}/visual-summer-evening.png` });
     expect(errors).toEqual([]);
@@ -96,7 +91,7 @@ test.describe('desktop 1400×900', () => {
 
   test('inspector open + help popover', async ({ page }) => {
     const errors = trackErrors(page);
-    await open(page, '?seed=7&hour=12&paused');
+    await open(page, 12);
     const id = await page.evaluate(() => window.__sim.world.agents[0].id);
     await page.evaluate((i) => window.__sim.select(i), id);
     await expect(page.locator('#inspector')).toBeVisible();
@@ -115,7 +110,7 @@ test.describe('desktop 1400×900', () => {
 
   test('double-click on an agent follows it', async ({ page }) => {
     const errors = trackErrors(page);
-    await open(page, '?seed=7&hour=12&paused');
+    await open(page, 12);
     const hit = await page.evaluate(() => {
       const { renderer, world } = window.__sim;
       const a = world.agents[0];
@@ -133,7 +128,7 @@ test.describe('desktop 1400×900', () => {
 
   test('event log is compact by default and expands', async ({ page }) => {
     await page.addInitScript(() => localStorage.removeItem('sim.log.collapsed'));
-    await open(page, '?seed=7&hour=14');
+    await open(page, 14);
     const visibleRows = () => page.locator('#log .log-row:visible').count();
     expect(await visibleRows()).toBeLessThanOrEqual(3);
     await page.locator('#log .log-toggle').click();
@@ -146,7 +141,7 @@ test.describe('mobile 390×844', () => {
 
   test('layout fits and the house is visible', async ({ page }) => {
     const errors = trackErrors(page);
-    await open(page, '?seed=7&hour=12');
+    await open(page, 12);
     const hud = await boxOf(page, '#hud');
     expect(hud.x).toBeGreaterThanOrEqual(0);
     expect(hud.x + hud.w).toBeLessThanOrEqual(390);

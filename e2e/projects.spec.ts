@@ -1,34 +1,25 @@
 import { expect, test, type Page } from '@playwright/test';
+import type { World } from '../src/types';
+import { projectsOf } from '../src/world/projects';
+import { SHOTS, mockLive, openLive, trackErrors } from './support/live';
+import { DAY, frameFor, timelineOf, tickAt } from './support/worldFixtures';
 
-// Wave 9: building projects — the gazebo under construction (site, progress badge, panel under B),
-// a stage change toast, and the finished gazebo. Shots land in test-results/shots/project-*.png.
+// Building projects in the live view (fixture world from e2e/support): the gazebo under construction
+// (site, progress badge, panel under B), a stage change toast, the finished gazebo, the vegetable
+// garden. How projects progress is tested headlessly in tests/projects.test.ts; here only what the
+// browser shows. Shots land in test-results/shots/project-*.png.
 
-const SHOTS = 'test-results/shots';
-const DAY = 24 * 60;
-/** day 7, 12:00 — the gazebo of seed 1 is well under way */
-const MID_TICK = 6 * DAY + 5 * 60;
-/** day 17, 12:00 — usually finished by then (the test ticks on if not) */
-const LATE_TICK = 16 * DAY + 5 * 60;
+const DOM = { place: 'dom' } as const;
+const timeline = timelineOf(DOM);
+const gazebo = (w: World) => projectsOf(w).find((x) => x.kindId === 'altana');
 
-function trackErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  return errors;
-}
-
-async function open(page: Page, query: string): Promise<void> {
-  await page.goto(`/lab${query}`);
-  await page.waitForFunction(() => !!window.__sim?.projects, undefined, { timeout: 45_000 });
-}
-
-/** zooms the camera in on the gazebo (wheel at its screen position) */
-async function zoomToGazebo(page: Page): Promise<void> {
+/** zooms the camera in on the site of a project of `kindId` (wheel at its screen position) */
+async function zoomTo(page: Page, kindId: string): Promise<void> {
   for (let i = 0; i < 4; i++) {
-    const p = await page.evaluate(() => {
-      const g = window.__sim.projectList().find((x) => x.kindId === 'altana')!;
+    const p = await page.evaluate((kind) => {
+      const g = window.__sim.projectList().find((x) => x.kindId === kind)!;
       return window.__sim.renderer.toScreen(g.pos.x + 1, g.pos.y + 1);
-    });
+    }, kindId);
     await page.mouse.move(p.x, p.y);
     await page.mouse.wheel(0, -160);
     await page.waitForTimeout(120);
@@ -37,8 +28,14 @@ async function zoomToGazebo(page: Page): Promise<void> {
 }
 
 test('mid-construction: the site, the progress badge, the panel (B) and a stage toast', async ({ page }) => {
+  test.setTimeout(120_000);
   const errors = trackErrors(page);
-  await open(page, `?seed=1&tick=${MID_TICK}&paused`);
+  // the gazebo a little over a third done; later the moment the next stage starts
+  const mid = timeline.findTick((w) => (gazebo(w)?.progress ?? 0) > 0.35 && gazebo(w)?.status === 'building', { step: 60 });
+  const stage0 = gazebo(timeline.advanceTo(mid))!.stage;
+  const nextStage = timeline.findTick((w) => gazebo(w)!.stage > stage0, { from: mid, step: 30 });
+  const live = await mockLive(page, frameFor(DOM, mid));
+  await openLive(page, '/dom');
   const p = await page.evaluate(() => window.__sim.projectList()[0]);
   expect(p, 'a project was proposed').toBeDefined();
   expect(p.kindId).toBe('altana');
@@ -74,19 +71,11 @@ test('mid-construction: the site, the progress badge, the panel (B) and a stage 
   await expect(panel).toBeHidden();
 
   // the site up close, with the badge above it
-  await zoomToGazebo(page);
+  await zoomTo(page, 'altana');
   await page.screenshot({ path: `${SHOTS}/project-site.png` });
 
-  // on to the next stage: a toast announces it
-  const stage0 = p.stage;
-  const reached = await page.evaluate((s0) => {
-    for (let i = 0; i < 12 * 24; i++) {
-      window.__sim.tick(60);
-      if (window.__sim.projectList()[0].stage > s0) return true;
-    }
-    return false;
-  }, stage0);
-  expect(reached, 'the next stage within 12 days').toBe(true);
+  // the frame of the next stage: a toast announces it
+  await live.push(frameFor(DOM, nextStage));
   await expect(page.locator('.ui-toast').filter({ hasText: /czas na|gotowa/ }).first()).toBeVisible({ timeout: 3000 });
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${SHOTS}/project-stage.png` });
@@ -95,23 +84,13 @@ test('mid-construction: the site, the progress badge, the panel (B) and a stage 
 });
 
 test('the finished gazebo: drawn in the garden, listed as finished, people use it', async ({ page }) => {
+  test.setTimeout(120_000);
   const errors = trackErrors(page);
-  await open(page, `?seed=1&tick=${LATE_TICK}&paused`);
-  const done = await page.evaluate(() => {
-    for (let i = 0; i < 10 * 24; i++) {
-      const g = window.__sim.projectList().find((x) => x.kindId === 'altana');
-      if (g?.status === 'done') return true;
-      window.__sim.tick(60);
-    }
-    return false;
-  });
-  expect(done, 'the gazebo gets finished').toBe(true);
-  // move to a sunny-ish afternoon so the garden is busy
-  await page.evaluate(() => {
-    const now = window.__sim.world.tick;
-    const minuteOfDay = (now + 7 * 60) % (24 * 60);
-    window.__sim.tick((24 * 60 + 16 * 60 - minuteOfDay) % (24 * 60));
-  });
+  const done = timeline.findTick((w) => gazebo(w)?.status === 'done', { step: 60 });
+  // a sunny-ish afternoon after it was finished, so the garden is busy
+  const afternoon = done + (((tickAt(16) - done) % DAY) + DAY) % DAY + DAY;
+  await mockLive(page, frameFor(DOM, afternoon));
+  await openLive(page, '/dom');
   const g = await page.evaluate(() => window.__sim.projectList().find((x) => x.kindId === 'altana')!);
   const type = await page.evaluate((uid) => window.__sim.world.objects.find((o) => o.uid === uid)!.type, g.uid);
   expect(type).toBe('altana');
@@ -125,7 +104,7 @@ test('the finished gazebo: drawn in the garden, listed as finished, people use i
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
 
-  await zoomToGazebo(page);
+  await zoomTo(page, 'altana');
   await page.screenshot({ path: `${SHOTS}/project-gazebo.png` });
 
   // the log mentions the crew
@@ -136,25 +115,12 @@ test('the finished gazebo: drawn in the garden, listed as finished, people use i
 });
 
 test('the vegetable garden comes next (a second, smaller project)', async ({ page }) => {
+  test.setTimeout(120_000);
   const errors = trackErrors(page);
-  await open(page, `?seed=1&tick=${LATE_TICK}&paused`);
-  const ok = await page.evaluate(() => {
-    for (let i = 0; i < 14 * 24; i++) {
-      const v = window.__sim.projectList().find((x) => x.kindId === 'warzywnik');
-      if (v && v.progress > 0.4) return true;
-      window.__sim.tick(60);
-    }
-    return false;
-  });
-  expect(ok, 'the vegetable garden is under way').toBe(true);
-  const v = await page.evaluate(() => window.__sim.projectList().find((x) => x.kindId === 'warzywnik')!);
-  for (let i = 0; i < 4; i++) {
-    const p = await page.evaluate((pos) => window.__sim.renderer.toScreen(pos.x + 1, pos.y + 0.5), v.pos);
-    await page.mouse.move(p.x, p.y);
-    await page.mouse.wheel(0, -160);
-    await page.waitForTimeout(120);
-  }
-  await page.waitForTimeout(500);
+  const garden = timeline.findTick((w) => (projectsOf(w).find((x) => x.kindId === 'warzywnik')?.progress ?? 0) > 0.4, { step: 60 });
+  await mockLive(page, frameFor(DOM, garden));
+  await openLive(page, '/dom');
+  await zoomTo(page, 'warzywnik');
   await page.screenshot({ path: `${SHOTS}/project-warzywnik.png` });
   await page.keyboard.press('b');
   await expect(page.locator('#projects-panel .proj-card--active .proj-name')).toHaveText('Warzywnik');
@@ -163,7 +129,7 @@ test('the vegetable garden comes next (a second, smaller project)', async ({ pag
 });
 
 /** drags a project's footprint to the middle of the screen, then zooms in on it */
-async function zoomTo(page: Page, kindId: string): Promise<void> {
+async function centreAndZoom(page: Page, kindId: string): Promise<void> {
   const where = (k: string) =>
     page.evaluate((id) => {
       const g = window.__sim.projectList().find((x) => x.kindId === id)!;
@@ -188,33 +154,34 @@ async function zoomTo(page: Page, kindId: string): Promise<void> {
 test('tree house and pier: every stage is drawn, the pier stands on the pond', async ({ page }) => {
   test.setTimeout(180_000);
   const errors = trackErrors(page);
-  await open(page, `?seed=1&map=dom&tick=${22 * DAY}&paused`);
-  for (const kindId of ['domek_na_drzewie', 'pomost']) {
-    const stages = await page.evaluate((k) => {
-      const w = window.__sim;
-      for (let i = 0; i < 40 * 24 * 2 && !w.projectList().some((p) => p.kindId === k); i++) w.tick(30);
-      return w.projectList().find((p) => p.kindId === k)?.stages.length ?? 0;
-    }, kindId);
+  const spec = { place: 'dom', seed: 1 } as const;
+  const tl = timelineOf(spec);
+  const project = (w: World, kindId: string) => projectsOf(w).find((x) => x.kindId === kindId);
+  // every frame of the run in Node (the timeline moves forward only): per project proposed, each stage reached, finished
+  const plan = ['domek_na_drzewie', 'pomost'].map((kindId) => {
+    const proposed = tl.findTick((w) => !!project(w, kindId), { step: 30, maxTicks: 70 * DAY });
+    const stages = project(tl.advanceTo(proposed), kindId)!.stages.length;
     expect(stages, `${kindId} is proposed`).toBeGreaterThan(0);
+    const ticks: number[] = [];
+    for (let stage = 0, from = proposed; stage <= stages; stage++) {
+      from = tl.findTick((w) => project(w, kindId)!.stage >= stage, { from, step: 30 });
+      ticks.push(from);
+    }
+    return { kindId, proposed, ticks };
+  });
+
+  const live = await mockLive(page, frameFor(spec, plan[0].proposed));
+  await openLive(page, '/dom');
+  for (const { kindId, proposed, ticks } of plan) {
+    await live.push(frameFor(spec, proposed));
     // one shot per stage and one of the finished building
-    for (let stage = 0; stage <= stages; stage++) {
-      const ok = await page.evaluate(
-        ([k, s]) => {
-          const w = window.__sim;
-          for (let i = 0; i < 20 * 24 * 2; i++) {
-            if (w.projectList().find((p) => p.kindId === k)!.stage >= (s as number)) return true;
-            w.tick(30);
-          }
-          return false;
-        },
-        [kindId, stage] as const,
-      );
-      expect(ok, `${kindId} reaches stage ${stage}`).toBe(true);
+    for (const tick of ticks) {
+      await live.push(frameFor(spec, tick));
       const type = await page.evaluate((k) => {
         const p = window.__sim.projectList().find((x) => x.kindId === k)!;
         return window.__sim.world.objects.find((o) => o.uid === p.uid)!.type;
       }, kindId);
-      await zoomTo(page, kindId);
+      await centreAndZoom(page, kindId);
       await page.screenshot({ path: `${SHOTS}/project-${type}.png` });
       const c = await page.evaluate((k) => {
         const g = window.__sim.projectList().find((x) => x.kindId === k)!;
