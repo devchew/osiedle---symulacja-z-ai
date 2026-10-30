@@ -1,7 +1,3 @@
-// first: the simulation's modules have import cycles (world/objects ↔ world/projects ↔ incidents,
-// maps); evaluating them from world/world.ts, as the tests and the server do, keeps their
-// top-level state identical — another entry order changed the simulation (seed 1 diverged).
-import './world/world';
 import { parseRoute } from './live/routes';
 
 // Entry: picks the mode from the URL (see live/routes.ts).

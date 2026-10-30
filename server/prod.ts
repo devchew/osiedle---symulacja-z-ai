@@ -1,6 +1,3 @@
-// simulation modules have import cycles whose top-level state depends on evaluation order:
-// load the world entry first, exactly like the tests and the browser do
-import '../src/world/world';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';

@@ -3,7 +3,6 @@ import { createRng } from '../core/rng';
 import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
 import { MINUTES_PER_DAY, START_MINUTE } from '../core/time';
 import { findPath } from '../agents/pathfinding';
-import { endAction } from '../agents/actions';
 import { pushEvent } from './events';
 import { BREAKABLE, OBJECT_DEFS, REPAIR_PREFIX } from './objects';
 
@@ -18,10 +17,15 @@ import { BREAKABLE, OBJECT_DEFS, REPAIR_PREFIX } from './objects';
 // the brain and the action state machine then see an ordinary object whose
 // "use" is repairing it — no changes in src/agents needed. Progress is counted
 // here; once enough minutes of work are in, the original type comes back.
+// Interrupting agents goes through the `endAction` passed to tickIncidents by
+// world.ts, so this module does not import the action state machine (no cycle).
 
 // ---------------------------------------------------------------- types
 
 export type WeatherKind = 'sunny' | 'cloudy' | 'rain' | 'storm';
+
+/** stops what an agent is doing (agents/actions.ts endAction) */
+export type EndAction = (world: World, agent: Agent, reason?: string) => void;
 
 export interface WeatherInfo {
   kind: WeatherKind;
@@ -336,7 +340,7 @@ function waitForRain(agent: Agent, rng: Rng): void {
 }
 
 /** while it rains: outdoor activities wrap up, nobody starts new ones, people outside go in */
-function applyRain(world: World, s: IncidentState): void {
+function applyRain(world: World, s: IncidentState, endAction: EndAction): void {
   for (const agent of world.agents) {
     const a = agent.action;
     if (a?.kind === 'use') {
@@ -408,7 +412,7 @@ function usersOf(world: World, obj: ObjectInstance, phase?: 'walking' | 'using')
   );
 }
 
-function breakSomething(world: World, s: IncidentState): void {
+function breakSomething(world: World, s: IncidentState, endAction: EndAction): void {
   if (s.broken.size >= MAX_BROKEN) return;
   const brokenTypes = new Set([...s.broken.values()].map((b) => b.baseType));
   const candidates = world.objects.filter((o) => BREAKABLE.includes(o.type) && !brokenTypes.has(o.type));
@@ -444,7 +448,7 @@ function breakSomething(world: World, s: IncidentState): void {
   } else pushEvent(world, 'info', `${BREAK_TEXT[baseType] ?? `${def.name} się psuje`} 🔧`, []);
 }
 
-function fix(world: World, s: IncidentState, b: Breakdown, by: Agent | null): void {
+function fix(world: World, s: IncidentState, b: Breakdown, by: Agent | null, endAction: EndAction): void {
   const obj = world.objects.find((o) => o.uid === b.uid);
   s.broken.delete(b.uid);
   if (!obj) return;
@@ -463,7 +467,7 @@ function fix(world: World, s: IncidentState, b: Breakdown, by: Agent | null): vo
   } else pushEvent(world, 'info', `Przychodzi fachowiec i naprawia ${acc} 🧰`, []);
 }
 
-function tickRepairs(world: World, s: IncidentState): void {
+function tickRepairs(world: World, s: IncidentState, endAction: EndAction): void {
   for (const b of [...s.broken.values()]) {
     const obj = world.objects.find((o) => o.uid === b.uid);
     if (!obj) {
@@ -485,8 +489,8 @@ function tickRepairs(world: World, s: IncidentState): void {
           best = world.agents.find((x) => x.id === id) ?? null;
         }
       }
-      fix(world, s, b, best);
-    } else if (world.tick - b.since >= HANDYMAN_AFTER && usersOf(world, obj, 'using').length === 0) fix(world, s, b, null);
+      fix(world, s, b, best, endAction);
+    } else if (world.tick - b.since >= HANDYMAN_AFTER && usersOf(world, obj, 'using').length === 0) fix(world, s, b, null, endAction);
   }
 }
 
@@ -509,8 +513,8 @@ export function brokenObjects(world: World): BrokenInfo[] {
 
 // ---------------------------------------------------------------- tick
 
-/** advances weather and incidents; called once per tick after agents act */
-export function tickIncidents(world: World): void {
+/** advances weather and incidents; called once per tick after agents act. `endAction` interrupts agents (rain, breakdowns, finished repairs) */
+export function tickIncidents(world: World, endAction: EndAction): void {
   const s = stateOf(world);
   const day = dayOf(world.tick);
   if (day !== s.plan.day) s.plan = makePlan(s.rng, day);
@@ -518,10 +522,10 @@ export function tickIncidents(world: World): void {
 
   const weather = weatherAtTick(s, world.tick);
   weatherEvents(world, s, weather);
-  if (weather.raining) applyRain(world, s);
+  if (weather.raining) applyRain(world, s, endAction);
 
-  for (const m of s.plan.breaks) if (m === minute) breakSomething(world, s);
-  tickRepairs(world, s);
+  for (const m of s.plan.breaks) if (m === minute) breakSomething(world, s, endAction);
+  tickRepairs(world, s, endAction);
 }
 
 /**
