@@ -24,8 +24,8 @@ function agentAt(x: number, y: number): Agent {
   return createAgent(0, 'Test', { x, y }, createRng(1));
 }
 
-const SANDBOX_1X: MotionView = { realtime: false, tickSeconds: 0.2 };
-const SANDBOX_8X: MotionView = { realtime: false, tickSeconds: 0.025 };
+const FAST_1X: MotionView = { realtime: false, tickSeconds: 0.2 };
+const FAST_8X: MotionView = { realtime: false, tickSeconds: 0.025 };
 const REALTIME: MotionView = { realtime: true, tickSeconds: 60 };
 
 describe('walking speed', () => {
@@ -140,10 +140,10 @@ function replay(seed: number, ticks: number, view: MotionView, frames: number): 
 }
 
 describe('replayed walks (render/motion.ts)', () => {
-  it('never pass through walls — sandbox 1× and 8×', () => {
+  it('never pass through walls — fast lab 1× and 8×', () => {
     for (const seed of [1, 7]) {
-      expect(replay(seed, 900, SANDBOX_1X, 12).walls).toEqual([]);
-      expect(replay(seed, 600, SANDBOX_8X, 2).walls).toEqual([]);
+      expect(replay(seed, 900, FAST_1X, 12).walls).toEqual([]);
+      expect(replay(seed, 600, FAST_8X, 2).walls).toEqual([]);
     }
   });
 
@@ -155,9 +155,9 @@ describe('replayed walks (render/motion.ts)', () => {
     expect(r.movingSeconds).toBeLessThan(0.25 * 6 * 600 * 60);
   });
 
-  it('the sandbox cursor keeps close to the simulation', () => {
-    expect(replay(3, 900, SANDBOX_1X, 12).maxLag).toBeLessThanOrEqual(MOTION.LAG_MAX + 1);
-    expect(replay(3, 600, SANDBOX_8X, 2).maxLag).toBeLessThanOrEqual(MOTION.LAG_MIN + 0.5);
+  it('the lab cursor keeps close to the simulation', () => {
+    expect(replay(3, 900, FAST_1X, 12).maxLag).toBeLessThanOrEqual(MOTION.LAG_MAX + 1);
+    expect(replay(3, 600, FAST_8X, 2).maxLag).toBeLessThanOrEqual(MOTION.LAG_MIN + 0.5);
   });
 
   it('a recorded walk replays along its waypoints at walking pace in real time', () => {

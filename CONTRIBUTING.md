@@ -8,8 +8,8 @@ Krótka ściąga dla agentów jest w `CLAUDE.md`.
 Strona pokazuje **cztery stałe miejsca** (Dom z ogrodem, Kamienica, Domek nad jeziorem, Akademik). Każde
 to jeden wspólny świat, który działa **24/7 na serwerze w czasie rzeczywistym** (zegar Europe/Warsaw,
 prawdziwa pogoda z przypisanego miasta). Odwiedzający tylko oglądają i przełączają miejsca — nie tworzą
-ani nie modyfikują światów. Drugi, niezależny tryb to **sandbox** („🔮 Co będzie dalej?”): kopia
-bieżącego świata w przeglądarce, z pauzą i przyspieszaniem, żyjąca tylko w sesji.
+ani nie modyfikują światów. Nie ma trybu zabawy na własnej kopii — istnieje wyłącznie tryb na żywo
+(ukryte `/lab` służy tylko do rozwoju i testów).
 
 ## Zadania: GitHub Issues
 
@@ -46,7 +46,6 @@ LIVE_SPEED=60 npm run dev   # świat przyspieszony: 1 minuta gry na sekundę (te
 | Adres | Co to jest |
 |---|---|
 | `/`, `/dom`, `/kamienica`, `/jezioro`, `/akademik` | widok na żywo (`#Ola` zaznacza mieszkańca) |
-| `/sandbox?from=kamienica` | sandbox — kopia świata z kontrolą czasu |
 | `/lab?seed=7&tick=2000&map=akademik&agents=6` | ukryte laboratorium: lokalna symulacja z seeda, zapisy, log aktywności (L), dialogi AI — do debugowania i testów e2e |
 
 Zmienne środowiskowe (serwer / dev): `OPENROUTER_API_KEY`, `OPENROUTER_MODELS`, `OPENROUTER_DAILY_LIMIT`,
@@ -85,7 +84,7 @@ publikuje obraz `runtime` do GHCR (`ghcr.io/<repo>`).
   pamiętniki), nigdy `Math.random()`/`Date.now()`. Ten sam seed i te same wejścia ⇒ ten sam świat.
   Moduły „obserwujące” (pamiętnik, trace) nie mogą zmieniać symulacji (są na to testy równości).
 - **Stan modułów** trzymany w `WeakMap` musi być zarejestrowany w `registerWorldState`
-  (`src/core/state.ts`) — inaczej nie przetrwa snapshotu (restart serwera, sandbox). Test:
+  (`src/core/state.ts`) — inaczej nie przetrwa snapshotu (restart serwera, ramki na żywo). Test:
   `tests/snapshot.test.ts`.
 - **Bez cykli importów** w `src` (test: `tests/imports.test.ts`; kolejność ładowania nie zmienia świata:
   `tests/loadOrder.test.ts`). Gdy moduł świata musi wywołać logikę agentów, `world.ts` przekazuje funkcję
