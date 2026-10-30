@@ -4,12 +4,13 @@ import { timeFromTick } from '../core/time';
 import { snapshotWorld, NETWORK_SNAPSHOT } from '../core/state';
 import { formatTrace } from '../world/trace';
 import { projectsOf } from '../world/projects';
+import { createChroniclePanel } from '../ui/chronicle';
 import { createView, type View } from '../ui/view';
 import { createConnBanner, createPlaceBar, placeIcon } from '../ui/places';
 import { el } from '../ui/dom';
 import '../ui/debug';
 import { PLACES, placeById, LIVE_TIME_ZONE, type LiveFrame, type LiveMeta, type PlaceId } from './protocol';
-import { connectLive, fetchPlaces, type LiveStream } from './client';
+import { connectLive, fetchChronicle, fetchPlaces, type LiveStream } from './client';
 import { applyFrame } from './frames';
 import { livePath, parseRoute, sandboxPath } from './routes';
 import { bindHashSelection } from './hashSelect';
@@ -24,6 +25,7 @@ export const LIVE_HELP: [string, string][] = [
   ['T', 'statystyki: relacje, nastrój'],
   ['P', 'pamiętniki mieszkańców (← → dni)'],
   ['B', 'projekty budowlane'],
+  ['K', 'kronika miejsca z ostatnich dni'],
   ['przeciągnij', 'przesuń widok'],
   ['WASD / strzałki', 'przesuń widok'],
   ['kółko / szczypnięcie', 'przybliż i oddal'],
@@ -89,6 +91,17 @@ export function startLive(initialPlace: PlaceId): void {
     document.title = def ? `${def.name} — Osiedle na żywo` : 'Osiedle na żywo';
   }
 
+  const chronicle = createChroniclePanel(place, {
+    load: fetchChronicle,
+    onToggle: (open) => {
+      view?.hud.setActive('chronicle', open);
+      if (open) view?.panelOpened('chronicle');
+    },
+    onSelectAgent: (id) => view?.select(id),
+    hasDiary: (id) => !!view && view.diary.entryCount(id) > 0,
+    onOpenDiary: (id) => view?.diary.openFor(id),
+  });
+
   function createLiveView(world: World): View {
     const v = createView({
       world,
@@ -96,6 +109,8 @@ export function startLive(initialPlace: PlaceId): void {
       showPopulation: false,
       insets: INSETS,
       help: { keys: LIVE_HELP, note: LIVE_NOTE },
+      buttons: [{ id: 'chronicle', icon: '📜', title: 'Kronika miejsca (K)', onClick: () => chronicle.setOpen(!chronicle.isOpen) }],
+      panels: [{ id: 'chronicle', setOpen: (o) => chronicle.setOpen(o) }],
       onSelect: (id) => hash.onSelect(id),
       live: {
         place: () => {
@@ -121,6 +136,7 @@ export function startLive(initialPlace: PlaceId): void {
     // no ticking in the browser: render only, the light glides through the minute until the next frame
     loop.setDriver(() => (lastFrameAt ? Math.min(1, (performance.now() - lastFrameAt) / frameGap) : 1));
     loop.start();
+    v.hud.setActive('chronicle', chronicle.isOpen);
     return v;
   }
 
@@ -177,6 +193,7 @@ export function startLive(initialPlace: PlaceId): void {
     place = id;
     if (push) history.pushState(null, '', livePath(id));
     bar.setCurrent(id);
+    chronicle.setPlace(id);
     setTitle();
     meta = null;
     lastFrameAt = 0;

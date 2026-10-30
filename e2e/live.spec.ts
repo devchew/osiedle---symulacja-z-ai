@@ -151,6 +151,100 @@ test('#name selects a resident; diary opens read-only', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+const TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Warsaw' }).format(new Date());
+const MOCK_CHRONICLE = {
+  place: 'kamienica',
+  tick: 600,
+  days: [
+    {
+      date: TODAY,
+      summary: 'Najważniejsze: 1 nowa para, 2 awarie, burza.',
+      summarySource: 'procedural',
+      total: 5,
+      items: [
+        { tick: 480, kind: 'couple', icon: '💕', text: 'Ola i Kuba są parą 💕', agentIds: [0, 1], weight: 1 },
+        { tick: 520, kind: 'breakdown', icon: '🔧', text: 'Ewa naprawia lodówkę 🔧✨', agentIds: [2], weight: 0.5 },
+        { tick: 560, kind: 'weather', icon: '⛈️', text: 'Nadciąga burza ⛈️', agentIds: [], weight: 0.5 },
+      ],
+    },
+    {
+      date: '2026-10-28',
+      summary: 'Spokojny dzień nad jeziorem: wspólny grill i kilka drobnych napraw. Wieczorem wszyscy odpoczywają.',
+      summarySource: 'ai',
+      total: 2,
+      items: [{ tick: 120, kind: 'together', icon: '🤝', text: 'Wspólny grill: Ola, Kuba, Ewa 🌭', agentIds: [0, 1, 2], weight: 0.5 }],
+    },
+  ],
+};
+
+test('chronicle panel: K opens it, days with summaries, Esc and other panels close it', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.route('**/api/live/kamienica/chronicle', (route) => route.fulfill({ json: MOCK_CHRONICLE }));
+  await openLive(page, '/kamienica');
+  const panel = page.locator('#chronicle-panel');
+  await expect(panel).toBeHidden();
+  await page.keyboard.press('k');
+  await expect(panel).toBeVisible();
+  await expect(panel).toHaveAttribute('aria-label', 'Kronika miejsca');
+  await expect(panel.locator('.chr-day')).toHaveCount(2);
+  await expect(panel.locator('.chr-day').first()).toContainText('Dziś');
+  await expect(panel.locator('.chr-day').first()).toContainText('1 nowa para');
+  await expect(panel.locator('.chr-day').nth(1)).toContainText('podsumowanie AI');
+  await expect(panel.locator('.chr-item')).toHaveCount(4);
+  await expect(page.locator('#hud .hud-chronicle-btn')).toHaveAttribute('aria-pressed', 'true');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${SHOTS}/live-chronicle.png` });
+
+  // clicking the person marker selects the resident
+  await panel.locator('.chr-item').first().locator('.chr-link[aria-label="Pokaż mieszkańca na mapie"]').click();
+  await expect(page.locator('#inspector')).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  // the panels close each other
+  await page.keyboard.press('k');
+  await expect(panel).toBeVisible();
+  await page.keyboard.press('b');
+  await expect(page.locator('#projects-panel')).toBeVisible();
+  await expect(panel).toBeHidden();
+  await page.keyboard.press('k');
+  await expect(panel).toBeVisible();
+  await expect(page.locator('#projects-panel')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('chronicle panel: real endpoint, empty state and error state; phone layout', async ({ page, request }) => {
+  const res = await request.get('/api/live/akademik/chronicle');
+  expect(res.status()).toBe(200);
+  const data = await res.json();
+  expect(data.place).toBe('akademik');
+  expect(Array.isArray(data.days)).toBe(true);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/live/akademik/chronicle', (route) => route.fulfill({ json: { place: 'akademik', tick: 1, days: [] } }));
+  await openLive(page, '/akademik');
+  await page.keyboard.press('k');
+  const panel = page.locator('#chronicle-panel');
+  await expect(panel).toContainText('Kronika jest jeszcze pusta');
+  await page.keyboard.press('Escape');
+  await page.unroute('**/api/live/akademik/chronicle');
+
+  await page.route('**/api/live/akademik/chronicle', (route) => route.fulfill({ json: { ...MOCK_CHRONICLE, place: 'akademik' } }));
+  await page.keyboard.press('k');
+  await expect(panel.locator('.chr-day')).toHaveCount(2);
+  const box = await panel.boundingBox();
+  expect(box && box.x >= 0 && box.x + box.width <= 390).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: `${SHOTS}/live-chronicle-mobile.png` });
+  await page.keyboard.press('Escape');
+  await page.unroute('**/api/live/akademik/chronicle');
+
+  await page.route('**/api/live/akademik/chronicle', (route) => route.fulfill({ status: 503, json: { error: 'starting' } }));
+  await page.keyboard.press('k');
+  await expect(panel.locator('.chr-day')).toHaveCount(2); // keeps what it already showed
+  expect(await page.locator('.chr-note').count()).toBe(0);
+});
+
 test('sandbox: fork the live world, run it at 8×, survive a reload, back to live', async ({ page }) => {
   const errors = trackErrors(page);
   await openLive(page, '/kamienica');

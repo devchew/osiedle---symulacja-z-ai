@@ -6,6 +6,7 @@ import type { PlaceId } from '../src/live/protocol';
 // Vite plugin server/worldsProxy.ts):
 //   GET /api/live/places              → PlaceSummary[]
 //   GET /api/live/:place/snapshot     → LiveFrame (503 { error: 'starting' } until the world is synced)
+//   GET /api/live/:place/chronicle    → ChronicleResponse (503 { error: 'starting' } until the world is synced)
 //   GET /api/live/:place/stream       → SSE: `event: frame` right away (as soon as the world is
 //                                       synced) and after every tick; `event: ping` every ~25 s
 // Frames are serialized once per tick by the host and written as the same Buffer to every
@@ -160,8 +161,28 @@ export function createLiveHandler(host: LiveHost, opts: LiveHttpOptions = {}): L
       return sendJson(res, 200, host.summaries(), { 'Cache-Control': 'no-cache' });
     }
     const lw = parts.length === 2 ? host.get(parts[0]) : undefined;
-    if (!lw || (parts[1] !== 'snapshot' && parts[1] !== 'stream')) return sendJson(res, 404, { error: 'not found' });
+    if (!lw || (parts[1] !== 'snapshot' && parts[1] !== 'stream' && parts[1] !== 'chronicle')) return sendJson(res, 404, { error: 'not found' });
     if (parts[1] === 'stream') return stream(req, res, lw.place.id);
+    if (parts[1] === 'chronicle') {
+      const c = host.chronicle(lw.place.id);
+      if (!c) return sendJson(res, 503, { error: 'starting' }, { 'Retry-After': '5' });
+      if (req.headers['if-none-match'] === c.etag) {
+        res.writeHead(304, { ETag: c.etag, 'Cache-Control': 'no-cache' }).end();
+        return;
+      }
+      const gz = acceptsGzip(req);
+      const data = gz ? c.jsonGzip() : Buffer.from(c.json);
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Content-Length': String(data.length),
+        ETag: c.etag,
+        Vary: 'Accept-Encoding',
+        ...(gz ? { 'Content-Encoding': 'gzip' } : {}),
+      });
+      res.end(req.method === 'HEAD' ? undefined : data);
+      return;
+    }
     const f = lw.frame;
     if (!lw.ready || !f) return sendJson(res, 503, { error: 'starting' }, { 'Retry-After': '5' });
     const etag = `"${f.place}-${f.tick}-${f.serverTime}"`;

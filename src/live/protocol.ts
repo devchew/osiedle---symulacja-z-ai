@@ -1,5 +1,7 @@
 import type { WorldSnapshot } from '../core/state';
 
+export type { ChronicleDayView, ChronicleItem, ChronicleKind, ChronicleResponse } from '../social/chronicle';
+
 // Contract between the live-world server (server/worlds.ts) and the browser client.
 // Four fixed places, each one shared world running 24/7 in real time (Europe/Warsaw clock).
 // Changing anything here is a client+server change: log it in plan/DECISIONS.md.
@@ -44,6 +46,12 @@ export const liveSnapshotUrl = (place: PlaceId): string => `/api/live/${place}/s
  * and after every simulation tick (once per real minute); `event: ping` keep-alives in between.
  */
 export const liveStreamUrl = (place: PlaceId): string => `/api/live/${place}/stream`;
+
+/**
+ * GET → ChronicleResponse: the place's most important events of the last days (newest day first),
+ * kept on the server across restarts; 503 { error: 'starting' } until the world is synced
+ */
+export const liveChronicleUrl = (place: PlaceId): string => `/api/live/${place}/chronicle`;
 
 export interface LiveMeta {
   place: PlaceId;

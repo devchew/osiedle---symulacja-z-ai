@@ -1,4 +1,4 @@
-import { LIVE_PLACES_URL, liveSnapshotUrl, liveStreamUrl, type LiveFrame, type PlaceId, type PlaceSummary } from './protocol';
+import { LIVE_PLACES_URL, liveChronicleUrl, liveSnapshotUrl, liveStreamUrl, type ChronicleResponse, type LiveFrame, type PlaceId, type PlaceSummary } from './protocol';
 
 // Network side of the live view: the place list, one-off snapshots (sandbox fork) and the
 // Server-Sent Events stream of one place with reconnects. No simulation, no DOM besides
@@ -159,4 +159,10 @@ export async function fetchSnapshot(place: PlaceId, timeoutMs = 20_000): Promise
   const f = await getJson<LiveFrame>(liveSnapshotUrl(place), timeoutMs);
   if (!f?.meta || !f.snapshot) throw new Error('Invalid live snapshot');
   return f;
+}
+
+export async function fetchChronicle(place: PlaceId, timeoutMs = 10_000): Promise<ChronicleResponse> {
+  const c = await getJson<ChronicleResponse>(liveChronicleUrl(place), timeoutMs);
+  if (!c || !Array.isArray(c.days)) throw new Error('Invalid chronicle');
+  return c;
 }

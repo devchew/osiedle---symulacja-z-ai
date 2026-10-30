@@ -112,7 +112,8 @@ publikuje obraz `runtime` do GHCR (`ghcr.io/<repo>`).
 ## Wdrożenie
 
 - Obraz wieloetapowy (`Dockerfile`: build → test → runtime), `compose.yaml` dla Coolify.
-- **Trwały wolumen na `/app/data`** — tam światy na żywo zapisują stan co 5 min i przy zatrzymaniu.
+- **Trwały wolumen na `/app/data`** — tam światy na żywo zapisują stan co 5 min i przy zatrzymaniu
+  (`<miejsce>.json` snapshot, `<miejsce>.chronicle.json` kronika z 14 dni — `GET /api/live/:miejsce/chronicle`).
   Bez wolumenu każdy deploy zaczyna światy od nowa.
 - Zmiana formatu snapshotu ⇒ podbij `SNAPSHOT_VERSION`; niezgodny plik serwer odkłada jako `.bak`
   i zaczyna świat od nowa (opisz to w PR — to „reset” osiedli na produkcji).
