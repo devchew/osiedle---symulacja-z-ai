@@ -74,6 +74,11 @@ Przy zmianach UI: zrzuty ekranu z Playwright (`test-results/shots/`) obejrzyj pr
 e2e (przy błędzie artefakt `test-results`) oraz budowę obrazu (`--target test` i `runtime`). Tag `v*`
 publikuje obraz `runtime` do GHCR (`ghcr.io/<repo>`).
 
+**Przegląd PR przed merge**: `node scripts/review-prs.mjs` (dry-run; `--pr <nr>`, `--diff ok|fail --notes "…"`,
+`--apply`) sprawdza bramki (konflikty, CI, preview Coolify, smoke-test preview) i z `--apply` oznacza PR labelem
+`safe-to-merge` albo `needs-work` oraz komentarzem z raportem. Własnego PR nie da się zatwierdzić, więc label
+zastępuje approve; merge robi człowiek. Przegląd diffu opisuje `.claude/skills/review-prs/SKILL.md`.
+
 ## Zasady architektury
 
 - **Symulacja** (`src/core`, `src/world`, `src/agents`, `src/social`) nie importuje DOM ani `render/`/`ui/`
