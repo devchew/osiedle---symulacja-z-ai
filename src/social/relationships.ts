@@ -198,6 +198,7 @@ registerWorldState('relationships', {
     const d = data as { bonds: Json; lastUpdate: number };
     stores.set(world, { bonds: fromJson<Map<string, Bond>>(d.bonds), lastUpdate: d.lastUpdate });
   },
+  clear: (world) => void stores.delete(world),
 });
 
 function bondStore(world: World): BondStore {

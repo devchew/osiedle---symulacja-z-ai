@@ -105,6 +105,13 @@ registerWorldState('brain', {
     if (d.left) loadByAgent(world, leftObject, d.left);
     if (d.talk) lastTalk.set(world, fromJson(d.talk));
   },
+  clear: (world) => {
+    lastTalk.delete(world);
+    for (const a of world.agents) {
+      recentUses.delete(a);
+      leftObject.delete(a);
+    }
+  },
 });
 
 export function rememberLeft(agent: Agent, uid: number, tick: number): void {

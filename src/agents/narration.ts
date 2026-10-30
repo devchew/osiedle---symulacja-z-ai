@@ -159,6 +159,13 @@ registerWorldState('narration', {
     if (d.scale) loadByAgent(world, effectScale, d.scale);
     if (d.flags) loadByAgent(world, flags, d.flags);
   },
+  clear: (world) => {
+    recentEvents.delete(world);
+    for (const a of world.agents) {
+      effectScale.delete(a);
+      flags.delete(a);
+    }
+  },
 });
 
 /** mood swings and neglected needs; called once per tick per agent after mood is updated */

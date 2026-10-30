@@ -392,6 +392,14 @@ registerWorldState('joint', {
     if (d.views) loadByAgent(world, views, d.views);
     if (d.casts) loadByAgent(world, casts, d.casts);
   },
+  clear: (world) => {
+    stores.delete(world);
+    cache.delete(world);
+    for (const a of world.agents) {
+      views.delete(a);
+      casts.delete(a);
+    }
+  },
 });
 
 /** called when someone starts fishing (alone or together): which way the water is, for the rod */

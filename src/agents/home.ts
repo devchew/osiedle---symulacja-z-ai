@@ -9,6 +9,7 @@ const ownBed = new WeakMap<Agent, number>();
 registerWorldState('home', {
   save: (world) => saveByAgent(world, ownBed),
   load: (world, data) => loadByAgent(world, ownBed, data),
+  clear: (world) => world.agents.forEach((a) => ownBed.delete(a)),
 });
 
 function isBed(world: World, type: string): boolean {

@@ -92,6 +92,13 @@ test('live view: a new frame updates the world and keeps the selection and open 
     await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body });
   });
   await openLive(page, '/jezioro');
+  // the first frame built the world and the static layer; later frames must only update them
+  await page.evaluate(() => {
+    const w = window as unknown as { first: unknown };
+    w.first = window.__sim.world;
+  });
+  await page.waitForFunction(() => window.__sim.renderer.staticBuilds >= 1);
+  const builds = await page.evaluate(() => window.__sim.renderer.staticBuilds);
   const name = await page.evaluate(() => window.__sim.world.agents[0].name);
   await page.evaluate(() => window.__sim.select(window.__sim.world.agents[0].id));
   await page.keyboard.press('t');
@@ -99,6 +106,9 @@ test('live view: a new frame updates the world and keeps the selection and open 
   // the stream closes after each response: the client reconnects and gets the next frame
   await page.waitForFunction((t) => window.__sim.world.tick === t, next.meta.tick, { timeout: 20_000 });
   expect(await page.evaluate(() => window.__sim.world.agents[0].pos.x)).toBe(next.snapshot.agents[0].pos.x);
+  // updated in place: the same World object, and no rebuild of the static layer
+  expect(await page.evaluate(() => (window as unknown as { first: unknown }).first === window.__sim.world)).toBe(true);
+  expect(await page.evaluate(() => window.__sim.renderer.staticBuilds)).toBe(builds);
   await expect(page.locator('#inspector .insp-name')).toHaveText(name);
   await expect(page.locator('#stats-panel')).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`#${encodeURIComponent(name)}$`));

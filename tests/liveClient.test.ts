@@ -6,6 +6,7 @@ import { createWorld, tickWorld } from '../src/world/world';
 import { snapshotWorld, NETWORK_SNAPSHOT } from '../src/core/state';
 import { isRealtime } from '../src/realtime/state';
 import { weatherOf } from '../src/world/incidents';
+import { staticSignature } from '../src/render/tiles';
 import type { LiveFrame } from '../src/live/protocol';
 
 describe('live routes', () => {
@@ -72,9 +73,22 @@ describe('live frames', () => {
     expect(isRealtime(first.world)).toBe(true);
     tickWorld(server);
     const next = applyFrame(first.world, 'jezioro', frameOf(server));
+    expect(next.swapped).toBe(false);
+    expect(next.world).toBe(first.world);
     expect(next.world.tick).toBe(31);
     expect(next.world.agents.map((a) => a.pos)).toEqual(server.agents.map((a) => a.pos));
     expect(isRealtime(next.world)).toBe(true);
+  });
+
+  it('the static layer signature follows what is drawn, not who uses it', () => {
+    const w = createWorld(1410, { agentCount: 4, mapId: 'jezioro' });
+    const before = staticSignature(w);
+    w.objects[0].reservedBy = [3];
+    expect(staticSignature(w)).toBe(before);
+    // a construction stage swap keeps the name length but changes the picture
+    const t = w.objects[0].type;
+    w.objects[0].type = t.slice(0, -1) + (t.endsWith('x') ? 'y' : 'x');
+    expect(staticSignature(w)).not.toBe(before);
   });
 
   it('uses the weather the server saw', () => {

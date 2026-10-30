@@ -56,6 +56,7 @@ const mapOfWorld = new WeakMap<World, string>();
 registerWorldState('map', {
   save: (world) => mapOfWorld.get(world) ?? null,
   load: (world, data) => void mapOfWorld.set(world, data as string),
+  clear: (world) => void mapOfWorld.delete(world),
 });
 
 export function setMapId(world: World, id: string): void {

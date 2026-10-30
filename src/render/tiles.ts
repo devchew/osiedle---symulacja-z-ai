@@ -21,11 +21,16 @@ const WALL_TOP = '#f1e8da';
 const WALL_EDGE = '#6e5d4b';
 const WALL_FRONT = '#c7b298';
 
-/** cheap signature of everything baked into the static layer */
+/**
+ * cheap signature of everything baked into the static layer: grid size, and every object's uid,
+ * position and (unbroken) type — a project stage change swaps the type, so the whole name counts
+ */
 export function staticSignature(world: World): number {
   let h = world.grid.width * 131 + world.grid.height;
   for (const o of world.objects) {
-    h = (Math.imul(h, 31) + o.uid * 7 + o.pos.x * 131 + o.pos.y * 197 + baseTypeOf(o.type).length) | 0;
+    h = (Math.imul(h, 31) + o.uid * 7 + o.pos.x * 131 + o.pos.y * 197) | 0;
+    const t = baseTypeOf(o.type);
+    for (let i = 0; i < t.length; i++) h = (Math.imul(h, 31) + t.charCodeAt(i)) | 0;
   }
   return (Math.imul(h, 31) + world.objects.length) | 0;
 }

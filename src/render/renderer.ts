@@ -30,6 +30,8 @@ export interface Renderer {
   readonly following: number | null;
   /** re-fits the camera to the map, leaving room for the HUD and the log */
   fitView(): void;
+  /** how many times the static layer (tiles, objects, lighting…) was rebuilt — for tests / debugging */
+  readonly staticBuilds: number;
   /** world (tile) coordinates to client (CSS px) coordinates */
   toScreen(wx: number, wy: number): { x: number; y: number };
   /** where the agent is drawn (tile units) and whether it is visually walking — for tests / debugging */
@@ -108,6 +110,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
   let layer: StaticLayer | null = null;
   let layerSig = NaN;
   let layerGrid: unknown = null;
+  let staticBuilds = 0;
   let selected: number | null = null;
   let followId: number | null = null;
   let lastNow = performance.now();
@@ -166,6 +169,7 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     const sig = staticSignature(world);
     if (layer && sig === layerSig && layerGrid === world.grid) return;
     layer = buildStaticLayer(world, layer ?? undefined);
+    staticBuilds++;
     lighting.build(world);
     ambient.build(world);
     weather.build(world);
@@ -651,6 +655,9 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
       return followId;
     },
     fitView,
+    get staticBuilds() {
+      return staticBuilds;
+    },
     toScreen: (wx, wy) => {
       const r = canvas.getBoundingClientRect();
       const p = cam.toScreen(wx, wy);

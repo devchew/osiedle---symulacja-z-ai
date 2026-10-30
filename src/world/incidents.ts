@@ -185,6 +185,8 @@ registerWorldState('incidents', {
       override: null,
     });
   },
+  // the weather override is a hook: whoever attached it re-attaches it after an in-place update
+  clear: (world) => void states.delete(world),
 });
 
 function dayOf(tick: number): number {
