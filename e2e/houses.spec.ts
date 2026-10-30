@@ -172,7 +172,8 @@ test.describe('pets (#9)', () => {
   for (const [id, hour] of [['dom', 12], ['kamienica', 12], ['dom', 23]] as const) {
     test(`pet in ${id} at ${hour}:00: close-up, click opens the pet panel`, async ({ page }) => {
       const errors = trackErrors(page);
-      await open(page, `?map=${id}&seed=7&hour=${hour}`);
+      // paused from the start: a running pet wanders off while the camera zooms (slow CI), and the click would miss it
+      await open(page, `?map=${id}&seed=7&hour=${hour}&paused`);
       await page.waitForTimeout(800);
       await page.screenshot({ path: `${SHOTS}/pet-${id}-${hour}-overview.png` });
       const at = async (): Promise<{ x: number; y: number; name: string }> =>
@@ -184,15 +185,13 @@ test.describe('pets (#9)', () => {
       // the event log covers the bottom-left corner, where some pets live
       await page.evaluate(() => (document.getElementById('log')!.style.display = 'none'));
       let p = await at();
-      // zoom in on the pet, then pause so it stays put for the click
+      // zoom in on the pet
       for (let i = 0; i < 4; i++) {
         await page.mouse.move(p.x, p.y);
         await page.mouse.wheel(0, -240);
         await page.waitForTimeout(350);
         p = await at();
       }
-      await page.keyboard.press('Space');
-      await page.waitForTimeout(500);
       // drag the pet to the middle of the screen (clear of the HUD, the log and the inspector)
       p = await at();
       await page.mouse.move(p.x, p.y);
