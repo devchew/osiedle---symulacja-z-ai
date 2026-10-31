@@ -127,7 +127,7 @@ describe('WMO weather codes', () => {
 });
 
 describe('weather override', () => {
-  const outdoorCount = (w: World) => w.agents.filter((a) => isOutdoorTile(w.grid, a.pos.x, a.pos.y)).length;
+  const outdoorCount = (w: World) => w.agents.filter((a) => !a.away && isOutdoorTile(w.grid, a.pos.x, a.pos.y)).length;
   const outdoorObj = (w: World) => w.objects.find((o) => w.objectDefs[o.type]?.tags?.includes('outdoor') && w.objectDefs[o.type].slots.length > 0)!;
 
   it('real rain empties the garden; clearing the override restores the seeded plan', () => {

@@ -11,6 +11,7 @@ import { statusOf } from '../social/relationships';
 import { jointBlocksChat, jointKindOf, jointMemberOf, jointObjectBias } from './joint';
 import { isMealTime } from './meals';
 import { petObjectBias } from './pets';
+import { pantryFactor } from './household';
 import { bedtimeHour, outdoorDaylightFactor, outdoorEveningEnd, outdoorSeasonFactor, SEASON_TUNING, wakeHour } from './seasons';
 import { isFreeEvening, isWeekend } from '../core/time';
 
@@ -248,7 +249,7 @@ export function hasCriticalNeed(agent: Agent): boolean {
 
 export function canChat(other: Agent, world: World): boolean {
   const a = other.action;
-  if (hasCriticalNeed(other)) return false;
+  if (other.away || hasCriticalNeed(other)) return false;
   // already chatting (also a chat "on the side" at a table or bench)
   if (world.conversations.some((c) => c.participants.includes(other.id))) return false;
   // on the way to a joint session, or one about to end: no new chats with its players
@@ -331,7 +332,7 @@ export function scoreCandidates(world: World, agent: Agent, time: GameTime): Dec
       base = withGoal(base, petObjectBias(world, obj), calm);
     }
     // broken objects, rain outside: caps every bonus too
-    base *= availability(world, obj, def) * projectAppeal(world, obj, def, agent);
+    base *= availability(world, obj, def) * projectAppeal(world, obj, def, agent) * pantryFactor(world, obj.type);
     // people have time for building on weekends
     if (isWeekend(time) && def.tags?.includes('project')) base *= SEASON_TUNING.WEEKEND_PROJECT;
     if (base <= 0) continue;

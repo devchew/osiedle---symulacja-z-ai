@@ -1,4 +1,4 @@
-import type { Action, Agent, Bubble, Conversation, ObjectInstance, SimEvent, World } from '../types';
+import type { Action, Agent, AwayInfo, Bubble, Conversation, ObjectInstance, SimEvent, World } from '../types';
 import { NEED_KEYS } from '../types';
 import { applySnapshot, restoreWorld, snapshotWorld, NETWORK_SNAPSHOT, type Json } from '../core/state';
 import '../world/world'; // registers the world base and every module's state codec
@@ -109,7 +109,7 @@ export function createReplayPlayer(live: World, data: ReplayResponse): ReplayPla
   const events: SimEvent[] = data.events.map(([t, kind, text, agentIds]) => ({ tick: t, kind, text, agentIds: [...agentIds] }));
   let eventCount = -1;
   // keeps the same Action / Bubble object while a row holds (renderer and panels compare identities)
-  const cache = new Map<number, { act: unknown; actObj: Action | null; bub: unknown; bubObj: Bubble | null }>();
+  const cache = new Map<number, { act: unknown; actObj: Action | null; awayObj: AwayInfo | undefined; bub: unknown; bubObj: Bubble | null }>();
 
   function structural(t: number): void {
     const objRows = countUpTo(data.objects, t);
@@ -141,13 +141,17 @@ export function createReplayPlayer(live: World, data: ReplayResponse): ReplayPla
     }
     a.path = [];
     let c = cache.get(a.id);
-    if (!c) cache.set(a.id, (c = { act: undefined, actObj: null, bub: undefined, bubObj: null }));
+    if (!c) cache.set(a.id, (c = { act: undefined, actObj: null, awayObj: undefined, bub: undefined, bubObj: null }));
     const act = rowAt(track.act, t);
     if (act !== c.act) {
       c.act = act;
       c.actObj = act ? toAction(act[1]) : null;
+      const aw = act?.[1]?.aw;
+      c.awayObj = aw && act[1] ? { kind: aw.k, label: act[1].l, icon: act[1].i, until: aw.u } : undefined;
     }
     a.action = c.actObj;
+    if (c.awayObj) a.away = c.awayObj;
+    else delete a.away;
     const bub = rowAt(track.bub, t);
     if (bub !== c.bub) {
       c.bub = bub;

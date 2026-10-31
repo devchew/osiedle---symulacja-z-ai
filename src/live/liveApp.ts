@@ -155,6 +155,7 @@ export function startLive(initialPlace: PlaceId): void {
         city: () => meta?.weather.city ?? placeById(place)?.city ?? '',
         temperature: () => (replay ? replay.temperature : (meta?.weather.temperature ?? null)),
         ai: () => !!meta?.ai,
+        replay: () => !!replay,
         tooltip: () => {
           if (replay) return 'Powtórka: to już się wydarzyło (nagranie z serwera), nie dzieje się teraz. „Wróć na żywo” kończy powtórkę.';
           const w = meta?.weather;

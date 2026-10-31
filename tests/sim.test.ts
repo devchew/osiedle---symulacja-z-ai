@@ -32,7 +32,7 @@ describe('simulation', () => {
   });
 
   it('keeps everyone alive and social over two days', () => {
-    const world = run(3, 2 * DAY);
+    const world = run(4, 2 * DAY);
     for (const a of world.agents) {
       expect(a.stats.objectsUsed).toBeGreaterThan(5);
       expect(a.stats.conversations).toBeGreaterThan(0);

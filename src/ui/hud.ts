@@ -1,6 +1,7 @@
 import './ui.css';
 import { formatClock } from '../core/time';
 import type { DayPhase, Season, SimControls, World } from '../types';
+import { householdSummary } from '../agents/work';
 import { el, isTypingTarget, moodEmoji, setText } from './dom';
 import type { WeatherOfFn } from './extras';
 import '../realtime/realtime.css';
@@ -43,6 +44,8 @@ export interface HudLive {
   ai(): boolean;
   /** tooltip of the live badge */
   tooltip(): string;
+  /** a replay is shown: the household budget is only known for "now", so its indicator is hidden */
+  replay?(): boolean;
 }
 
 export interface Hud {
@@ -135,7 +138,8 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
   const pop = el('span', 'hud-stat');
   pop.hidden = opts.showPopulation === false;
   const mood = el('span', 'hud-stat');
-  const statsBox = el('div', 'hud-stats', [pop, mood]);
+  const budget = el('span', 'hud-stat');
+  const statsBox = el('div', 'hud-stats', [pop, mood, budget]);
 
   // help: small popover with keys and gestures
   const helpBtn = el('button', 'hud-btn hud-help-btn', ['?']);
@@ -267,6 +271,10 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
       setText(mood, `${moodEmoji(avg)} ${Math.round(avg)}`);
       mood.title = 'Średni nastrój';
     } else setText(mood, '');
+    const home = householdSummary(world);
+    budget.hidden = !!opts.live?.replay?.();
+    setText(budget, `💰 ${home.money} zł · 🧺 ${home.stock}`);
+    budget.title = `Budżet domu i porcje w lodówce (z ${home.capacity})${home.away ? `; poza domem: ${home.away}` : ''}`;
   }
 
   const onKey = (e: KeyboardEvent): void => {

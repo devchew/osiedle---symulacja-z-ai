@@ -448,6 +448,7 @@ function busyInBedOrBath(world: World, a: Agent): boolean {
 /** hard reasons someone cannot come (null = could come) */
 function cannotCome(world: World, host: Agent, a: Agent): string | null {
   if (a.id === host.id) return 'self';
+  if (a.away) return 'away';
   if (sessionOf(world, a.id)) return 'already';
   if (busyInBedOrBath(world, a)) return 'bed';
   if (a.action?.kind === 'talk' || world.conversations.some((c) => c.participants.includes(a.id))) return 'talking';

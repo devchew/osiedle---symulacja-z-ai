@@ -394,7 +394,7 @@ function isAsleep(world: World, a: Agent): boolean {
 
 function propose(world: World, s: ProjectState): void {
   const next = s.next!;
-  const awake = world.agents.filter((a) => !isAsleep(world, a));
+  const awake = world.agents.filter((a) => !a.away && !isAsleep(world, a));
   if (!awake.length) {
     next.tick = world.tick + 30;
     return;

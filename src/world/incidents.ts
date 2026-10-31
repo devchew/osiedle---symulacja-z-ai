@@ -4,6 +4,7 @@ import { fromJson, registerWorldState, toJson, type Json } from '../core/state';
 import { timeAt } from '../core/calendar';
 import { MINUTES_PER_DAY, START_MINUTE } from '../core/time';
 import { findPath } from '../agents/pathfinding';
+import { payRepair } from '../agents/household';
 import { pushEvent } from './events';
 import { BREAKABLE, OBJECT_DEFS, REPAIR_PREFIX } from './objects';
 
@@ -365,6 +366,7 @@ function waitForRain(agent: Agent, rng: Rng): void {
 /** while it rains: outdoor activities wrap up, nobody starts new ones, people outside go in */
 function applyRain(world: World, s: IncidentState, endAction: EndAction): void {
   for (const agent of world.agents) {
+    if (agent.away) continue;
     const a = agent.action;
     if (a?.kind === 'use') {
       const obj = world.objects.find((o) => o.uid === a.objectUid);
@@ -478,6 +480,7 @@ function fix(world: World, s: IncidentState, b: Breakdown, by: Agent | null, end
   for (const a of usersOf(world, obj)) endAction(world, a, 'naprawa zakończona');
   obj.type = b.baseType;
   obj.reservedBy = world.objectDefs[b.baseType].slots.map(() => null);
+  payRepair(world, !by);
   const acc = ACCUSATIVE[b.baseType] ?? OBJECT_DEFS[b.baseType]?.name.toLowerCase() ?? b.baseType;
   if (by) {
     by.bubble = { kind: 'speech', text: 'Gotowe! Działa jak nowe 🔧', ttl: 30, tone: 'positive' };

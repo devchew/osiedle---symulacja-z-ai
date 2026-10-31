@@ -369,6 +369,8 @@ export function createRenderer(canvas: HTMLCanvasElement, initialWorld: World): 
     motion.update(world.agents, world.tick, now, dt, isRealtime(world));
     for (const a of world.agents) {
       const m = motion.of(a.id)!;
+      // away (work, classes, shop): off the map once the walk to the exit has played out on screen
+      if (a.away && !m.moving) continue;
       const x = m.x;
       const y = m.y;
       let w = walk.get(a.id);

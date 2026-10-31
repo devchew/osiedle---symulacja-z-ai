@@ -74,7 +74,7 @@ function run(mapId: string, seed: number): MapRun {
         m.lowNeed = lowNeed ?? null;
       }
       const moved = agent.pos.x !== agent.prevPos.x || agent.pos.y !== agent.prevPos.y;
-      stuck[i] = moved || active ? 0 : stuck[i] + 1;
+      stuck[i] = moved || active || agent.away ? 0 : stuck[i] + 1;
       m.maxStuck = Math.max(m.maxStuck, stuck[i]);
     });
   }

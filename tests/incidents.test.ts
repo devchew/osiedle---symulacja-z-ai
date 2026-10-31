@@ -59,7 +59,7 @@ function simulate(seed: number): Run {
     run.weatherTicks[w.kind]++;
     rainFor = w.raining ? rainFor + 1 : 0;
     const hour = Math.floor(((world.tick + 7 * 60) % 1440) / 60);
-    const outside = world.agents.filter((a) => isOutdoorTile(world.grid, a.pos.x, a.pos.y)).length;
+    const outside = world.agents.filter((a) => !a.away && isOutdoorTile(world.grid, a.pos.x, a.pos.y)).length;
     if (rainFor > GRACE) {
       run.rainTicks++;
       run.outdoorInRain += outside;
