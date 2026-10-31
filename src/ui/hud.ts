@@ -66,6 +66,7 @@ export const HELP_KEYS: [string, string][] = [
   ['B', 'projekty budowlane (altana, warzywnik)'],
   ['N', 'nowy świat'],
   ['L', 'pobierz log aktywności (.txt)'],
+  ['M', 'dźwięk: ambient dnia, nocy i deszczu (domyślnie wyłączony)'],
   ['przeciągnij', 'przesuń widok'],
   ['WASD / strzałki', 'przesuń widok'],
   ['kółko / szczypnięcie', 'przybliż i oddal'],

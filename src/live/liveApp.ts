@@ -11,6 +11,7 @@ import { createReplayBar, type ReplayBar } from '../ui/replayBar';
 import { toast } from '../ui/toast';
 import { createConnBanner, createPlaceBar, placeIcon } from '../ui/places';
 import { el } from '../ui/dom';
+import { createDirectorMode, directorPreference } from '../ui/director';
 import '../ui/debug';
 import { PLACES, placeById, LIVE_TIME_ZONE, type LiveFrame, type LiveMeta, type PlaceId } from './protocol';
 import { connectLive, fetchChronicle, fetchPlaces, fetchReplay, type LiveStream } from './client';
@@ -30,6 +31,8 @@ export const LIVE_HELP: [string, string][] = [
   ['P', 'pamiętniki mieszkańców (← → dni)'],
   ['B', 'projekty budowlane'],
   ['K', 'kronika miejsca z ostatnich dni'],
+  ['M', 'dźwięk: ambient dnia, nocy i deszczu (domyślnie wyłączony)'],
+  ['R', 'tryb reżysera: kamera sama pokazuje ciekawe momenty'],
   ['⏪', 'powtórka ostatnich 24 godzin w przyspieszeniu'],
   ['przeciągnij', 'przesuń widok'],
   ['WASD / strzałki', 'przesuń widok'],
@@ -114,6 +117,7 @@ export function startLive(initialPlace: PlaceId): void {
     onOpenDiary: (id) => view?.diary.openFor(id),
   });
 
+  const director = createDirectorMode({ view: () => view });
   const replayBar: ReplayBar = createReplayBar({
     speeds: [
       [REPLAY_SPEEDS[0], '1 h / 6 s', 'Wolno: godzina w 6 sekund'],
@@ -138,6 +142,7 @@ export function startLive(initialPlace: PlaceId): void {
       help: { keys: LIVE_HELP, note: LIVE_NOTE },
       buttons: [
         { id: 'chronicle', icon: '📜', title: 'Kronika miejsca (K)', onClick: () => chronicle.setOpen(!chronicle.isOpen) },
+        { id: 'director', icon: '🎬', title: 'Tryb reżysera: kamera sama pokazuje ciekawe momenty (R)', onClick: () => director.toggle() },
         { id: 'replay', icon: '⏪', title: 'Powtórka ostatnich 24 godzin', onClick: () => (replay ? exitReplay() : void enterReplay()) },
       ],
       panels: [{ id: 'chronicle', setOpen: (o) => chronicle.setOpen(o) }],
@@ -171,6 +176,7 @@ export function startLive(initialPlace: PlaceId): void {
     });
     loop.start();
     v.hud.setActive('chronicle', chronicle.isOpen);
+    v.hud.setActive('director', director.enabled);
     return v;
   }
 
@@ -245,6 +251,7 @@ export function startLive(initialPlace: PlaceId): void {
     if (!view) {
       view = createLiveView(res.world);
       exposeDebug();
+      if (directorPreference()) director.setEnabled(true);
     } else if (res.swapped) {
       if (replay) exitReplay();
       view.setWorld(res.world, samePlace);
@@ -253,6 +260,7 @@ export function startLive(initialPlace: PlaceId): void {
       shownPlace = place;
       frameGap = 60_000;
       view.history.clear();
+      director.reset();
       hash.apply();
     }
     frames++;
