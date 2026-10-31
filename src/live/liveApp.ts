@@ -31,6 +31,7 @@ export const LIVE_HELP: [string, string][] = [
   ['P', 'pamiętniki mieszkańców (← → dni)'],
   ['B', 'projekty budowlane'],
   ['K', 'kronika miejsca z ostatnich dni'],
+  ['M', 'dźwięk: ambient dnia, nocy i deszczu (domyślnie wyłączony)'],
   ['R', 'tryb reżysera: kamera sama pokazuje ciekawe momenty'],
   ['⏪', 'powtórka ostatnich 24 godzin w przyspieszeniu'],
   ['przeciągnij', 'przesuń widok'],

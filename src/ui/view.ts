@@ -9,6 +9,7 @@ import { createDiaryPanel, type DiaryPanel } from './diary';
 import { createProjectsPanel, type ProjectsPanel } from './projects';
 import { createMoodHistory, type MoodHistory } from './history';
 import { createA11y } from './a11y';
+import { createSoundUi } from './sound';
 import { toast } from './toast';
 import { formatClock } from '../core/time';
 import type { RelationOfFn, WeatherOfFn } from './extras';
@@ -127,6 +128,7 @@ export function createView(opts: ViewOptions): View {
     },
   });
 
+  const sound = createSoundUi();
   const hud = createHud(document.getElementById('hud')!, opts.controls, world, {
     weatherOf: weather,
     live: opts.live,
@@ -137,8 +139,10 @@ export function createView(opts: ViewOptions): View {
       { id: 'diary', icon: '📔', title: 'Pamiętniki (P)', onClick: () => (diary.isOpen ? diary.setOpen(false) : diary.openOverview()) },
       { id: 'projects', icon: '🔨', title: 'Projekty budowlane (B)', onClick: () => projects.setOpen(!projects.isOpen) },
       ...(opts.buttons ?? []),
+      ...(sound.button ? [sound.button] : []),
     ],
   });
+  sound.attach(hud.setActive);
   const inspector = createInspector(document.getElementById('inspector')!, world, {
     relationOf: relationKind,
     onClose: () => select(null),
@@ -220,6 +224,7 @@ export function createView(opts: ViewOptions): View {
     projects.update();
     projectToasts();
     a11y.update();
+    sound.update(world);
     opts.onUpdate?.();
   }
   setInterval(update, 200);
@@ -252,6 +257,7 @@ export function createView(opts: ViewOptions): View {
       a11y.setWorld(w, sameScene);
       if (!sameScene) {
         history.clear();
+        sound.reset();
         seenMilestones = new Map(projectsOf(w).map((p) => [p.id, p.milestones.length] as const));
         select(null);
       } else if (selected !== null) {
