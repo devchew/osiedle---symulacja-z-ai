@@ -29,7 +29,7 @@ test('screen reader: labelled map, HUD buttons and resident list with activities
   const agents = await page.evaluate(() => window.__sim.world.agents.map((a) => a.name));
   const buttons = page.locator('.a11y-resident');
   await expect(buttons).toHaveCount(agents.length);
-  for (const [i, name] of agents.entries()) await expect(buttons.nth(i)).toContainText(`${name} — `);
+  for (const [i, name] of agents.entries()) await expect(buttons.nth(i)).toContainText(new RegExp(`^${name}( \\(gość\\))? — `));
   await expect(page.locator('#a11y-digest')).toContainText(/^Godzina \d{1,2}:\d{2}\./);
   await expect(page.locator('#a11y-digest')).toHaveAttribute('aria-live', 'polite');
 });

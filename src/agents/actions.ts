@@ -15,6 +15,7 @@ import { EXCHANGE_GAP, LINE_TTL, chatAcceptanceChance, conversationDelta, descri
 import { feltSympathy, recordConversation, recordFriction, statusOf } from '../social/relationships';
 import { createProceduralProvider } from '../social/dialogueProvider';
 import { onConversationEnd, recallFor } from '../social/memory';
+import { tuneVisitChat } from './guests';
 import { goalConversation, goalUseEnd, goalUseTick, updateGoal } from './goals';
 import { wakeHour } from './seasons';
 import { gatheringOf as gatheringOfAgent, noticeCompetition, onHeadingTo } from './groups';
@@ -487,6 +488,7 @@ function invite(world: World, agent: Agent, partner: Agent): void {
   if (!eng.chatInPlace) endAction(world, partner, `przerwane: zaproszenie od ${agent.name}`);
   const conv = startConversation(nextConversationId(world), agent, partner, world.tick, world.rng, moodOf(world, agent.id, partner.id));
   world.conversations.push(conv);
+  tuneVisitChat(conv, agent, partner, (p) => world.rng.chance(p));
   trace(world, agent, 'conv-start', `z ${partner.name}, temat: ${conv.topic}, do ${conv.maxLines} kwestii`);
   trace(world, partner, 'conv-start', `z ${agent.name}, temat: ${conv.topic}`);
   for (const [self, other] of eng.chatInPlace ? ([[agent, partner]] as const) : ([[agent, partner], [partner, agent]] as const)) {
@@ -696,6 +698,7 @@ export function ambientChats(world: World): void {
     const conv = startConversation(nextConversationId(world), x, y, world.tick, world.rng, moodOf(world, x.id, y.id));
     // players mostly talk about the game (sometimes about anything)
     if (group.topic && world.rng.chance(0.6)) conv.topic = group.topic;
+    tuneVisitChat(conv, x, y, (p) => world.rng.chance(p));
     world.conversations.push(conv);
     trace(world, x, 'conv-start', `przy okazji z ${y.name}, temat: ${conv.topic}, do ${conv.maxLines} kwestii`);
     trace(world, y, 'conv-start', `przy okazji z ${x.name}, temat: ${conv.topic}`);

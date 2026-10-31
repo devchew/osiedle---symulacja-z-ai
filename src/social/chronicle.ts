@@ -7,7 +7,7 @@ import { PROJECT_KINDS } from '../world/projects/defs';
 // toView() to the browser. Texts are the events' own Polish texts (names in the nominative, no
 // gendered forms); the procedural day summary below follows the same rules.
 
-export type ChronicleKind = 'couple' | 'breakup' | 'friends' | 'quarrel' | 'project' | 'built' | 'together' | 'breakdown' | 'weather' | 'moment';
+export type ChronicleKind = 'couple' | 'breakup' | 'friends' | 'quarrel' | 'project' | 'built' | 'together' | 'breakdown' | 'weather' | 'visit' | 'moment';
 
 export interface ChronicleItem {
   tick: number;
@@ -71,6 +71,7 @@ export const CHRONICLE_ICONS: Record<ChronicleKind, string> = {
   together: '👥',
   breakdown: '🔧',
   weather: '🌦️',
+  visit: '🚪',
   moment: '✨',
 };
 
@@ -84,6 +85,7 @@ export const CHRONICLE_LABELS: Record<ChronicleKind, string> = {
   together: 'Wspólne zajęcia',
   breakdown: 'Awarie',
   weather: 'Pogoda',
+  visit: 'Goście',
   moment: 'Wydarzenia',
 };
 
@@ -123,6 +125,7 @@ export function classifyEvent(ev: SimEvent): ChronicleItem | null {
     return item(ev, 'moment', 0.3);
   }
 
+  if (t.startsWith('Wizyta: ')) return item(ev, 'visit', t.includes('📦') ? 0.25 : 0.4);
   if (t.includes('🔧') || t.includes('🧰')) return item(ev, 'breakdown', 0.5);
   if (/[Bb]urz/.test(t) && /(Nadciąga|Zaczyna się|przechodzi)/.test(t)) return item(ev, 'weather', t.startsWith('Burza przechodzi') ? 0.3 : 0.5);
   if (/^Zaczyna padać/.test(t)) return item(ev, 'weather', 0.3);
@@ -203,6 +206,7 @@ export function proceduralSummary(items: readonly ChronicleItem[]): string {
   else if (n('project')) parts.push('budowa idzie naprzód');
   if (n('together')) parts.push(`${n('together')} ${plural(n('together'), 'wspólne zajęcie', 'wspólne zajęcia', 'wspólnych zajęć')}`);
   if (n('breakdown')) parts.push(`${n('breakdown')} ${plural(n('breakdown'), 'awaria', 'awarie', 'awarii')}`);
+  if (n('visit')) parts.push(`${n('visit')} ${plural(n('visit'), 'wizyta', 'wizyty', 'wizyt')}`);
   if (items.some((i) => i.kind === 'weather' && /burz/i.test(i.text))) parts.push('burza');
   else if (items.some((i) => i.kind === 'weather' && /pada/.test(i.text))) parts.push('deszcz');
   if (parts.length === 0) return 'Spokojny dzień — nic wielkiego się nie wydarzyło.';

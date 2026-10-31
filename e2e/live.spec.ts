@@ -28,7 +28,7 @@ test.beforeAll(async ({ request }) => {
 test('live view: place, clock, real-time HUD, no simulation controls', async ({ page }) => {
   const errors = trackErrors(page);
   await openLive(page, '/kamienica');
-  const info = await page.evaluate(() => ({ seed: window.__sim.world.seed, place: window.__sim.place, agents: window.__sim.world.agents.length }));
+  const info = await page.evaluate(() => ({ seed: window.__sim.world.seed, place: window.__sim.place, agents: window.__sim.world.agents.filter((a) => a.role !== 'guest').length }));
   expect(info).toEqual({ seed: 1912, place: 'kamienica', agents: 8 });
 
   const hud = page.locator('#hud');

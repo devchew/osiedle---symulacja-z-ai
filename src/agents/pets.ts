@@ -10,6 +10,7 @@ import type { PetSpec } from '../world/maps/build';
 import { OBJECT_DEFS } from '../world/objects';
 import { findPath } from './pathfinding';
 import { loadWalkerMove, saveWalkerMove, stepAgent, WALK_SPEED, type TrailPoint } from './movement';
+import { residentsOf } from './role';
 
 // House pets (issue #9): one cat or dog per place, described by the map (MapData.pet).
 //
@@ -315,7 +316,7 @@ function moodOf(pet: Pet): number {
 /** somewhere to go when nothing is going on: another room, or the company of a resident */
 function stroll(world: World, store: PetStore, pet: Pet): void {
   const rng = store.rng;
-  const awake = world.agents.filter((a) => a.action?.kind !== 'use' || a.action.phase !== 'using' || !isBedLike(world, a));
+  const awake = residentsOf(world).filter((a) => a.action?.kind !== 'use' || a.action.phase !== 'using' || !isBedLike(world, a));
   if (awake.length && rng.chance(0.45)) {
     const a = rng.pick(awake);
     if (goTo(world, pet, besideOf(world, a), true)) {

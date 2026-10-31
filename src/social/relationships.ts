@@ -1,6 +1,7 @@
 import type { Agent, Relationships, World } from '../types.ts';
 import { pushEvent } from '../world/events.ts';
 import { fromJson, registerWorldState, toJson, type Json } from '../core/state.ts';
+import { isGuestId, residentsOf } from '../agents/role.ts';
 
 export const REL_MIN = -100;
 export const REL_MAX = 100;
@@ -291,6 +292,8 @@ export function partnerOf(world: World, id: number): number | undefined {
 /** romance can grow only for a compatible pair that likes each other and is not attached elsewhere */
 function romanceAllowed(world: World, a: number, b: number, bond: Bond): boolean {
   const T = REL_TUNING;
+  // visitors do not fall in love with residents
+  if (isGuestId(a) || isGuestId(b)) return false;
   if (bond.rivalry >= 20) return false;
   if (world.relationships.get(a, b) < T.ROMANCE_SYMPATHY) return false;
   if (chemistry(world, a, b) < T.CHEMISTRY_MIN) return false;
@@ -493,7 +496,7 @@ export function relationsOf(world: World, id: number): (RelationView & { otherId
 /** number of pairs per status (all pairs of current residents) */
 export function relationStats(world: World): Record<RelationStatus, number> {
   const out = Object.fromEntries(Object.keys(STATUS_LABELS).map((k) => [k, 0])) as Record<RelationStatus, number>;
-  const ids = world.agents.map((x) => x.id);
+  const ids = residentsOf(world).map((x) => x.id);
   for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) out[peekBond(world, ids[i], ids[j]).status]++;
   return out;
 }
@@ -501,7 +504,7 @@ export function relationStats(world: World): Record<RelationStatus, number> {
 /** current couples as [a, b] with a < b */
 export function couplesOf(world: World): [number, number][] {
   const out: [number, number][] = [];
-  const ids = world.agents.map((x) => x.id).sort((x, y) => x - y);
+  const ids = residentsOf(world).map((x) => x.id).sort((x, y) => x - y);
   for (let i = 0; i < ids.length; i++)
     for (let j = i + 1; j < ids.length; j++) if (peekBond(world, ids[i], ids[j]).status === 'couple') out.push([ids[i], ids[j]]);
   return out;

@@ -648,7 +648,8 @@ describe('replay of the last 24 h', () => {
     expect(data.toTick).toBe(world.tick);
     expect(data.toTick - data.fromTick).toBeLessThanOrEqual(1440);
     expect(data.toTick - data.fromTick).toBeGreaterThan(1400);
-    expect(data.agents).toHaveLength(world.agents.length);
+    // visitors who came and went in the window have a track too
+    expect(data.agents.filter((t) => !t.guest)).toHaveLength(world.agents.filter((a) => a.role !== 'guest').length);
     expect(r.body().length).toBeLessThan(1_000_000);
     const gz = call(handler, fakeReq('/api/live/dom/replay', { 'accept-encoding': 'gzip' }));
     expect(gz.headers['Content-Encoding']).toBe('gzip');

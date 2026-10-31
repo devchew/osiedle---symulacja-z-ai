@@ -3,6 +3,7 @@ import { NEED_KEYS } from '../types';
 import { saveWorldModule, type Json } from '../core/state';
 import { weatherOf } from '../world/incidents';
 import { petsOf } from '../agents/pets';
+import { isGuest } from '../agents/role';
 import type { PlaceId, ReplayActionLite, ReplayAgentTrack, ReplayBubbleLite, ReplayPetTrack, ReplayResponse } from './protocol';
 
 // Server-side recorder of the last 24 h of a live world, for the "Powtórka" view (issue #5).
@@ -30,6 +31,9 @@ interface AgentRec {
   act: Rows<[number, ReplayActionLite | null]>;
   bub: Rows<[number, ReplayBubbleLite | null]>;
   needs: number[][];
+  guest?: ReplayAgentTrack['guest'];
+  pres: Rows<[number, 0 | 1]>;
+  presKey: string;
   posKey: string;
   actKey: string;
   bubKey: string;
@@ -104,7 +108,14 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
   function recordAgents(tick: number, world: World): void {
     for (const a of world.agents) {
       let rec = agents.get(a.id);
-      if (!rec) agents.set(a.id, (rec = { pos: [], act: [], bub: [], needs: [], posKey: '', actKey: '', bubKey: '', needsKey: '' }));
+      if (!rec) agents.set(a.id, (rec = { pos: [], act: [], bub: [], needs: [], pres: [], presKey: '', posKey: '', actKey: '', bubKey: '', needsKey: '' }));
+      if (isGuest(a)) {
+        rec.guest ??= { name: a.name, color: a.color, traits: { ...a.traits } };
+        if (rec.presKey !== '1') {
+          rec.pres.push([tick, 1]);
+          rec.presKey = '1';
+        }
+      }
       const x = r1(a.pos.x), y = r1(a.pos.y);
       const posKey = `${x}|${y}|${a.facing}`;
       if (posKey !== rec.posKey) {
@@ -131,6 +142,15 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
           rec.needsKey = key;
         }
       }
+    }
+  }
+
+  /** a visitor that left the map: one closing row, so a replay knows when to take it off */
+  function recordDepartures(tick: number, world: World): void {
+    for (const [id, rec] of agents) {
+      if (!rec.guest || rec.presKey !== '1' || world.agents.some((a) => a.id === id)) continue;
+      rec.pres.push([tick, 0]);
+      rec.presKey = '0';
     }
   }
 
@@ -188,6 +208,8 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
   /** rebuilds the "last row" keys after a restore / rewind so unchanged state is not recorded twice */
   function resetKeys(): void {
     for (const rec of agents.values()) {
+      const pr = rec.pres[rec.pres.length - 1];
+      rec.presKey = pr ? String(pr[1]) : '';
       const p = rec.pos[rec.pos.length - 1];
       rec.posKey = p ? `${p[1]}|${p[2]}|${p[3]}` : '';
       rec.actKey = rec.act.length ? JSON.stringify(rec.act[rec.act.length - 1][1]) : '';
@@ -211,6 +233,7 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
       prune(rec.act, cutoff);
       prune(rec.bub, cutoff);
       prune(rec.needs, cutoff);
+      prune(rec.pres, cutoff);
     }
     for (const rec of pets.values()) prune(rec.pos, cutoff);
     prune(objects, cutoff);
@@ -231,6 +254,7 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
       if (tick <= last) return;
       if (first < 0) first = tick;
       recordAgents(tick, world);
+      recordDepartures(tick, world);
       recordPets(tick, world);
       recordObjects(tick, world);
       recordWeather(tick, world, temperature);
@@ -246,6 +270,7 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
         cut(rec.act, tick);
         cut(rec.bub, tick);
         cut(rec.needs, tick);
+        cut(rec.pres, tick);
       }
       for (const rec of pets.values()) cut(rec.pos, tick);
       cut(objects, tick);
@@ -265,7 +290,7 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
         fromTick: Math.max(0, from),
         toTick: last,
         serverTime,
-        agents: [...agents].map(([id, r]): ReplayAgentTrack => ({ id, pos: r.pos, act: r.act, bub: r.bub, needs: r.needs })),
+        agents: [...agents].map(([id, r]): ReplayAgentTrack => ({ id, pos: r.pos, act: r.act, bub: r.bub, needs: r.needs, ...(r.guest ? { guest: r.guest, pres: r.pres } : {}) })),
         pets: [...pets].map(([id, r]): ReplayPetTrack => ({ id, pos: r.pos })),
         objects,
         weather,
@@ -278,7 +303,7 @@ export function createReplayRecorder(place: PlaceId, windowTicks = REPLAY_WINDOW
       if (!d || d.format !== REPLAY_FORMAT || d.place !== place || typeof d.fromTick !== 'number' || typeof d.toTick !== 'number') throw new Error(`not a replay of "${place}"`);
       if (![d.agents, d.pets, d.objects, d.weather, d.events, d.projects].every(Array.isArray)) throw new Error('bad replay rows');
       agents = new Map(
-        d.agents!.map((t) => [t.id, { pos: t.pos, act: t.act, bub: t.bub, needs: t.needs, posKey: '', actKey: '', bubKey: '', needsKey: '' }] as const),
+        d.agents!.map((t) => [t.id, { pos: t.pos, act: t.act, bub: t.bub, needs: t.needs, guest: t.guest, pres: t.pres ?? [], presKey: '', posKey: '', actKey: '', bubKey: '', needsKey: '' }] as const),
       );
       pets = new Map(d.pets!.map((t) => [t.id, { pos: t.pos, key: '' }] as const));
       objects = d.objects!;

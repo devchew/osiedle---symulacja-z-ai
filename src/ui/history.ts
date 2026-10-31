@@ -1,4 +1,5 @@
 import type { World } from '../types';
+import { residentsOf } from '../agents/role';
 
 // Mood history for the stats panel: one sample per game hour, kept in the UI
 // layer (the simulation keeps no history). main feeds it after every tick, also
@@ -34,7 +35,7 @@ export function createMoodHistory(capacity = HISTORY_HOURS + 1): MoodHistory {
       else if (world.tick === lastTick) return;
       else if (lastTick >= 0 && Math.floor(world.tick / SAMPLE_EVERY) === Math.floor(lastTick / SAMPLE_EVERY)) return;
       lastTick = world.tick;
-      buf.push({ tick: world.tick, moods: new Map(world.agents.map((a) => [a.id, a.mood])) });
+      buf.push({ tick: world.tick, moods: new Map(residentsOf(world).map((a) => [a.id, a.mood])) });
       if (buf.length > capacity) buf.splice(0, buf.length - capacity);
     },
     samples: () => buf,

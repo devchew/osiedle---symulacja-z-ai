@@ -2,6 +2,7 @@ import type { Agent, GameTime, Gossip, ObjectInstance, Traits, World } from '../
 import { START_MINUTE } from '../core/time';
 import { loadByAgent, registerWorldState, saveByAgent, type Json } from '../core/state';
 import { pushEvent } from '../world/events';
+import { isGuest } from './role';
 
 // Daily goals: every morning at 06:00 each resident picks a goal for the day,
 // weighted by personality. The goal nudges choices in brain.ts (a bonus for the
@@ -212,7 +213,7 @@ function isGoalTime(time: GameTime): boolean {
 function partnerFor(world: World, agent: Agent, rule: PartnerRule): number | undefined {
   let best: { id: number; key: number } | undefined;
   for (const o of world.agents) {
-    if (o.id === agent.id) continue;
+    if (o.id === agent.id || isGuest(o)) continue;
     const rel = world.relationships.get(agent.id, o.id);
     const key = rule === 'best' ? rel : rule === 'worst' ? -rel : -Math.abs(rel);
     if (!best || key > best.key) best = { id: o.id, key };
@@ -262,6 +263,7 @@ function bump(agent: Agent, delta: Partial<Record<'fun' | 'comfort', number>>): 
 
 /** picks a new goal at the start of every goal day and expires unfinished ones at night; call once per tick */
 export function updateGoal(world: World, agent: Agent, time: GameTime): void {
+  if (isGuest(agent)) return;
   const day = goalDayOf(time.tick);
   let s = state.get(agent);
   if (!s || s.day !== day) {

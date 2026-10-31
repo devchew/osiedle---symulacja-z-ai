@@ -22,6 +22,8 @@ import { initProjects, tickProjects } from './projects';
 import { updateRelations } from '../social/relationships';
 import { tickGatherings } from '../agents/groups';
 import { ensurePets, tickPets } from '../agents/pets';
+import { setGuestsEnabled, tickGuests } from '../agents/guests';
+import { isGuest } from '../agents/role';
 // side effects: register the module state of actions.ts / movement.ts with the snapshot registry
 import '../agents/actionsState';
 import '../agents/movementState';
@@ -36,6 +38,8 @@ export interface WorldOptions {
   dialogue?: DialogueProvider;
   /** house layout id from src/world/maps (default 'dom') */
   mapId?: string;
+  /** visitors from outside (agents/guests.ts); default true */
+  guests?: boolean;
 }
 
 export function createWorld(seed = 1, opts: WorldOptions = {}): World {
@@ -66,6 +70,7 @@ export function createWorld(seed = 1, opts: WorldOptions = {}): World {
   initIncidents(world);
   initProjects(world);
   ensurePets(world, map);
+  if (opts.guests === false) setGuestsEnabled(world, false);
   pushEvent(world, 'info', `Nowy dzień na osiedlu. Mieszkańcy: ${agents.map((a) => a.name).join(', ')}`, []);
   return world;
 }
@@ -80,7 +85,7 @@ const COMPLAINTS: Record<NeedKey, string[]> = {
 };
 
 function thinkAloud(world: World, agent: Agent): void {
-  if (agent.bubble || agent.action?.kind === 'talk') return;
+  if (isGuest(agent) || agent.bubble || agent.action?.kind === 'talk') return;
   const need = mostUrgentNeed(agent);
   if (agent.needs[need] > 22 || !world.rng.chance(0.01)) return;
   agent.bubble = { kind: 'thought', text: `${NEED_ICONS[need]} ${world.rng.pick(COMPLAINTS[need])}`, ttl: 30 };
@@ -90,9 +95,10 @@ export function tickWorld(world: World): void {
   world.tick++;
   const time = timeOf(world);
 
+  tickGuests(world, time, endAction);
   for (const agent of world.agents) {
     agent.prevPos = { x: agent.pos.x, y: agent.pos.y };
-    decayNeeds(agent, { sleeping: isAgentSleeping(world, agent), hour: time.hour });
+    if (!isGuest(agent)) decayNeeds(agent, { sleeping: isAgentSleeping(world, agent), hour: time.hour });
     if (agent.bubble && --agent.bubble.ttl <= 0) agent.bubble = null;
   }
   for (const agent of world.agents) updateAgent(world, agent, time);
@@ -109,7 +115,7 @@ export function tickWorld(world: World): void {
   for (const agent of world.agents) {
     agent.mood = computeMood(agent.needs, agent.traits);
     thinkAloud(world, agent);
-    narrateState(world, agent, isAgentSleeping(world, agent));
+    if (!isGuest(agent)) narrateState(world, agent, isAgentSleeping(world, agent));
   }
   tickDiary(world);
 }

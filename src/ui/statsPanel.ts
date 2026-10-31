@@ -7,6 +7,7 @@ import { goalHistory } from '../agents/goals';
 import { el, fitCanvas, isTypingTarget, moodEmoji, setText, valueColor } from './dom';
 import type { MoodHistory } from './history';
 import type { RelationOfFn } from './extras';
+import { residentsOf } from '../agents/role';
 
 export interface StatsPanelOptions {
   history: MoodHistory;
@@ -144,7 +145,7 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
     const fit = fitCanvas(net);
     if (!fit) return;
     const { ctx, w, h } = fit;
-    const agents = world.agents;
+    const agents = residentsOf(world);
     const cx = w / 2;
     const cy = h / 2;
     const R = Math.max(30, Math.min(w, h) / 2 - 40);
@@ -255,7 +256,7 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
 
   function renderNetInfo(active: Hover): void {
     if (!active) {
-      setText(netInfo, world.agents.length > 1 ? 'Najedź na osobę lub linię, by zobaczyć szczegóły. Klik w osobę otwiera jej panel.' : 'Potrzeba co najmniej dwóch mieszkańców.');
+      setText(netInfo, residentsOf(world).length > 1 ? 'Najedź na osobę lub linię, by zobaczyć szczegóły. Klik w osobę otwiera jej panel.' : 'Potrzeba co najmniej dwóch mieszkańców.');
       netInfo.classList.remove('is-active');
       return;
     }
@@ -266,7 +267,7 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
     }
     const a = agentById(active.id);
     if (!a) return;
-    const others = world.agents
+    const others = residentsOf(world)
       .filter((o) => o.id !== a.id)
       .map((o) => ({ o, v: world.relationships.get(a.id, o.id) }))
       .sort((x, y) => y.v - x.v);
@@ -287,13 +288,13 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
     const r = net.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
-    for (const a of world.agents) {
+    for (const a of residentsOf(world)) {
       const p = nodePos.get(a.id);
       if (p && Math.hypot(p.x - x, p.y - y) <= NODE_R + 5) return { kind: 'node', id: a.id };
     }
     let best: Hover = null;
     let bestD = 7;
-    const agents = world.agents;
+    const agents = residentsOf(world);
     for (let i = 0; i < agents.length; i++)
       for (let j = i + 1; j < agents.length; j++) {
         const pa = nodePos.get(agents[i].id);
@@ -336,7 +337,7 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
     const samples = opts.history.samples();
     const points = [...samples];
     const last = points[points.length - 1];
-    if (!last || last.tick < world.tick) points.push({ tick: world.tick, moods: new Map(world.agents.map((a) => [a.id, a.mood])) });
+    if (!last || last.tick < world.tick) points.push({ tick: world.tick, moods: new Map(residentsOf(world).map((a) => [a.id, a.mood])) });
     chartEmpty.hidden = points.length >= 2;
     const fit = fitCanvas(chart);
     if (!fit) return;
@@ -399,8 +400,8 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
     ctx.fillText(formatClock(timeFromTick(t1)), w - padR, padT + ph + 5);
 
     // lines
-    const hasFocus = focusId !== null && world.agents.some((a) => a.id === focusId);
-    const order = [...world.agents].sort((a, b) => (a.id === focusId ? 1 : 0) - (b.id === focusId ? 1 : 0));
+    const hasFocus = focusId !== null && residentsOf(world).some((a) => a.id === focusId);
+    const order = [...residentsOf(world)].sort((a, b) => (a.id === focusId ? 1 : 0) - (b.id === focusId ? 1 : 0));
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     for (const a of order) {
@@ -436,7 +437,7 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
       ctx.moveTo(Math.round(x) + 0.5, padT);
       ctx.lineTo(Math.round(x) + 0.5, padT + ph);
       ctx.stroke();
-      const rows = world.agents
+      const rows = residentsOf(world)
         .map((a) => ({ a, v: near.moods.get(a.id) }))
         .filter((r): r is { a: Agent; v: number } => r.v !== undefined)
         .sort((p, q) => q.v - p.v);
@@ -502,14 +503,14 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
   // ------------------------------------------------------------ table + legend
 
   function buildRows(): void {
-    const key = world.agents.map((a) => `${a.id}:${a.name}`).join('|');
+    const key = residentsOf(world).map((a) => `${a.id}:${a.name}`).join('|');
     if (key === rowsKey) return;
     rowsKey = key;
     rowCells.clear();
     legendChips.clear();
     tbody.replaceChildren();
     legend.replaceChildren();
-    for (const a of world.agents) {
+    for (const a of residentsOf(world)) {
       const dot = el('span', 'insp-dot insp-dot--small');
       dot.style.background = a.color;
       const nameBtn = el('button', 'stats-name', [dot, a.name]);
@@ -538,7 +539,7 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
   function renderTable(): void {
     buildRows();
     let goalsDone = 0;
-    for (const a of world.agents) {
+    for (const a of residentsOf(world)) {
       const c = rowCells.get(a.id);
       if (!c) continue;
       const goals = goalHistory(a);
@@ -553,15 +554,15 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
       setText(c[5], String(agentMemories(world, a.id).length));
     }
     const ms = memoryStats(world);
-    const conv = world.agents.reduce((s, a) => s + a.stats.conversations, 0) / 2;
+    const conv = residentsOf(world).reduce((s, a) => s + a.stats.conversations, 0) / 2;
     setText(tableFoot, `Razem: ${Math.round(conv)} rozmów · ${goalsDone} celów · ${ms.stories} historii · plotka przeszła ${ms.spreads}×`);
     const t = timeFromTick(world.tick);
-    setText(subtitle, `dzień ${t.day}, ${formatClock(t)} · 👥 ${world.agents.length}`);
+    setText(subtitle, `dzień ${t.day}, ${formatClock(t)} · 👥 ${residentsOf(world).length}`);
   }
 
   let pairsKey = '';
   function renderPairs(): void {
-    const ids = new Set(world.agents.map((a) => a.id));
+    const ids = new Set(residentsOf(world).map((a) => a.id));
     const all = world.relationships.all().filter((r) => ids.has(r.a) && ids.has(r.b));
     const best = [...all].sort((x, y) => y.value - x.value).slice(0, 3);
     const worst = all
@@ -644,7 +645,7 @@ export function createStatsPanel(initialWorld: World, opts: StatsPanelOptions): 
     update,
     setWorld(w) {
       if (w === world) return;
-      const ids = (x: World) => x.agents.map((a) => `${a.id}:${a.name}`).join('|');
+      const ids = (x: World) => residentsOf(x).map((a) => `${a.id}:${a.name}`).join('|');
       const sameCast = ids(w) === ids(world);
       world = w;
       if (!sameCast) {

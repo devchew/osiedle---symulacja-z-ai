@@ -5,6 +5,7 @@ import { el, isTypingTarget, moodEmoji, setText } from './dom';
 import type { WeatherOfFn } from './extras';
 import '../realtime/realtime.css';
 import { isRealtime, realtimeStatus } from '../realtime/state';
+import { residentsOf } from '../agents/role';
 
 export const SPEEDS = [1, 2, 4, 8] as const;
 
@@ -259,11 +260,12 @@ export function createHud(root: HTMLElement, controls: SimControls, initialWorld
       root.classList.toggle('is-paused', controls.paused);
     }
 
-    const n = world.agents.length;
+    const residents = residentsOf(world);
+    const n = residents.length;
     setText(pop, `👥 ${n}`);
     pop.title = 'Liczba mieszkańców';
     if (n > 0) {
-      const avg = world.agents.reduce((s, a) => s + a.mood, 0) / n;
+      const avg = residents.reduce((s, a) => s + a.mood, 0) / n;
       setText(mood, `${moodEmoji(avg)} ${Math.round(avg)}`);
       mood.title = 'Średni nastrój';
     } else setText(mood, '');

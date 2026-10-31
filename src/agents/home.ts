@@ -1,5 +1,6 @@
 import type { Agent, World } from '../types';
 import { loadByAgent, registerWorldState, saveByAgent } from '../core/state';
+import { residentsOf } from './role';
 
 // Bed ownership. Agent has no field for it (contract unchanged), so it lives here,
 // keyed by the agent object.
@@ -19,7 +20,7 @@ function isBed(world: World, type: string): boolean {
 /** gives every agent its own bed, in map order (housemates share bedrooms pairwise); extra agents get none */
 export function assignBeds(world: World): void {
   const beds = world.objects.filter((o) => isBed(world, o.type));
-  world.agents.forEach((agent, i) => {
+  residentsOf(world).forEach((agent, i) => {
     if (i < beds.length) ownBed.set(agent, beds[i].uid);
     else ownBed.delete(agent);
   });

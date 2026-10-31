@@ -20,6 +20,7 @@ import { createView, type View } from './view';
 import { formatTrace } from '../world/trace';
 import { setDiaryAiEnabled } from '../social/diary';
 import { projectsOf } from '../world/projects';
+import { residentsOf } from '../agents/role';
 
 // /lab — hidden developer and test route: the standalone simulation as before wave 10
 // (URL: ?seed, ?agents (≤ beds), ?map, ?tick (replay to that tick) or ?hour, ?check, ?paused,
@@ -75,7 +76,7 @@ export async function startLab(): Promise<void> {
   if (realtimeMode) await startRealtime({ world, loop, controls, step, parent: document.body });
   let llm: LlmToggle | undefined;
 
-  const newWorld = createNewWorldDialog({ seed: world.seed, agentCount: world.agents.length, maxAgents: beds });
+  const newWorld = createNewWorldDialog({ seed: world.seed, agentCount: residentsOf(world).length, maxAgents: beds });
   const savePanel = createSavePanel(world, {
     // saves marked like AI ones: real headlines also make a replay differ
     isAi: () => !!llm?.enabled || hasRealNews(world),

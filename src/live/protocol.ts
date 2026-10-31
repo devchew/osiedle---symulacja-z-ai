@@ -1,5 +1,5 @@
 import type { Json, WorldSnapshot } from '../core/state';
-import type { SimEventKind } from '../types';
+import type { SimEventKind, Traits } from '../types';
 import type { WeatherKind, WeatherSample } from '../world/incidents';
 
 export type { ChronicleDayView, ChronicleItem, ChronicleKind, ChronicleResponse } from '../social/chronicle';
@@ -135,6 +135,9 @@ export interface ReplayAgentTrack {
   bub: [number, ReplayBubbleLite | null][];
   /** [tick, mood, hunger, energy, fun, social, hygiene, comfort], sampled every 10 ticks (integers) */
   needs: number[][];
+  /** visitors only (issue #7): who they are, and [tick, 1 = on the map / 0 = gone] as change-only rows */
+  guest?: { name: string; color: string; traits: Traits };
+  pres?: [number, 0 | 1][];
 }
 
 export interface ReplayPetTrack {

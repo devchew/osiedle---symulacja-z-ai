@@ -8,6 +8,7 @@ import { describePet, petById, petIcon, PET_NEED_LABELS, speciesName, type Pet, 
 import type { RelationOfFn } from './extras';
 import { entriesLabel } from './diary';
 import { el, moodEmoji, setBar, setText, storageGet, storageSet } from './dom';
+import { isGuest } from '../agents/role';
 
 export interface InspectorOptions {
   /** relationship kind (couple, rivals…), when the simulation provides it */
@@ -400,7 +401,7 @@ export function createInspector(root: HTMLElement, initialWorld: World, opts: In
       return;
     }
     if (dot.style.background !== a.color) dot.style.background = a.color;
-    setText(name, a.name);
+    setText(name, isGuest(a) ? `${a.name} · gość` : a.name);
     renderTraits(a);
     const info = actionInfo(a.action, world);
     if (nowIcon.textContent !== info.icon) {
@@ -432,7 +433,8 @@ export function createInspector(root: HTMLElement, initialWorld: World, opts: In
       }
     }
 
-    if (opts.diary) {
+    diaryBtn.hidden = !opts.diary || isGuest(a);
+    if (opts.diary && !isGuest(a)) {
       const n = opts.diary.count(a.id);
       setText(diaryCount, n ? entriesLabel(n) : 'pusty');
       const unread = opts.diary.unread(a.id);

@@ -7,6 +7,7 @@ import { getMap, mapIdOf } from '../world/maps';
 import { isRealtime } from '../realtime/state';
 import { linkFor, mapOfSave, readSaves, SAVE_VERSION, saveFromWorld, SLOT_COUNT, writeSave, type SaveData } from './saves';
 import { toast } from './toast';
+import { residentsOf } from '../agents/role';
 
 /** shown instead of saving in real-time mode (?mode=real) */
 export const REALTIME_SAVE_NOTE = 'W trybie na żywo zapis i linki są niedostępne — stan zależy od prawdziwego czasu i pogody.';
@@ -160,8 +161,8 @@ export function createSavePanel(world: World, opts: SavePanelOptions): SavePanel
     setText(
       current,
       live
-        ? `Teraz: ${house} · na żywo · 👥 ${world.agents.length} · ziarno ${world.seed}`
-        : `Teraz: ${house} · dzień ${t.day}, ${formatClock(t)} · 👥 ${world.agents.length} · ziarno ${world.seed}`,
+        ? `Teraz: ${house} · na żywo · 👥 ${residentsOf(world).length} · ziarno ${world.seed}`
+        : `Teraz: ${house} · dzień ${t.day}, ${formatClock(t)} · 👥 ${residentsOf(world).length} · ziarno ${world.seed}`,
     );
     realtimeNote.hidden = !live;
     linkBtn.disabled = live;

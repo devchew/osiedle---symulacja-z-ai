@@ -9,6 +9,7 @@ import { findPath } from '../../agents/pathfinding';
 import { mapIdOf } from '../maps';
 import { brokenObjects, weatherOf } from '../incidents';
 import { PROJECT_DEFS, PROJECT_KINDS, PROJECT_ORDER, SITE_HINTS, WORK_COSTS, projectTypeInfo, type ProjectKind, type ProjectKindId } from './defs';
+import { residentsOf } from '../../agents/role';
 
 // Multi-day building projects: residents build a garden gazebo ("altana") together over about
 // two weeks, then a small vegetable garden ("warzywnik"), a tree house ("domek na drzewie") and,
@@ -394,7 +395,7 @@ function isAsleep(world: World, a: Agent): boolean {
 
 function propose(world: World, s: ProjectState): void {
   const next = s.next!;
-  const awake = world.agents.filter((a) => !isAsleep(world, a));
+  const awake = residentsOf(world).filter((a) => !isAsleep(world, a));
   if (!awake.length) {
     next.tick = world.tick + 30;
     return;
@@ -465,7 +466,7 @@ function workMinutesBetween(from: number, to: number): number {
 }
 
 function pickHelpers(world: World, s: ProjectState, p: Project, day: number): void {
-  const pool = world.agents.filter((a) => a.traits.activity > -0.4);
+  const pool = residentsOf(world).filter((a) => a.traits.activity > -0.4);
   const ids: number[] = [];
   const n = Math.min(pool.length, 1 + s.rng.int(0, 1));
   const left = [...pool];

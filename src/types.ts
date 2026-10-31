@@ -192,6 +192,8 @@ export interface Agent {
   action: Action | null;
   bubble: Bubble | null;
   stats: AgentStats;
+  /** absent = resident; guests (agents/guests.ts) come from outside, have no bed, goals or diary and leave again */
+  role?: 'resident' | 'guest';
 }
 
 // ---------------------------------------------------------------- social

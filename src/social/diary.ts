@@ -14,6 +14,8 @@ import { topicAbout } from './conversation';
 import { describeTraits } from './llmProvider';
 import { petsOf, type PetSpecies } from '../agents/pets';
 import { createDiaryAiClient, DiaryAiError, type DiaryAiClient, type DiaryAiClientOptions, type LlmDiaryRequest } from './diaryAi';
+import { GUEST_NAMES, guestNameOf } from '../agents/guests';
+import { isGuest, isGuestId, isResident, residentsOf } from '../agents/role';
 
 // Residents' diaries: every evening each resident writes a first-person entry about their day,
 // built from what really happened (trace, events, memories, goals, relationships, TV news).
@@ -260,7 +262,11 @@ function stateOf(world: World): DiaryState {
 
 function agentDiary(s: DiaryState, id: number): AgentDiary {
   let d = s.agents.get(id);
-  if (!d) s.agents.set(id, (d = { entries: [], facts: new Map(), bucket: null, pendingUse: null, lastWritten: 0, heardEver: new Set(), newsEver: new Set(), recent: [] }));
+  if (!d) {
+    d = { entries: [], facts: new Map(), bucket: null, pendingUse: null, lastWritten: 0, heardEver: new Set(), newsEver: new Set(), recent: [] };
+    // guests keep no diary: events about them are collected into a throwaway
+    if (!isGuestId(id)) s.agents.set(id, d);
+  }
   return d;
 }
 
@@ -297,7 +303,7 @@ function partOf(tick: number): DayPart {
 
 // ---------------------------------------------------------------- collecting
 
-const nameOf = (world: World, id: number): string => world.agents.find((a) => a.id === id)?.name ?? '?';
+const nameOf = (world: World, id: number): string => world.agents.find((a) => a.id === id)?.name ?? guestNameOf(id) ?? '?';
 
 const MEAL_TYPES = new Set(['dining_table', 'stove', 'grill', 'fridge']);
 
@@ -584,7 +590,7 @@ function buildFacts(world: World, s: DiaryState, agent: Agent, b: Bucket, late: 
   const time = timeFromTick(world.tick);
   const goal = goalOf(agent, world);
   const sympathy = (id: number) => world.relationships.get(agent.id, id);
-  const met = [...b.met].filter((id) => id !== agent.id && world.agents.some((a) => a.id === id));
+  const met = [...b.met].filter((id) => id !== agent.id && (isGuestId(id) || world.agents.some((a) => a.id === id)));
   const feelings = met
     .map((id) => ({ with: nameOf(world, id), status: statusOf(world, agent.id, id), sympathy: Math.round(sympathy(id)) || 0 }))
     .sort((x, y) => Math.abs(y.sympathy) - Math.abs(x.sympathy));
@@ -690,6 +696,7 @@ export function tickDiary(world: World): void {
   const time = timeFromTick(world.tick);
   const deadline = (time.hour === WRITE_DEADLINE.hour && time.minute >= WRITE_DEADLINE.minute) || time.hour < 5;
   for (const agent of world.agents) {
+    if (isGuest(agent)) continue;
     sample(world, s, agent);
     if (agentDiary(s, agent.id).lastWritten >= diaryDayOf(world.tick)) continue;
     const asleep = isNightSleep(world, agent, time.hour);
@@ -751,7 +758,7 @@ function formatOne(world: World, agent: Agent): string {
 
 /** plain-text export of one resident's diary (or everyone's) */
 export function formatDiary(world: World, agentId?: number): string {
-  const agents = agentId === undefined ? world.agents : world.agents.filter((a) => a.id === agentId);
+  const agents = agentId === undefined ? residentsOf(world) : world.agents.filter((a) => a.id === agentId && isResident(a));
   return agents.map((a) => formatOne(world, a)).join('\n\n\n');
 }
 
@@ -1660,7 +1667,7 @@ function pumpAi(world: World, s: DiaryState): void {
   }
   const req = buildDiaryRequest(facts, { name: agent.name, traits: agent.traits, mood: entry.mood });
   ai.busy = true;
-  const names = world.agents.map((a) => a.name);
+  const names = [...world.agents.map((a) => a.name), ...GUEST_NAMES];
   void ai.client
     .write(req, names)
     .then((text) => {
